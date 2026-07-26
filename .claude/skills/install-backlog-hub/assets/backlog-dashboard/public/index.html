@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Backlog Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="header">
+    <h1>Backlog Dashboard <span id="project-badges" class="project-badges"></span></h1>
+    <div class="header-controls">
+      <button class="today-filter-btn" id="today-filter-btn" title="今日やるフィルター">📌</button>
+      <select class="filter-select" id="project-filter" title="Workspace filter">
+        <option value="">All Projects</option>
+      </select>
+      <select class="theme-select" id="theme-select" title="Theme">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+        <option value="system">System</option>
+      </select>
+      <button class="settings-btn" id="settings-btn" title="Settings">&#9881;</button>
+      <span class="status" id="status">connecting...</span>
+    </div>
+  </header>
+  <main class="board" id="board">
+    <!-- columns rendered by app.js -->
+  </main>
+
+  <!-- Settings Panel -->
+  <div class="settings-overlay" id="settings-overlay">
+    <div class="settings-panel">
+      <button class="settings-close" id="settings-close">&times;</button>
+      <h3>Settings</h3>
+      <div class="settings-group">
+        <label>Theme</label>
+        <select id="settings-theme">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+          <option value="system">System</option>
+        </select>
+      </div>
+      <div class="settings-group">
+        <label>Accent Color</label>
+        <input type="color" id="settings-accent" value="#7c8fff">
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

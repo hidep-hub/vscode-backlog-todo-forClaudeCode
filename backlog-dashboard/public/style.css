@@ -1,0 +1,1388 @@
+/* --- Reset & Base --- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* --- Theme Variables --- */
+:root,
+[data-theme="dark"] {
+  --bg: #1e1e2e;
+  --surface: #2a2a3c;
+  --card: #363649;
+  --card-hover: #3e3e54;
+  --text: #e0e0e8;
+  --text-muted: #9a9ab0;
+  --accent: #7c8fff;
+  --border: #444460;
+  --col-gap: 12px;
+  --radius: 8px;
+  --badge-done-bg: #1a3a2a;
+  --badge-done-fg: #6fcf97;
+  --badge-progress-bg: #2a3a1a;
+  --badge-progress-fg: #b8d87c;
+  --badge-numerator-bg: #3a4a2a;
+  --badge-denominator-bg: #2a2a3c;
+  --modal-overlay: rgba(0, 0, 0, 0.6);
+  --tag-project-bg: #1a2a3a;
+  --tag-project-fg: #a8d8ea;
+  --tag-category-bg: #2a1a3a;
+  --tag-category-fg: #c8a8ea;
+  --compact-card-bg: #2e2e3e;
+  --compact-card-hover: #343446;
+  --drop-highlight: rgba(124, 143, 255, 0.08);
+}
+
+[data-theme="light"] {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --card: #f0f1f4;
+  --card-hover: #e4e6eb;
+  --text: #1a1a2e;
+  --text-muted: #6b6b80;
+  --accent: #4c5fd5;
+  --border: #d8dae0;
+  --badge-done-bg: #d4edda;
+  --badge-done-fg: #28a745;
+  --badge-progress-bg: #fff3cd;
+  --badge-progress-fg: #856404;
+  --badge-numerator-bg: #d1ecf1;
+  --badge-denominator-bg: #e9ecef;
+  --modal-overlay: rgba(0, 0, 0, 0.3);
+  --tag-project-bg: #d6eaf8;
+  --tag-project-fg: #1a5276;
+  --tag-category-bg: #e8daef;
+  --tag-category-fg: #6c3483;
+  --compact-card-bg: #e8e9ec;
+  --compact-card-hover: #dddee2;
+  --drop-highlight: rgba(76, 95, 213, 0.08);
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: auto;
+  transition: background 0.3s, color 0.3s;
+}
+
+/* --- Header --- */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.header h1 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-badges {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.proj-badge {
+  font-size: 0.6rem;
+  font-weight: 500;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 8px;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: opacity 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.proj-badge:hover {
+  border-color: var(--accent, #6366f1);
+}
+
+.proj-badge.active {
+  border-color: var(--accent, #6366f1);
+  background: var(--accent, #6366f1);
+  color: #fff;
+}
+
+.proj-badge.active .proj-badge-count {
+  background: #fff;
+  color: var(--accent, #6366f1);
+}
+
+.proj-badge.dimmed {
+  opacity: 0.8;
+}
+
+.proj-badge-count {
+  background: var(--accent, #6366f1);
+  color: #fff;
+  font-size: 0.55rem;
+  font-weight: 700;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.status {
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text-muted);
+}
+
+.status.connected {
+  background: var(--badge-done-bg);
+  color: var(--badge-done-fg);
+}
+
+.status.disconnected {
+  background: #3a1a1a;
+  color: #f07070;
+}
+
+/* --- Filter & Theme Controls --- */
+.filter-select,
+.theme-select {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  outline: none;
+}
+
+.filter-select:focus,
+.theme-select:focus {
+  border-color: var(--accent);
+}
+
+.settings-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.settings-btn:hover {
+  background: var(--card);
+  color: var(--text);
+}
+
+/* --- Board (Kanban) --- */
+.board {
+  display: flex;
+  gap: var(--col-gap);
+  padding: 16px;
+  min-height: calc(100vh - 60px);
+  align-items: flex-start;
+}
+
+/* --- Column --- */
+.column {
+  flex: 1;
+  min-width: 220px;
+  max-width: 320px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.column-header {
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.column-header .count {
+  font-size: 0.7rem;
+  background: var(--card);
+  padding: 2px 7px;
+  border-radius: 10px;
+  color: var(--text-muted);
+}
+
+.limit-input {
+  width: 36px;
+  height: 20px;
+  font-size: 0.65rem;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--text);
+  padding: 1px 2px;
+  -moz-appearance: textfield;
+}
+.limit-input::-webkit-outer-spin-button,
+.limit-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.count-total {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+.column-body {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+}
+
+/* --- Card --- */
+.card {
+  background: var(--card);
+  border-radius: 6px;
+  padding: 10px 12px;
+  transition: background 0.15s;
+  cursor: default;
+  border-left: 3px solid transparent;
+}
+
+.card:hover {
+  background: var(--card-hover);
+}
+
+.card-id {
+  font-size: 0.7rem;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-title {
+  font-size: 0.82rem;
+  line-height: 1.3;
+  margin-bottom: 6px;
+}
+
+.card-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.card-tag {
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-muted);
+}
+
+.card-tag.project {
+  color: var(--tag-project-fg);
+  background: var(--tag-project-bg);
+}
+
+.card-tag.category {
+  color: var(--tag-category-fg);
+  background: var(--tag-category-bg);
+}
+
+/* --- Project Colors (border-left) --- */
+.card[data-project="backlog-todo"] { border-left-color: #7cb3ff; }
+.card[data-project="server-operator"] { border-left-color: #7cffb3; }
+.card[data-project="Inbox"] { border-left-color: #ffb37c; }
+
+/* KT-054: 実行中グロー/回転ボーダーの色をプロジェクトカラーに合わせる */
+.card[data-project="backlog-todo"] { --running-color: #7cb3ff; }
+.card[data-project="server-operator"] { --running-color: #7cffb3; }
+.card[data-project="Inbox"] { --running-color: #ffb37c; }
+
+/* --- Scrollbar --- */
+.column-body::-webkit-scrollbar {
+  width: 4px;
+}
+.column-body::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* --- Responsive --- */
+@media (max-width: 800px) {
+  .board {
+    flex-direction: column;
+  }
+  .column {
+    max-width: 100%;
+  }
+}
+
+/* --- Compact Column (完了カラム等) --- */
+.column-compact {
+  min-width: 180px;
+  max-width: 240px;
+}
+
+.column-compact .column-body {
+  gap: 4px;
+}
+
+.card-compact {
+  padding: 6px 8px;
+  border-left-width: 2px;
+  background: var(--compact-card-bg);
+  opacity: 0.75;
+}
+
+.card-compact:hover {
+  background: var(--compact-card-hover);
+  opacity: 0.85;
+}
+
+.card-compact .card-id {
+  font-size: 0.62rem;
+  margin-bottom: 1px;
+  color: var(--text-muted);
+}
+
+.card-compact .card-title {
+  font-size: 0.75rem;
+  margin-bottom: 3px;
+  line-height: 1.2;
+  color: var(--text-muted);
+}
+
+.card-compact .card-meta {
+  gap: 4px;
+}
+
+.card-compact .card-tag {
+  font-size: 0.6rem;
+  padding: 1px 4px;
+  color: var(--text-muted);
+}
+
+/* --- 完了カラム「他N件」まとめカード --- */
+.card-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  border-left-color: transparent;
+  border-style: dashed;
+  border-width: 1px;
+  border-color: var(--border);
+  background: transparent;
+  opacity: 0.7;
+  text-align: center;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+
+.card-summary:hover {
+  opacity: 1;
+  background: var(--compact-card-hover);
+}
+
+.card-summary .summary-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.card-summary .summary-chevron {
+  font-size: 0.7rem;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.card-summary-collapse .summary-label {
+  color: var(--accent);
+}
+
+/* --- Epic Card & Badge (GitHub-style pill) --- */
+.card-epic {
+  border-left-color: var(--accent);
+}
+
+/* Epic = 親タスク: 背面に2枚のカードを重ねて「集合体」を表現
+   box-shadowでカード自身の背後に段違いのカードを描画する（z-index不使用で確実に表示） */
+.card-epic:not(.card-compact) {
+  box-shadow:
+    4px -4px 0 -1px var(--card),   /* 1枚目の面 */
+    4px -4px 0 0 var(--border),    /* 1枚目の枠線 */
+    8px -8px 0 -1px var(--card),   /* 2枚目の面 */
+    8px -8px 0 0 var(--border);    /* 2枚目の枠線 */
+  margin-top: 8px;   /* 上にずれる分の余白を確保 */
+  margin-right: 8px; /* 右にずれる分の余白を確保 */
+}
+
+/* Epicハブアイコン（⧉） */
+.epic-icon {
+  font-size: 0.82rem;
+  line-height: 1;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.card-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  border-radius: 10px;
+  overflow: hidden;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.card-badge .badge-num {
+  padding: 2px 5px;
+  background: var(--badge-numerator-bg);
+  color: var(--badge-progress-fg);
+}
+
+.card-badge .badge-den {
+  padding: 2px 5px;
+  background: var(--badge-denominator-bg);
+  color: var(--text-muted);
+}
+
+.card-badge.badge-done .badge-num {
+  background: var(--badge-done-bg);
+  color: var(--badge-done-fg);
+}
+
+.card-badge.badge-done .badge-den {
+  background: var(--badge-done-bg);
+  color: var(--badge-done-fg);
+  opacity: 0.7;
+}
+
+/* --- Clickable Card --- */
+.card-clickable {
+  cursor: pointer;
+}
+
+.card-clickable:hover {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* --- Drag & Drop --- */
+.card-draggable {
+  cursor: grab;
+}
+
+.card-draggable:active {
+  cursor: grabbing;
+}
+
+.card-dragging {
+  opacity: 0.3;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.column-body.drop-over {
+  background: var(--drop-highlight);
+  border: 2px dashed var(--accent);
+  border-radius: 6px;
+  transition: background 0.2s, border 0.2s;
+}
+
+/* --- Drop Position Indicators --- */
+.card-drop-above {
+  border-top: 2px solid var(--accent);
+  margin-top: -1px;
+}
+
+.card-drop-below {
+  border-bottom: 2px solid var(--accent);
+  margin-bottom: -1px;
+}
+
+/* --- Card Detail Modal --- */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--modal-overlay);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+.modal-overlay.modal-visible {
+  display: flex;
+}
+
+.modal-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 520px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  animation: modalSlideIn 0.2s ease-out;
+}
+
+@keyframes modalSlideIn {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.modal-close:hover {
+  background: var(--card);
+  color: var(--text);
+}
+
+/* Modal body styles */
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.detail-id {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.detail-status {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--text-muted);
+}
+
+.detail-tag {
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.detail-tag.project {
+  background: var(--tag-project-bg);
+  color: var(--tag-project-fg);
+}
+
+.detail-tag.category {
+  background: var(--tag-category-bg);
+  color: var(--tag-category-fg);
+}
+
+.detail-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.detail-section {
+  margin-bottom: 14px;
+}
+
+.detail-section h4 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.detail-section p {
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.detail-children {
+  list-style: none;
+  padding: 0;
+}
+
+.detail-children li {
+  font-size: 0.8rem;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.detail-children li:last-child {
+  border-bottom: none;
+}
+
+.detail-meta {
+  list-style: none;
+  padding: 0;
+}
+
+.detail-meta li {
+  font-size: 0.8rem;
+  padding: 3px 0;
+  color: var(--text);
+}
+
+.detail-meta li strong {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* --- Artifacts Section --- */
+.detail-artifacts {
+  list-style: none;
+  padding: 0;
+}
+
+.artifact-item {
+  font-size: 0.8rem;
+  padding: 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.artifact-item code {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.artifact-copy-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 5px;
+  cursor: pointer;
+  font-size: 0.7rem;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+  color: var(--text);
+}
+
+.artifact-copy-btn:hover {
+  opacity: 1;
+  background: var(--card-hover);
+}
+
+.artifact-copy-btn.copied {
+  opacity: 1;
+  color: var(--badge-done-fg);
+}
+
+/* --- Artifact Indicator on Card --- */
+.artifact-indicator {
+  font-size: 0.65rem;
+  opacity: 0.7;
+  padding: 1px 3px;
+}
+
+/* --- Back Navigation (child detail → parent) --- */
+.detail-back-nav {
+  margin-bottom: 10px;
+}
+
+.detail-back-nav a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.78rem;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+
+.detail-back-nav a:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+/* --- Child Modal (stacked on top of parent modal) --- */
+.child-modal-overlay {
+  z-index: 1100;
+}
+
+.child-modal-content {
+  max-width: 520px;
+}
+
+/* --- Modal Wide (Epic mini-board) --- */
+.modal-content.modal-wide {
+  max-width: 860px;
+  width: 95%;
+}
+
+/* --- Mini Kanban Board (inside modal) --- */
+.mini-board {
+  display: flex;
+  gap: 4px;
+  margin-top: 12px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.mini-col {
+  flex: 1;
+  min-width: 100px;
+  background: var(--bg);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mini-col-header {
+  padding: 3px 6px;
+  font-size: 0.58rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-muted);
+}
+
+.mini-col-header .count {
+  font-size: 0.52rem;
+  background: var(--card);
+  padding: 0px 3px;
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+
+.mini-col-body {
+  padding: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 24px;
+}
+
+.mini-col-body .card-child {
+  padding: 2px 4px;
+  border-left: 2px solid #6c7cdf;
+  border-radius: 3px;
+  cursor: grab;
+  background: var(--card);
+}
+
+.mini-col-body .card-child .card-id {
+  font-size: 0.5rem;
+  margin-bottom: 0px;
+}
+
+.mini-col-body .card-child .card-title {
+  font-size: 0.6rem;
+  margin-bottom: 1px;
+  line-height: 1.15;
+}
+
+.mini-col-body .card-child .card-meta {
+  gap: 2px;
+}
+
+.mini-col-body .card-child .card-tag {
+  font-size: 0.48rem;
+  padding: 0px 2px;
+}
+
+/* Drop highlight for mini board */
+.mini-col-body.drop-over {
+  background: var(--drop-highlight);
+  border: 1.5px dashed var(--accent);
+  border-radius: 4px;
+}
+
+/* Child card general */
+.card-child {
+  border-left-color: #6c7cdf;
+}
+
+.card-child:hover {
+  background: var(--card-hover);
+}
+
+/* Epic card in board */
+.card-epic.card-draggable {
+  cursor: grab;
+}
+
+/* --- Settings Panel (modal) --- */
+.settings-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--modal-overlay);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(2px);
+}
+
+.settings-overlay.settings-visible {
+  display: flex;
+}
+
+.settings-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+  position: relative;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.settings-panel h3 {
+  font-size: 1rem;
+  margin-bottom: 16px;
+  color: var(--text);
+}
+
+.settings-group {
+  margin-bottom: 16px;
+}
+
+.settings-group label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.settings-group select,
+.settings-group input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.settings-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.settings-close:hover {
+  background: var(--card);
+  color: var(--text);
+}
+
+/* --- System Theme Media Query --- */
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --card: #f0f1f4;
+    --card-hover: #e4e6eb;
+    --text: #1a1a2e;
+    --text-muted: #6b6b80;
+    --accent: #4c5fd5;
+    --border: #d8dae0;
+    --badge-done-bg: #d4edda;
+    --badge-done-fg: #28a745;
+    --badge-progress-bg: #fff3cd;
+    --badge-progress-fg: #856404;
+    --badge-numerator-bg: #d1ecf1;
+    --badge-denominator-bg: #e9ecef;
+    --modal-overlay: rgba(0, 0, 0, 0.3);
+    --tag-project-bg: #d6eaf8;
+    --tag-project-fg: #1a5276;
+    --tag-category-bg: #e8daef;
+    --tag-category-fg: #6c3483;
+    --compact-card-bg: #e8e9ec;
+    --compact-card-hover: #dddee2;
+    --drop-highlight: rgba(76, 95, 213, 0.08);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] {
+    --bg: #1e1e2e;
+    --surface: #2a2a3c;
+    --card: #363649;
+    --card-hover: #3e3e54;
+    --text: #e0e0e8;
+    --text-muted: #9a9ab0;
+    --accent: #7c8fff;
+    --border: #444460;
+    --badge-done-bg: #1a3a2a;
+    --badge-done-fg: #6fcf97;
+    --badge-progress-bg: #2a3a1a;
+    --badge-progress-fg: #b8d87c;
+    --badge-numerator-bg: #3a4a2a;
+    --badge-denominator-bg: #2a2a3c;
+    --modal-overlay: rgba(0, 0, 0, 0.6);
+    --tag-project-bg: #1a2a3a;
+    --tag-project-fg: #a8d8ea;
+    --tag-category-bg: #2a1a3a;
+    --tag-category-fg: #c8a8ea;
+    --compact-card-bg: #2e2e3e;
+    --compact-card-hover: #343446;
+    --drop-highlight: rgba(124, 143, 255, 0.08);
+  }
+}
+
+
+/* --- Add Task Button --- */
+.column-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.add-task-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, transform 0.1s;
+  line-height: 1;
+}
+
+.add-task-btn:hover {
+  background: var(--accent);
+  color: var(--surface);
+  transform: scale(1.1);
+}
+
+/* --- Origin Mark --- */
+.origin-mark {
+  font-size: 0.6rem;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* --- Add Task Form (Modal) --- */
+.add-task-modal {
+  max-width: 380px;
+}
+
+.add-form-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 14px;
+  color: var(--text);
+}
+
+.add-task-submit {
+  width: 100%;
+  padding: 10px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.add-task-submit:hover {
+  opacity: 0.85;
+}
+
+
+/* --- Mini board add button (smaller) --- */
+.add-task-btn-mini {
+  width: 14px;
+  height: 14px;
+  font-size: 0.65rem;
+  border-radius: 3px;
+}
+
+
+/* --- Add Child Task Button (in modal) --- */
+.detail-add-child {
+  margin: 12px 0 4px;
+}
+
+.add-child-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px dashed var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.add-child-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+
+/* --- Today Flag (📌 ピン) --- */
+:root,
+[data-theme="dark"] {
+  --card-today-bg: #3a2a2a;
+  --today-accent: #ff6b6b;
+  --today-border: #ff6b6b;
+}
+
+[data-theme="light"] {
+  --card-today-bg: #fff0f0;
+  --today-accent: #e53e3e;
+  --today-border: #e53e3e;
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] {
+    --card-today-bg: #fff0f0;
+    --today-accent: #e53e3e;
+    --today-border: #e53e3e;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] {
+    --card-today-bg: #3a2a2a;
+    --today-accent: #ff6b6b;
+    --today-border: #ff6b6b;
+  }
+}
+
+/* Card with today flag active */
+.card-today {
+  border-left-color: var(--today-border) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 107, 0.25);
+  background: var(--card-today-bg);
+}
+
+.card-today:hover {
+  background: var(--card-today-bg);
+}
+
+/* Pin toggle button */
+.today-pin-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 2px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+
+/* Show on card hover (薄く出る) */
+.card:hover .today-pin-btn {
+  opacity: 0.3;
+}
+
+/* Hover on the button itself */
+.card .today-pin-btn:hover {
+  opacity: 0.7;
+}
+
+/* Active state (固定) */
+.today-pin-btn.pin-active {
+  opacity: 1 !important;
+  color: var(--today-accent);
+}
+
+/* Card needs position:relative for absolute pin button */
+.card {
+  position: relative;
+}
+
+/* --- Mini board pin (smaller) --- */
+.mini-col-body .card-child .today-pin-btn {
+  font-size: 0.55rem;
+  top: 2px;
+  right: 2px;
+  padding: 1px;
+}
+
+/* --- Today filter button in header --- */
+.today-filter-btn {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.today-filter-btn:hover {
+  color: var(--text);
+  border-color: var(--today-accent);
+}
+
+.today-filter-btn.filter-active {
+  background: var(--today-accent);
+  color: #fff;
+  border-color: var(--today-accent);
+}
+
+
+/* --- Running Spinner (実行中) --- */
+.running-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite, ring-pulse 1.6s ease-in-out infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* KT-054: スピナー周囲の光彩点滅（C案） プロジェクトカラーがあれば優先、無ければaccent */
+@keyframes ring-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--running-color, var(--accent)) 55%, transparent); }
+  50% { box-shadow: 0 0 4px 2px color-mix(in srgb, var(--running-color, var(--accent)) 55%, transparent); }
+}
+
+/* Detail modal header spinner (placed before the ID badge, matches card list style) */
+.detail-header .detail-spinner {
+  width: 10px;
+  height: 10px;
+  border-width: 2px;
+  margin-right: 4px;
+}
+
+/* Mini board spinner (smaller) */
+.mini-col-body .card-child .running-spinner {
+  width: 7px;
+  height: 7px;
+  border-width: 1.5px;
+  margin-right: 2px;
+}
+
+/* --- KT-054: カード縁をぐるぐる回る光（B案 v2） --- */
+/* アニメーション可能なカスタムプロパティとして角度を定義 */
+@property --border-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.card.is-running {
+  /* running-color未定義（プロジェクト色が無い場合）は accent にフォールバック */
+  position: relative;
+  overflow: visible;
+  /* z-indexを明示してこのカード自身にスタッキングコンテキストを作る。
+     これがないと ::before の z-index: -1 がカードの外（祖先要素の下）まで
+     突き抜けてしまい、光る縁が他要素の背面に埋もれて見えなくなる */
+  z-index: 0;
+}
+
+.card.is-running::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--border-angle),
+    transparent 0%,
+    var(--running-color, var(--accent)) 15%,
+    transparent 35%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: border-rotate 3.5s linear infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+
+@keyframes border-rotate {
+  to { --border-angle: 360deg; }
+}
+
+/* ミニボードの子カードは光の幅を少し絞る（密集しているため） */
+.mini-col-body .card-child.is-running::before {
+  inset: -1.5px;
+  padding: 1.5px;
+}
+
+/* --- 完了カラム「本日完了だけ」トグル（達成感モード） --- */
+.done-today-btn {
+  font-size: 0.62rem;
+  padding: 2px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.done-today-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.done-today-btn.filter-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* 達成感カウント（本日完了だけ表示中） */
+.done-today-count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: var(--accent);
+  color: #fff;
+  padding: 2px 9px;
+  border-radius: 10px;
+}
+
+/* 本日完了ゼロのときの空状態 */
+.done-today-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 20px 10px;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.done-today-empty-emoji {
+  font-size: 1.4rem;
+}
+
+/* ミニボードの完了カラム用（少し小さく） */
+.mini-col-header .done-today-btn {
+  font-size: 0.55rem;
+  padding: 1px 5px;
+}
+
+.mini-col-header .done-today-count {
+  font-size: 0.62rem;
+  padding: 1px 6px;
+}
+
+.done-today-empty-mini {
+  padding: 12px 6px;
+  font-size: 0.62rem;
+  gap: 4px;
+}
+
+.done-today-empty-mini .done-today-empty-emoji {
+  font-size: 1.1rem;
+}

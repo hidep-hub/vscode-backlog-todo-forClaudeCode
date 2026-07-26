@@ -1,0 +1,14 @@
+# 依存パッケージ
+node_modules/
+
+# 作業ログ・裏メモ（本名・前PCの実パス・社内ツール名を含むため非公開）
+docks/
+
+# 実際の運用設定（ワークスペースパス等の個人環境依存値を含むため非公開。config.json.exampleをコピーして使う）
+backlog-dashboard/config.json
+
+# バックアップファイル
+*.bak
+
+# VSCode拡張機能のセッション状態（IDE固有のローカル状態、機密ではないが個人環境依存）
+workspaceState.state.json

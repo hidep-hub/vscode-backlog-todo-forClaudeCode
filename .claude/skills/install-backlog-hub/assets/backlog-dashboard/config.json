@@ -1,0 +1,75 @@
+{
+  "columns": [
+    {
+      "id": "in_progress",
+      "label": "🟡 進行中",
+      "match": [
+        "進行中"
+      ],
+      "visibleFields": [
+        "id",
+        "title",
+        "badge",
+        "project",
+        "category"
+      ]
+    },
+    {
+      "id": "todo",
+      "label": "⬜ 未着手",
+      "match": [
+        "未着手",
+        "未着手（素材あり）"
+      ],
+      "visibleFields": [
+        "id",
+        "title",
+        "badge",
+        "project",
+        "category"
+      ]
+    },
+    {
+      "id": "on_hold",
+      "label": "💤 保留",
+      "match": [
+        "保留"
+      ],
+      "visibleFields": [
+        "id",
+        "title",
+        "project"
+      ]
+    },
+    {
+      "id": "done",
+      "label": "✅ 完了",
+      "match": [
+        "完了"
+      ],
+      "limit": 5,
+      "compact": true,
+      "visibleFields": [
+        "id",
+        "title",
+        "completedDate"
+      ]
+    }
+  ],
+  "port": "__PORT__",
+  "backlogDir": "__BACKLOG_DIR__",
+  "projects": [
+    {
+      "file": "__PROJECT_FILE__",
+      "prefix": "__PROJECT_PREFIX__",
+      "name": "__PROJECT_NAME__",
+      "workspace": "__WORKSPACE_PATH__"
+    },
+    {
+      "file": "inbox",
+      "prefix": "IN",
+      "name": "Inbox",
+      "workspace": ""
+    }
+  ]
+}
