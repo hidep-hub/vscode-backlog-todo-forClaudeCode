@@ -12,3 +12,6 @@ backlog-dashboard/config.json
 
 # VSCode拡張機能のセッション状態（IDE固有のローカル状態、機密ではないが個人環境依存）
 workspaceState.state.json
+
+# エディタのローカル設定（テーマ・フォント等の個人環境依存値。他者と共有しない）
+.vscode/
