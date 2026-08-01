@@ -187,6 +187,127 @@ body {
   border-color: var(--accent);
 }
 
+.search-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.search-btn:hover {
+  background: var(--card);
+  color: var(--text);
+}
+
+/* --- Search Modal --- */
+.search-modal-content {
+  width: 100%;
+  max-width: 560px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.search-modal-input {
+  font-size: 0.95rem;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+}
+
+.search-modal-input:focus {
+  border-color: var(--accent);
+}
+
+.search-result-list {
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.search-group-header {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 6px 4px 2px;
+}
+
+.search-group-header:not(:first-child) {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.search-result-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+}
+
+.search-result-item:hover {
+  border-color: var(--accent);
+}
+
+.search-result-item.search-result-selected {
+  border-color: var(--accent);
+  background: var(--badge-done-bg, var(--card));
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.search-indent-1 {
+  margin-left: 14px;
+}
+
+.search-indent-2 {
+  margin-left: 32px;
+}
+
+.search-result-id {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.search-result-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result-status {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.search-result-empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 24px 0;
+  font-size: 0.85rem;
+}
+
 .settings-btn {
   background: none;
   border: 1px solid var(--border);
