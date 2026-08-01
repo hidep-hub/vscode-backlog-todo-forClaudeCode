@@ -3,6 +3,7 @@
 const boardEl = document.getElementById('board');
 const statusEl = document.getElementById('status');
 const projectFilterEl = document.getElementById('project-filter');
+const searchBtn = document.getElementById('search-btn');
 const themeSelectEl = document.getElementById('theme-select');
 const settingsBtn = document.getElementById('settings-btn');
 const settingsOverlay = document.getElementById('settings-overlay');
@@ -146,6 +147,22 @@ if (projectBadgesEl) {
     if (currentBoardData) renderBoard(currentBoardData);
   });
 }
+
+// --- Search Modal ---
+searchBtn.addEventListener('click', openSearchModal);
+
+// ショートカット: "/" または Ctrl+K（Mac: Cmd+K）で検索ダイアログを開く
+document.addEventListener('keydown', (e) => {
+  const el = document.activeElement;
+  const isTyping = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+  if (e.key === '/' && !isTyping) {
+    e.preventDefault();
+    openSearchModal();
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    openSearchModal();
+  }
+});
 
 // --- Today Filter ---
 const todayFilterBtn = document.getElementById('today-filter-btn');
@@ -567,6 +584,201 @@ function setupArtifactCopyButtons(container) {
       });
     });
   });
+}
+
+// 検索クエリ（小文字化済み）がタイトル・ID・説明・担当のいずれかに部分一致するか判定
+function itemMatchesSearch(item, query) {
+  const fields = [item.title, item.id, item.description, item.assignee];
+  return fields.some(f => f && String(f).toLowerCase().includes(query));
+}
+
+// --- Search Dialog ---
+
+function getOrCreateSearchModal() {
+  let el = document.getElementById('search-modal-overlay');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'search-modal-overlay';
+  el.className = 'modal-overlay';
+  el.innerHTML = `
+    <div class="modal-content search-modal-content">
+      <button class="modal-close" id="search-modal-close">&times;</button>
+      <input type="text" class="search-modal-input" id="search-modal-input" placeholder="タイトル・ID・説明・担当で検索">
+      <div class="search-result-list" id="search-result-list"></div>
+    </div>
+  `;
+  document.body.appendChild(el);
+  el.addEventListener('click', (e) => {
+    if (e.target === el) closeSearchModal();
+  });
+  el.querySelector('#search-modal-close').addEventListener('click', closeSearchModal);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && el.classList.contains('modal-visible')) closeSearchModal();
+  });
+  const inputEl = el.querySelector('#search-modal-input');
+  inputEl.addEventListener('input', (e) => {
+    renderSearchResults(e.target.value.trim().toLowerCase());
+  });
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      moveSearchSelection(1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveSearchSelection(-1);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      activateSearchSelection();
+    }
+  });
+  return el;
+}
+
+function closeSearchModal() {
+  const el = document.getElementById('search-modal-overlay');
+  if (el) el.classList.remove('modal-visible');
+}
+
+function openSearchModal() {
+  const el = getOrCreateSearchModal();
+  const input = el.querySelector('#search-modal-input');
+  input.value = '';
+  renderSearchResults('');
+  el.classList.add('modal-visible');
+  input.focus();
+}
+
+// ワークスペース(project) → Epic → 子タスク の階層でグルーピングする
+// （BT-032: 完了カラムのlimitで隠れたタスク／Epic配下の子タスクが検索にかからない問題の解消）
+function buildSearchTree() {
+  const projectMap = new Map(); // project名 -> { epics: Map(epicId -> {epic, children:[]}), singles: [] }
+  if (!currentBoardData) return projectMap;
+  for (const col of currentBoardData.columns) {
+    for (const item of col.items) {
+      if (!item.id || item.id === '-') continue;
+      const proj = item.project || '-';
+      if (!projectMap.has(proj)) projectMap.set(proj, { epics: new Map(), singles: [] });
+      const projEntry = projectMap.get(proj);
+      if (item.children && item.children.length) {
+        const children = item.children
+          .filter(c => c.id && c.id !== '-')
+          .map(c => ({ ...c, project: proj })); // 子タスクはprojectを持たないため親から補う
+        projEntry.epics.set(item.id, { epic: item, children });
+      } else {
+        projEntry.singles.push(item);
+      }
+    }
+  }
+  return projectMap;
+}
+
+// 現在の検索クエリに対する表示行（ワークスペース見出し／選択可能なタスク行）を平坦なリストで持つ。
+// キーボードの上下移動・Enterでの選択で使う。
+let searchEntries = [];
+let searchSelectableIndices = [];
+let searchSelectedPos = 0;
+
+function buildFilteredEntries(query) {
+  const tree = buildSearchTree();
+  const entries = [];
+  for (const [projName, projEntry] of tree) {
+    const matchedEpics = [];
+    for (const epicEntry of projEntry.epics.values()) {
+      const epicMatches = !query || itemMatchesSearch(epicEntry.epic, query);
+      const matchedChildren = epicEntry.children.filter(c => !query || itemMatchesSearch(c, query));
+      if (epicMatches || matchedChildren.length > 0) {
+        matchedEpics.push({ epic: epicEntry.epic, children: matchedChildren });
+      }
+    }
+    const matchedSingles = projEntry.singles.filter(s => !query || itemMatchesSearch(s, query));
+    if (matchedEpics.length === 0 && matchedSingles.length === 0) continue;
+
+    entries.push({ type: 'header', label: projName });
+    for (const me of matchedEpics) {
+      entries.push({ type: 'task', item: me.epic, isChild: false, isEpic: true, indent: 1 });
+      for (const c of me.children) {
+        entries.push({ type: 'task', item: c, isChild: true, indent: 2 });
+      }
+    }
+    for (const s of matchedSingles) {
+      entries.push({ type: 'task', item: s, isChild: false, indent: 1 });
+    }
+  }
+  return entries;
+}
+
+function renderSearchResults(query) {
+  const listEl = document.getElementById('search-result-list');
+  if (!listEl) return;
+
+  searchEntries = buildFilteredEntries(query);
+  searchSelectableIndices = [];
+  searchEntries.forEach((entry, idx) => { if (entry.type === 'task') searchSelectableIndices.push(idx); });
+  searchSelectedPos = 0;
+
+  if (searchSelectableIndices.length === 0) {
+    listEl.innerHTML = `<div class="search-result-empty">${query ? '見つからなかったよ' : 'タスクがまだないよ'}</div>`;
+    return;
+  }
+
+  listEl.innerHTML = searchEntries.map((entry, idx) => {
+    if (entry.type === 'header') {
+      return `<div class="search-group-header">${escapeHtml(entry.label)}</div>`;
+    }
+    const epicIcon = entry.isEpic ? '<span class="epic-icon" title="Epic">⧉</span>' : '';
+    return `<div class="search-result-item search-indent-${entry.indent}" data-entry-idx="${idx}">
+      ${epicIcon}<span class="search-result-id">${escapeHtml(entry.item.id)}</span>
+      <span class="search-result-title">${escapeHtml(entry.item.title)}</span>
+      <span class="search-result-status">${escapeHtml(entry.item.status || '-')}</span>
+    </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('.search-result-item').forEach(itemEl => {
+    const entryIdx = Number(itemEl.dataset.entryIdx);
+    itemEl.addEventListener('click', () => {
+      const pos = searchSelectableIndices.indexOf(entryIdx);
+      if (pos < 0) return;
+      searchSelectedPos = pos;
+      activateSearchSelection();
+    });
+    itemEl.addEventListener('mouseenter', () => {
+      const pos = searchSelectableIndices.indexOf(entryIdx);
+      if (pos < 0) return;
+      searchSelectedPos = pos;
+      updateSearchHighlight();
+    });
+  });
+
+  updateSearchHighlight();
+}
+
+function updateSearchHighlight() {
+  const listEl = document.getElementById('search-result-list');
+  if (!listEl) return;
+  listEl.querySelectorAll('.search-result-item').forEach(el => el.classList.remove('search-result-selected'));
+  const entryIdx = searchSelectableIndices[searchSelectedPos];
+  if (entryIdx === undefined) return;
+  const el = listEl.querySelector(`.search-result-item[data-entry-idx="${entryIdx}"]`);
+  if (el) {
+    el.classList.add('search-result-selected');
+    el.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function moveSearchSelection(delta) {
+  if (searchSelectableIndices.length === 0) return;
+  searchSelectedPos = Math.max(0, Math.min(searchSelectableIndices.length - 1, searchSelectedPos + delta));
+  updateSearchHighlight();
+}
+
+function activateSearchSelection() {
+  const entryIdx = searchSelectableIndices[searchSelectedPos];
+  if (entryIdx === undefined) return;
+  const entry = searchEntries[entryIdx];
+  if (!entry) return;
+  closeSearchModal();
+  if (entry.isChild) openChildModal(entry.item);
+  else openCardDetail(entry.item);
 }
 
 function escapeHtml(str) {

@@ -19,3 +19,6 @@ backlog-todo.code-workspace
 
 # 完了タスクの詳細な記録（作業経緯を含む個人の作業履歴のため非公開）
 archive/
+
+# Playwright MCPの動作確認スナップショット（一時的なテスト出力）
+.playwright-mcp/
