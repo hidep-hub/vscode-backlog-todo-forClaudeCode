@@ -21,6 +21,12 @@ let expandedMiniCols = new Set(); // ミニボードの完了カラムで「他N
 let workspaceFilterMap = null; // サーバーから取得: { workspaceKey -> projectName }
 let wsDefaultFilter = ''; // URLパラメータから決まるデフォルトフィルタ（プロジェクト名）
 
+// --- 複数選択→親付け (BT-034) ---
+let selectionMode = false;
+let selectedIds = new Set(); // 選択中のタスクID
+let parentPickerProject = ''; // 親ピッカー表示中に対象とするプロジェクト名
+let pendingAttachIds = []; // 親ピッカーで実際にアタッチ対象となっているID一覧（複数選択 or 単独タスク詳細からの単発指定）
+
 // --- Workspace Filter: sessionStorage + URLパラメータ ハイブリッド ---
 // 優先順位: sessionStorage(ユーザー操作記憶) > URLパラメータ(ワークスペースのデフォルト) > All
 const WS_FILTER_KEY = 'backlog-ws-filter'; // sessionStorage key
@@ -148,6 +154,15 @@ todayFilterBtn.addEventListener('click', () => {
   todayFilterActive = !todayFilterActive;
   localStorage.setItem('todayFilterActive', todayFilterActive);
   todayFilterBtn.classList.toggle('filter-active', todayFilterActive);
+  if (currentBoardData) renderBoard(currentBoardData);
+});
+
+// --- Selection Mode Toggle ---
+const selectModeBtn = document.getElementById('select-mode-btn');
+selectModeBtn.addEventListener('click', () => {
+  selectionMode = !selectionMode;
+  selectModeBtn.classList.toggle('filter-active', selectionMode);
+  if (!selectionMode) selectedIds.clear();
   if (currentBoardData) renderBoard(currentBoardData);
 });
 
@@ -332,6 +347,15 @@ function renderBoard(data) {
       // KT-054: 実行中カードの強調（カード全体グロー点滅、B案）
       if (item.running) card.classList.add('is-running');
 
+      // 選択モード（BT-034）: Epic/完了カードは選択不可、それ以外は選択状態を反映
+      if (selectionMode && item.id && item.id !== '-') {
+        if (isEpic || isCompact) {
+          card.classList.add('card-select-disabled');
+        } else if (selectedIds.has(item.id)) {
+          card.classList.add('card-selected');
+        }
+      }
+
       const showField = (name) => fields.includes(name);
 
       const id = (showField('id') && item.id && item.id !== '-') ? item.id : '';
@@ -377,7 +401,16 @@ function renderBoard(data) {
         }
       }
 
-      card.innerHTML = `${pinHtml}${idHtml}${titleHtml}${metaHtml}`;
+      // ✏️🗑 編集・削除ボタン（BT-041: 詳細モーダルを開かずカードから直接操作。完了カラムには不要。Epicは削除不可のため編集のみ）
+      let cardActionsHtml = '';
+      if (!isCompact && item.id && item.id !== '-') {
+        cardActionsHtml = `<div class="card-actions">
+          <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集">✏️</button>
+          ${!isEpic ? `<button class="card-action-btn card-delete-btn danger" data-task-id="${item.id}" title="削除">🗑</button>` : ''}
+        </div>`;
+      }
+
+      card.innerHTML = `${pinHtml}${cardActionsHtml}${idHtml}${titleHtml}${metaHtml}`;
       body.appendChild(card);
     }
 
@@ -457,6 +490,53 @@ function renderBoard(data) {
       toggleTodayFlag(taskId, isChild, !isActive);
     });
   });
+
+  // ✏️ カード直接編集ボタンのイベントリスナー（BT-041）
+  boardEl.querySelectorAll('.card-edit-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const item = findItemById(btn.dataset.taskId);
+      if (item) openCardEditDirect(item);
+    });
+  });
+
+  // 🗑 カード直接削除ボタンのイベントリスナー（BT-041）
+  boardEl.querySelectorAll('.card-delete-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const item = findItemById(btn.dataset.taskId);
+      if (item) openDeleteConfirm(item, false);
+    });
+  });
+
+  updateSelectionBar();
+}
+
+/**
+ * カードの✏️ボタンから直接呼ばれる: 詳細モーダルを開いて即編集モードにする（BT-041）
+ * @param {object} item
+ */
+function openCardEditDirect(item) {
+  openCardDetail(item);
+  const modal = getOrCreateModal();
+  const body = modal.querySelector('.modal-body');
+  const isEpic = item.children && item.children.length > 0;
+  const isArchivedSingle = !isEpic && item.status === '完了';
+  enterEditMode(item, body, false, isArchivedSingle, renderModalContent);
+}
+
+/**
+ * ミニボード子カードの✏️ボタンから直接呼ばれる: 子詳細モーダルを開いて即編集モードにする（BT-041）
+ * @param {object} childWithProject
+ * @param {object} epic
+ */
+function openChildCardEditDirect(childWithProject, epic) {
+  openCardDetail(childWithProject, epic);
+  const modal = getOrCreateChildModal();
+  const body = modal.querySelector('.modal-body');
+  enterEditMode(childWithProject, body, true, false, openChildModal);
 }
 
 function buildArtifactsHtml(item) {
@@ -816,6 +896,19 @@ function openChildModal(item) {
 
   const detailSpinner = item.running ? '<span class="running-spinner detail-spinner"></span>' : '';
 
+  // 親から外すボタン（BT-034: attachの逆操作。単に外すだけで他の親には付け替えない）
+  const detachBtn = (item.id && item.id !== '-')
+    ? `<div class="detail-add-child"><button class="add-child-btn detach-btn" id="modal-detach-btn">🔓 親から外す</button></div>`
+    : '';
+
+  // 編集・削除ボタン（BT-036/BT-031: 子タスクは常に単独削除可）
+  const editDeleteBtn = (item.id && item.id !== '-')
+    ? `<div class="detail-actions">
+        <button class="detail-action-btn" id="modal-edit-btn">✏️ 編集</button>
+        <button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>
+      </div>`
+    : '';
+
   body.innerHTML = `
     <div class="detail-header">
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
@@ -826,12 +919,205 @@ function openChildModal(item) {
     ${desc}
     ${artifactsHtml}
     ${metaHtml}
+    ${editDeleteBtn}
+    ${detachBtn}
   `;
+
+  // 親から外すボタンのイベント
+  const detachBtnEl = body.querySelector('#modal-detach-btn');
+  if (detachBtnEl) {
+    detachBtnEl.addEventListener('click', () => detachTask(item.id));
+  }
+
+  // 編集ボタンのイベント（BT-036: 子タスクは常に説明編集可）
+  const editBtnEl = body.querySelector('#modal-edit-btn');
+  if (editBtnEl) {
+    editBtnEl.addEventListener('click', () => {
+      enterEditMode(item, body, true, false, openChildModal);
+    });
+  }
+
+  // 削除ボタンのイベント（BT-031）
+  const deleteBtnEl = body.querySelector('#modal-delete-btn');
+  if (deleteBtnEl) {
+    deleteBtnEl.addEventListener('click', () => {
+      openDeleteConfirm(item, true);
+    });
+  }
 
   // 成果物コピーボタンのイベント
   setupArtifactCopyButtons(body);
 
   modal.classList.add('modal-visible');
+}
+
+async function detachTask(taskId) {
+  try {
+    const resp = await fetch('/api/detach-from-parent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      console.error('[detach] Failed:', data.error);
+      alert(`外すのに失敗したよ: ${data.error || ''}`);
+      return;
+    }
+    closeChildModal();
+  } catch (e) {
+    console.error('[detach] Network error:', e);
+  }
+}
+
+// --- Task Edit (BT-036) ---
+
+/**
+ * 詳細モーダルのbodyを編集フォームに差し替える
+ * @param {object} item - 編集対象タスク
+ * @param {HTMLElement} body - モーダルの .modal-body 要素
+ * @param {boolean} isChild - h4子タスクか
+ * @param {boolean} isArchivedSingle - 完了済みアーカイブ単発タスクか（説明編集不可）
+ * @param {(item: object) => void} renderFn - 表示モードに戻す際に呼ぶ描画関数
+ */
+function enterEditMode(item, body, isChild, isArchivedSingle, renderFn) {
+  const descValue = item.description || '';
+  const descField = isArchivedSingle
+    ? `<div class="detail-section"><p class="archived-note">完了済みタスクのため説明は編集できないよ</p></div>`
+    : `<div class="settings-group"><label>説明</label><textarea id="edit-task-description" rows="6" placeholder="説明を入力">${escapeHtml(descValue)}</textarea></div>`;
+
+  body.innerHTML = `
+    <div class="detail-header">
+      <span class="detail-id">${escapeHtml(item.id || '-')}</span>
+    </div>
+    <div class="settings-group">
+      <label>タイトル</label>
+      <input type="text" id="edit-task-title" value="${escapeHtml(item.title)}">
+    </div>
+    ${descField}
+    <p class="edit-task-error" style="display:none;"></p>
+    <div class="edit-form-actions">
+      <button class="add-task-submit" id="edit-task-save">保存</button>
+      <button class="add-child-btn" id="edit-task-cancel">キャンセル</button>
+    </div>
+  `;
+
+  const titleInput = body.querySelector('#edit-task-title');
+  const descInput = body.querySelector('#edit-task-description');
+  const errorEl = body.querySelector('.edit-task-error');
+  const saveBtn = body.querySelector('#edit-task-save');
+  const cancelBtn = body.querySelector('#edit-task-cancel');
+
+  cancelBtn.addEventListener('click', () => renderFn(item));
+
+  saveBtn.addEventListener('click', async () => {
+    const newTitle = titleInput.value.trim();
+    if (!newTitle) {
+      errorEl.textContent = 'タイトルは必須だよ';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    const payload = { taskId: item.id, isChild, title: newTitle };
+    if (descInput) payload.description = descInput.value;
+
+    try {
+      const resp = await fetch('/api/update-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        errorEl.textContent = `保存に失敗したよ: ${data.error || ''}`;
+        errorEl.style.display = 'block';
+        return;
+      }
+      item.title = newTitle;
+      if (descInput) item.description = descInput.value;
+      renderFn(item);
+    } catch (e) {
+      console.error('[edit] Network error:', e);
+      errorEl.textContent = 'ネットワークエラーが発生したよ';
+      errorEl.style.display = 'block';
+    }
+  });
+
+  titleInput.focus();
+}
+
+// --- Task Delete (BT-031) ---
+
+function getOrCreateDeleteConfirm() {
+  let el = document.getElementById('delete-confirm-overlay');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'delete-confirm-overlay';
+  el.className = 'modal-overlay';
+  el.innerHTML = `<div class="modal-content delete-confirm-modal"></div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', (e) => {
+    if (e.target === el) closeDeleteConfirm();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && el.classList.contains('modal-visible')) closeDeleteConfirm();
+  });
+  return el;
+}
+
+function closeDeleteConfirm() {
+  const el = document.getElementById('delete-confirm-overlay');
+  if (el) el.classList.remove('modal-visible');
+}
+
+/**
+ * 削除確認モーダルを開く
+ * @param {object} item - 削除対象タスク
+ * @param {boolean} isChild - h4子タスクか
+ */
+function openDeleteConfirm(item, isChild) {
+  const el = getOrCreateDeleteConfirm();
+  const content = el.querySelector('.modal-content');
+  content.innerHTML = `
+    <button class="modal-close" id="delete-confirm-close">&times;</button>
+    <h3 class="add-form-title">タスクを削除</h3>
+    <p class="delete-confirm-text">「${escapeHtml(item.title)}」(${escapeHtml(item.id)}) を削除するよ。元に戻せないけど大丈夫?</p>
+    <p class="delete-confirm-error" style="display:none;"></p>
+    <div class="edit-form-actions">
+      <button class="add-task-submit danger" id="delete-confirm-ok">削除する</button>
+      <button class="add-child-btn" id="delete-confirm-cancel">キャンセル</button>
+    </div>
+  `;
+
+  content.querySelector('#delete-confirm-close').addEventListener('click', closeDeleteConfirm);
+  content.querySelector('#delete-confirm-cancel').addEventListener('click', closeDeleteConfirm);
+  content.querySelector('#delete-confirm-ok').addEventListener('click', async () => {
+    const errorEl = content.querySelector('.delete-confirm-error');
+    try {
+      const resp = await fetch('/api/delete-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: item.id, isChild }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        errorEl.textContent = data.error === 'has_children'
+          ? '子タスクがあるため削除できないよ。先に子タスクを外すか削除してね'
+          : `削除に失敗したよ: ${data.error || ''}`;
+        errorEl.style.display = 'block';
+        return;
+      }
+      closeDeleteConfirm();
+      if (isChild) closeChildModal();
+      else closeModal();
+    } catch (e) {
+      console.error('[delete] Network error:', e);
+      errorEl.textContent = 'ネットワークエラーが発生したよ';
+      errorEl.style.display = 'block';
+    }
+  });
+
+  el.classList.add('modal-visible');
 }
 
 function renderModalContent(item) {
@@ -875,7 +1161,20 @@ function renderModalContent(item) {
     ? `<div class="detail-add-child"><button class="add-child-btn" id="modal-add-child-btn">＋ 子タスクを追加</button></div>`
     : '';
 
+  // 親を設定ボタン（BT-034: 単独タスク→その場でEPIC化。子を持つ/完了済みは対象外）
+  const setParentBtn = (item.id && item.id !== '-' && !isEpic && item.status !== '完了')
+    ? `<div class="detail-add-child"><button class="add-child-btn" id="modal-set-parent-btn">🔗 親を設定</button></div>`
+    : '';
+
   const detailSpinner = item.running ? '<span class="running-spinner detail-spinner"></span>' : '';
+
+  // 編集・削除ボタン（BT-036/BT-031: 子ありEpicは削除不可のため削除ボタンを出さない）
+  const editDeleteBtn = (item.id && item.id !== '-')
+    ? `<div class="detail-actions">
+        <button class="detail-action-btn" id="modal-edit-btn">✏️ 編集</button>
+        ${!isEpic ? `<button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>` : ''}
+      </div>`
+    : '';
 
   body.innerHTML = `
     <div class="detail-header">
@@ -888,7 +1187,9 @@ function renderModalContent(item) {
     ${desc}
     ${artifactsHtml}
     ${metaHtml}
+    ${editDeleteBtn}
     ${addChildBtn}
+    ${setParentBtn}
     ${miniBoard}
   `;
 
@@ -909,6 +1210,31 @@ function renderModalContent(item) {
   if (childBtn) {
     childBtn.addEventListener('click', () => {
       openAddTaskForm('未着手', item.project, item.id);
+    });
+  }
+
+  // 親を設定ボタンのイベント（BT-034）
+  const setParentBtnEl = body.querySelector('#modal-set-parent-btn');
+  if (setParentBtnEl) {
+    setParentBtnEl.addEventListener('click', () => {
+      openParentPicker([item.id]);
+    });
+  }
+
+  // 編集ボタンのイベント（BT-036: 完了済み単発タスクは説明編集不可）
+  const editBtnEl = body.querySelector('#modal-edit-btn');
+  if (editBtnEl) {
+    editBtnEl.addEventListener('click', () => {
+      const isArchivedSingle = !isEpic && item.status === '完了';
+      enterEditMode(item, body, false, isArchivedSingle, renderModalContent);
+    });
+  }
+
+  // 削除ボタンのイベント（BT-031）
+  const deleteBtnEl = body.querySelector('#modal-delete-btn');
+  if (deleteBtnEl) {
+    deleteBtnEl.addEventListener('click', () => {
+      openDeleteConfirm(item, false);
     });
   }
 
@@ -1041,7 +1367,15 @@ function buildMiniBoard(epic) {
         ? `<button class="today-pin-btn${child.todayFlag ? ' pin-active' : ''}" data-task-id="${child.id}" data-is-child="true" title="今日やる">📌</button>`
         : '';
 
-      card.innerHTML = `${childPinHtml}${childId}${childTitle}${mHtml}`;
+      // ✏️🗑 編集・削除ボタン（ミニボード子カード、BT-041: 子タスクは常に単独削除可）
+      const childActionsHtml = child.id
+        ? `<div class="card-actions">
+            <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集">✏️</button>
+            <button class="card-action-btn card-child-delete-btn danger" data-task-id="${child.id}" title="削除">🗑</button>
+          </div>`
+        : '';
+
+      card.innerHTML = `${childPinHtml}${childActionsHtml}${childId}${childTitle}${mHtml}`;
       card.classList.add('card-clickable');
       card.addEventListener('click', (e) => {
         if (e.defaultPrevented) return;
@@ -1049,6 +1383,29 @@ function buildMiniBoard(epic) {
         const childWithProject = { ...child, project: epic.project };
         openCardDetail(childWithProject, epic);
       });
+
+      // 編集ボタンのイベント（BT-041）
+      const childEditBtnEl = card.querySelector('.card-child-edit-btn');
+      if (childEditBtnEl) {
+        childEditBtnEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const childWithProject = { ...child, project: epic.project };
+          openChildCardEditDirect(childWithProject, epic);
+        });
+      }
+
+      // 削除ボタンのイベント（BT-041）
+      const childDeleteBtnEl = card.querySelector('.card-child-delete-btn');
+      if (childDeleteBtnEl) {
+        childDeleteBtnEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const childWithProject = { ...child, project: epic.project };
+          openDeleteConfirm(childWithProject, true);
+        });
+      }
+
       body.appendChild(card);
     }
 
@@ -1135,8 +1492,282 @@ function buildMiniBoard(epic) {
 function setupCardClick(card, item) {
   card.addEventListener('click', (ev) => {
     if (ev.defaultPrevented) return;
+    if (selectionMode) {
+      toggleCardSelection(item);
+      return;
+    }
     openCardDetail(item);
   });
+}
+
+// --- 複数選択→親付け (BT-034) ---
+function toggleCardSelection(item) {
+  if (!item.id || item.id === '-') return;
+  const isEpic = item.childrenTotal > 0;
+  const isDone = item.status === '完了';
+  if (isEpic || isDone) return; // 選択不可（グレーアウト対象と同条件）
+  if (selectedIds.has(item.id)) selectedIds.delete(item.id);
+  else selectedIds.add(item.id);
+  renderBoard(lastBoardData);
+}
+
+let selectionBarEl = null;
+
+function getOrCreateSelectionBar() {
+  if (selectionBarEl) return selectionBarEl;
+  selectionBarEl = document.createElement('div');
+  selectionBarEl.className = 'selection-bar';
+  selectionBarEl.innerHTML = `
+    <span class="selection-bar-count"></span>
+    <button class="selection-bar-btn selection-bar-parent" id="selection-pick-parent">親を選ぶ</button>
+    <button class="selection-bar-btn selection-bar-delete danger" id="selection-delete">🗑 削除</button>
+    <button class="selection-bar-btn selection-bar-cancel" id="selection-cancel">キャンセル</button>
+  `;
+  document.body.appendChild(selectionBarEl);
+  selectionBarEl.querySelector('#selection-pick-parent').addEventListener('click', () => openParentPicker());
+  selectionBarEl.querySelector('#selection-delete').addEventListener('click', () => openBulkDeleteConfirm());
+  selectionBarEl.querySelector('#selection-cancel').addEventListener('click', () => {
+    selectionMode = false;
+    selectedIds.clear();
+    document.getElementById('select-mode-btn').classList.remove('filter-active');
+    renderBoard(lastBoardData);
+  });
+  return selectionBarEl;
+}
+
+/**
+ * 一括削除確認モーダルを開く（BT-042）
+ */
+function openBulkDeleteConfirm() {
+  const taskIds = [...selectedIds];
+  if (taskIds.length === 0) return;
+
+  const el = getOrCreateDeleteConfirm();
+  const content = el.querySelector('.modal-content');
+  content.innerHTML = `
+    <button class="modal-close" id="delete-confirm-close">&times;</button>
+    <h3 class="add-form-title">タスクを一括削除</h3>
+    <p class="delete-confirm-text">選択中の ${taskIds.length}件 を削除するよ。元に戻せないけど大丈夫?</p>
+    <p class="delete-confirm-error" style="display:none;"></p>
+    <div class="edit-form-actions">
+      <button class="add-task-submit danger" id="delete-confirm-ok">削除する</button>
+      <button class="add-child-btn" id="delete-confirm-cancel">キャンセル</button>
+    </div>
+  `;
+
+  content.querySelector('#delete-confirm-close').addEventListener('click', closeDeleteConfirm);
+  content.querySelector('#delete-confirm-cancel').addEventListener('click', closeDeleteConfirm);
+  content.querySelector('#delete-confirm-ok').addEventListener('click', async () => {
+    const errorEl = content.querySelector('.delete-confirm-error');
+    try {
+      const resp = await fetch('/api/delete-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskIds }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        errorEl.textContent = `削除に失敗したよ: ${data.error || ''}`;
+        errorEl.style.display = 'block';
+        return;
+      }
+      closeDeleteConfirm();
+      if (data.failed && data.failed.length > 0) {
+        const reasons = data.failed.map(f => `${f.taskId}(${f.error})`).join(', ');
+        alert(`${data.succeeded.length}件削除したよ。${data.failed.length}件は失敗: ${reasons}`);
+      }
+      selectionMode = false;
+      selectedIds.clear();
+      document.getElementById('select-mode-btn').classList.remove('filter-active');
+      renderBoard(lastBoardData);
+    } catch (e) {
+      console.error('[bulk-delete] Network error:', e);
+      errorEl.textContent = 'ネットワークエラーが発生したよ';
+      errorEl.style.display = 'block';
+    }
+  });
+
+  el.classList.add('modal-visible');
+}
+
+function updateSelectionBar() {
+  if (!selectionMode || selectedIds.size === 0) {
+    if (selectionBarEl) selectionBarEl.classList.remove('selection-bar-visible');
+    return;
+  }
+  const bar = getOrCreateSelectionBar();
+  bar.querySelector('.selection-bar-count').textContent = `${selectedIds.size}件選択中`;
+  bar.classList.add('selection-bar-visible');
+}
+
+let parentPickerEl = null;
+
+function getOrCreateParentPicker() {
+  if (parentPickerEl) return parentPickerEl;
+  parentPickerEl = document.createElement('div');
+  parentPickerEl.className = 'modal-overlay';
+  parentPickerEl.innerHTML = `
+    <div class="modal-content parent-picker-modal">
+      <button class="modal-close" id="parent-picker-close">&times;</button>
+      <h3 class="add-form-title">親タスクを選ぶ</h3>
+      <button class="parent-picker-new-btn" id="parent-picker-new">＋ 新しい親タスクを作る</button>
+      <input type="text" id="parent-picker-search" class="parent-picker-search" placeholder="検索...">
+      <div class="parent-picker-list" id="parent-picker-list"></div>
+    </div>
+  `;
+  document.body.appendChild(parentPickerEl);
+  parentPickerEl.addEventListener('click', (e) => {
+    if (e.target === parentPickerEl) closeParentPicker();
+  });
+  parentPickerEl.querySelector('#parent-picker-close').addEventListener('click', closeParentPicker);
+  parentPickerEl.querySelector('#parent-picker-new').addEventListener('click', openNewParentForm);
+  parentPickerEl.querySelector('#parent-picker-search').addEventListener('input', (e) => {
+    renderParentPickerList(e.target.value);
+  });
+  return parentPickerEl;
+}
+
+function openParentPicker(idsOverride) {
+  pendingAttachIds = (idsOverride && idsOverride.length > 0) ? idsOverride : [...selectedIds];
+  if (pendingAttachIds.length === 0) return;
+  const items = pendingAttachIds.map(id => findItemById(id)).filter(Boolean);
+  const projects = new Set(items.map(i => i.project));
+  if (projects.size > 1) {
+    alert('選択したタスクが複数のプロジェクトにまたがっているよ。同じプロジェクト内のタスクだけ選んでね');
+    return;
+  }
+  parentPickerProject = items[0] ? items[0].project : '';
+
+  const picker = getOrCreateParentPicker();
+  // 新規作成フォームを表示中だった場合に備えて一覧UIへ戻す
+  picker.querySelector('.modal-content').innerHTML = `
+    <button class="modal-close" id="parent-picker-close">&times;</button>
+    <h3 class="add-form-title">親タスクを選ぶ</h3>
+    <button class="parent-picker-new-btn" id="parent-picker-new">＋ 新しい親タスクを作る</button>
+    <input type="text" id="parent-picker-search" class="parent-picker-search" placeholder="検索...">
+    <div class="parent-picker-list" id="parent-picker-list"></div>
+  `;
+  picker.querySelector('#parent-picker-close').addEventListener('click', closeParentPicker);
+  picker.querySelector('#parent-picker-new').addEventListener('click', openNewParentForm);
+  picker.querySelector('#parent-picker-search').addEventListener('input', (e) => {
+    renderParentPickerList(e.target.value);
+  });
+
+  renderParentPickerList('');
+  picker.classList.add('modal-visible');
+}
+
+function closeParentPicker() {
+  if (parentPickerEl) parentPickerEl.classList.remove('modal-visible');
+  pendingAttachIds = [];
+}
+
+function renderParentPickerList(query) {
+  const listEl = parentPickerEl.querySelector('#parent-picker-list');
+  if (!listEl || !currentBoardData) return;
+
+  const q = query.trim().toLowerCase();
+  const candidates = [];
+  // ボード表示順（🔥アクティブ→💡保留、完了カラムは除外）で同一プロジェクトの候補を収集
+  for (const col of currentBoardData.columns) {
+    if (col.compact || col.id === 'done') continue;
+    for (const item of col.items) {
+      if (!item.id || item.id === '-') continue;
+      if (item.project !== parentPickerProject) continue;
+      if (pendingAttachIds.includes(item.id)) continue; // アタッチ対象の自分自身は親にできない
+      if (q && !(item.title.toLowerCase().includes(q) || item.id.toLowerCase().includes(q))) continue;
+      candidates.push(item);
+    }
+  }
+
+  if (candidates.length === 0) {
+    listEl.innerHTML = '<div class="parent-picker-empty">候補がないよ</div>';
+    return;
+  }
+
+  listEl.innerHTML = candidates.map(item => {
+    const badge = item.childrenTotal
+      ? `<span class="card-badge"><span class="badge-num">${item.childrenDone}</span><span class="badge-den">/${item.childrenTotal}</span></span>`
+      : '';
+    return `<div class="parent-picker-item" data-id="${escapeHtml(item.id)}">
+      <span class="parent-picker-item-id">${escapeHtml(item.id)}</span>
+      <span class="parent-picker-item-title">${escapeHtml(item.title)}</span>
+      ${badge}
+    </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('.parent-picker-item').forEach(el => {
+    el.addEventListener('click', () => confirmAttach(el.dataset.id));
+  });
+}
+
+function openNewParentForm() {
+  const picker = getOrCreateParentPicker();
+  const content = picker.querySelector('.modal-content');
+  content.querySelector('#parent-picker-search').style.display = 'none';
+  content.querySelector('#parent-picker-list').innerHTML = `
+    <div class="parent-picker-new-form">
+      <input type="text" id="new-parent-title" class="parent-picker-search" placeholder="新しい親タスクのタイトル">
+      <button class="add-task-submit" id="new-parent-submit">作成してアタッチ</button>
+    </div>
+  `;
+  const titleInput = content.querySelector('#new-parent-title');
+  content.querySelector('#new-parent-submit').addEventListener('click', () => submitNewParent(titleInput.value));
+  titleInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitNewParent(titleInput.value); });
+  setTimeout(() => titleInput.focus(), 50);
+}
+
+async function submitNewParent(title) {
+  title = (title || '').trim();
+  if (!title) return;
+  try {
+    const resp = await fetch('/api/add-task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, project: parentPickerProject, status: '未着手', origin: 'user' }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      console.error('[attach] add-task failed:', data.error);
+      alert(`親タスクの作成に失敗したよ: ${data.error || ''}`);
+      return;
+    }
+    await confirmAttach(data.id);
+  } catch (e) {
+    console.error('[attach] Network error:', e);
+  }
+}
+
+async function confirmAttach(parentId) {
+  const taskIds = pendingAttachIds.length > 0 ? pendingAttachIds : [...selectedIds];
+  try {
+    const resp = await fetch('/api/attach-to-parent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskIds, parentId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      console.error('[attach] Failed:', data.error, data.failed);
+      alert(`アタッチに失敗したよ: ${data.error || ''}`);
+      return;
+    }
+    if (data.failed && data.failed.length > 0) {
+      alert(`${data.attached.length}件はアタッチできたけど、${data.failed.length}件は失敗したよ(${data.failed.map(f => f.id).join(', ')})`);
+    }
+    closeParentPicker();
+    // 単独タスク詳細から実行した場合、そのタスクはもう子になったので詳細モーダルも閉じる
+    if (currentModalItemId && taskIds.includes(currentModalItemId)) {
+      closeModal();
+    }
+    selectionMode = false;
+    selectedIds.clear();
+    pendingAttachIds = [];
+    document.getElementById('select-mode-btn').classList.remove('filter-active');
+    renderBoard(lastBoardData);
+  } catch (e) {
+    console.error('[attach] Network error:', e);
+  }
 }
 
 // --- Add Task Form ---

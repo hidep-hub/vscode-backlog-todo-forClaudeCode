@@ -1326,6 +1326,434 @@ function addChildTask(title, parentId, status = '未着手', origin = 'user') {
   return { success: false, error: `Parent task ${parentId} not found` };
 }
 
+/**
+ * 既存のh3タスクを別の親(h3)の子(h4)へ後付けで変換する（同一ファイル内のみ）
+ * @param {string[]} taskIds - 子にするタスクIDの配列
+ * @param {string} parentId - 親タスクID
+ * @returns {{ success: boolean, attached?: string[], failed?: {id:string, reason:string}[], error?: string }}
+ */
+function attachToParent(taskIds, parentId) {
+  const files = fs.readdirSync(BACKLOG_DIR)
+    .filter(f => f.endsWith('.backlog.md'));
+
+  // 親(h3)を含むファイルを特定
+  let targetFile = null;
+  for (const file of files) {
+    const content = fs.readFileSync(path.join(BACKLOG_DIR, file), 'utf8');
+    const parentRegex = new RegExp(`^###\\s+\\[${escapeRegex(parentId)}\\]`, 'm');
+    if (parentRegex.test(content)) { targetFile = file; break; }
+  }
+  if (!targetFile) {
+    return { success: false, error: `Parent task ${parentId} not found` };
+  }
+
+  const filePath = path.join(BACKLOG_DIR, targetFile);
+  let lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+
+  function findH3Block(id) {
+    const regex = new RegExp(`^###\\s+\\[${escapeRegex(id)}\\]`);
+    let start = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (regex.test(lines[i])) { start = i; break; }
+    }
+    if (start === -1) return null;
+    let end = lines.length;
+    for (let i = start + 1; i < lines.length; i++) {
+      if (/^#{2,3}\s/.test(lines[i])) { end = i; break; }
+    }
+    return { start, end };
+  }
+
+  const failed = [];
+  const toMove = []; // { id, start, end }
+
+  for (const taskId of taskIds) {
+    if (taskId === parentId) {
+      failed.push({ id: taskId, reason: 'self' });
+      continue;
+    }
+    const block = findH3Block(taskId);
+    if (!block) {
+      failed.push({ id: taskId, reason: 'not_found_in_same_project' });
+      continue;
+    }
+    const hasChildren = lines.slice(block.start + 1, block.end).some(l => /^####\s+\[/.test(l));
+    if (hasChildren) {
+      failed.push({ id: taskId, reason: 'has_children' });
+      continue;
+    }
+    toMove.push({ id: taskId, start: block.start, end: block.end });
+  }
+
+  if (toMove.length === 0) {
+    return { success: false, error: 'No valid tasks to attach', failed };
+  }
+
+  // ブロックを後ろ(行番号が大きい方)から順に削除し、行データを保持
+  toMove.sort((a, b) => b.start - a.start);
+  const blockLinesMap = {};
+  for (const b of toMove) {
+    const raw = lines.slice(b.start, b.end);
+    // ヘッダー行変換: ### [ID] Title → #### [ID] Title（親:parentId）
+    const headerMatch = raw[0].match(/^###\s+\[([^\]]+)\]\s+(.+)/);
+    const title = headerMatch ? headerMatch[2].trim() : '';
+    raw[0] = `#### [${b.id}] ${title}（親:${parentId}）`;
+    // 末尾の空行は挿入時に整形するのでいったん除去
+    while (raw.length > 0 && raw[raw.length - 1].trim() === '') raw.pop();
+    blockLinesMap[b.id] = raw;
+    lines.splice(b.start, b.end - b.start);
+  }
+
+  // 親を再検索（削除により行位置がずれている可能性があるため）
+  const parentBlock = findH3Block(parentId);
+  if (!parentBlock) {
+    return { success: false, error: 'Parent block lost during processing' };
+  }
+
+  // 挿入する子ブロックを元のtaskIds順で組み立て
+  const orderedMoved = taskIds.filter(id => blockLinesMap[id]);
+  const insertLines = [];
+  for (const id of orderedMoved) {
+    insertLines.push(...blockLinesMap[id]);
+    insertLines.push('');
+  }
+  if (parentBlock.end > 0 && lines[parentBlock.end - 1].trim() !== '') {
+    insertLines.unshift('');
+  }
+
+  lines.splice(parentBlock.end, 0, ...insertLines);
+
+  fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+  console.log(`[api] Attached [${orderedMoved.join(', ')}] to parent ${parentId} in ${targetFile}`);
+
+  return { success: true, attached: orderedMoved, failed };
+}
+
+/**
+ * 子タスク(h4)を親から外し、独立したh3タスクとして🔥アクティブセクション末尾に戻す
+ * @param {string} taskId - 外す子タスクのID
+ * @returns {{ success: boolean, id?: string, error?: string }}
+ */
+function detachFromParent(taskId) {
+  const files = fs.readdirSync(BACKLOG_DIR)
+    .filter(f => f.endsWith('.backlog.md'));
+
+  for (const file of files) {
+    const filePath = path.join(BACKLOG_DIR, file);
+    const content = fs.readFileSync(filePath, 'utf8');
+    const h4Regex = new RegExp(`^####\\s+\\[${escapeRegex(taskId)}\\]`, 'm');
+    if (!h4Regex.test(content)) continue;
+
+    let lines = content.split(/\r?\n/);
+    const regex = new RegExp(`^####\\s+\\[${escapeRegex(taskId)}\\]`);
+    let start = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (regex.test(lines[i])) { start = i; break; }
+    }
+    if (start === -1) continue;
+
+    let end = lines.length;
+    for (let i = start + 1; i < lines.length; i++) {
+      if (/^#{2,4}\s/.test(lines[i])) { end = i; break; }
+    }
+
+    const raw = lines.slice(start, end);
+    const headerMatch = raw[0].match(/^####\s+\[([^\]]+)\]\s+(.+)/);
+    let title = headerMatch ? headerMatch[2].trim() : '';
+    // タイトル末尾の（親:XXX）を除去してh3ヘッダーに変換
+    title = title.replace(/[（(]親[:：].+?[）)]\s*$/, '').trim();
+    raw[0] = `### [${taskId}] ${title}`;
+    while (raw.length > 0 && raw[raw.length - 1].trim() === '') raw.pop();
+
+    // 元の位置（親の配下）から削除
+    lines.splice(start, end - start);
+
+    // 🔥 アクティブセクション末尾（次の##直前）に独立タスクとして挿入
+    let activeIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^##\s+.*🔥/.test(lines[i])) { activeIdx = i; break; }
+    }
+
+    const insertBlock = [...raw, ''];
+
+    if (activeIdx === -1) {
+      if (lines.length > 0 && lines[lines.length - 1].trim() !== '') insertBlock.unshift('');
+      lines.push(...insertBlock);
+    } else {
+      let insertIdx = lines.length;
+      for (let i = activeIdx + 1; i < lines.length; i++) {
+        if (/^##\s/.test(lines[i])) { insertIdx = i; break; }
+      }
+      if (insertIdx > 0 && lines[insertIdx - 1].trim() !== '') insertBlock.unshift('');
+      lines.splice(insertIdx, 0, ...insertBlock);
+    }
+
+    fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+    console.log(`[api] Detached ${taskId} from parent in ${file}`);
+    return { success: true, id: taskId };
+  }
+
+  return { success: false, error: `Child task ${taskId} not found` };
+}
+
+// ============================================================
+// Task Update (title/description) API
+// ============================================================
+
+/**
+ * h3/h4タスクブロックの範囲を探す（見つからなければnull）
+ * @returns {{ lines: string[], filePath: string, file: string, headerIdx: number, blockEnd: number, isH3: boolean } | null}
+ */
+function findTaskBlock(taskId, isChild) {
+  const files = fs.readdirSync(BACKLOG_DIR)
+    .filter(f => f.endsWith('.backlog.md'));
+
+  const h3Regex = new RegExp(`^###\\s+\\[${escapeRegex(taskId)}\\]`);
+  const h4Regex = new RegExp(`^####\\s+\\[${escapeRegex(taskId)}\\]`);
+
+  for (const file of files) {
+    const filePath = path.join(BACKLOG_DIR, file);
+    const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+
+    let headerIdx = -1;
+    let isH3 = false;
+    if (isChild) {
+      for (let i = 0; i < lines.length; i++) {
+        if (h4Regex.test(lines[i])) { headerIdx = i; break; }
+      }
+    } else {
+      for (let i = 0; i < lines.length; i++) {
+        if (h3Regex.test(lines[i])) { headerIdx = i; isH3 = true; break; }
+      }
+      if (headerIdx === -1) {
+        for (let i = 0; i < lines.length; i++) {
+          if (h4Regex.test(lines[i])) { headerIdx = i; break; }
+        }
+      }
+    }
+
+    if (headerIdx === -1) continue;
+
+    let blockEnd = lines.length;
+    const stopRegex = isH3 ? /^#{2,3}\s/ : /^#{2,4}\s/;
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      if (stopRegex.test(lines[i])) { blockEnd = i; break; }
+    }
+
+    return { lines, filePath, file, headerIdx, blockEnd, isH3 };
+  }
+
+  return null;
+}
+
+/**
+ * 完了アーカイブテーブル行（h3単発の完了タスク）を探す
+ * @returns {{ lines: string[], filePath: string, file: string, rowIdx: number, cells: string[] } | null}
+ */
+function findArchiveTableRow(taskId) {
+  const files = fs.readdirSync(BACKLOG_DIR)
+    .filter(f => f.endsWith('.backlog.md'));
+
+  for (const file of files) {
+    const filePath = path.join(BACKLOG_DIR, file);
+    const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!/^\|.*\|$/.test(line)) continue;
+      const cells = line.split('|').map(c => c.trim()).filter(Boolean);
+      if (cells.length >= 4 && cells[0].match(/^\d{4}-\d{2}-\d{2}$/) && cells[2] === taskId) {
+        return { lines, filePath, file, rowIdx: i, cells };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * archive/<project>.archive.md 内の該当タスクの見出しブロックを探す
+ * @returns {{ archivePath: string, lines: string[], startIdx: number, endIdx: number } | null}
+ */
+function findArchiveDetailBlock(taskId) {
+  const archiveDir = path.join(BACKLOG_DIR, 'archive');
+  if (!fs.existsSync(archiveDir)) return null;
+
+  const archiveFiles = fs.readdirSync(archiveDir).filter(f => f.endsWith('.archive.md'));
+  const headerRegex = new RegExp(`^##\\s+\\[${escapeRegex(taskId)}\\]\\s+`);
+
+  for (const file of archiveFiles) {
+    const archivePath = path.join(archiveDir, file);
+    const lines = fs.readFileSync(archivePath, 'utf8').split(/\r?\n/);
+
+    let startIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (headerRegex.test(lines[i])) { startIdx = i; break; }
+    }
+    if (startIdx === -1) continue;
+
+    let endIdx = lines.length;
+    for (let i = startIdx + 1; i < lines.length; i++) {
+      if (/^##\s/.test(lines[i])) { endIdx = i; break; }
+    }
+
+    return { archivePath, lines, startIdx, endIdx };
+  }
+
+  return null;
+}
+
+/**
+ * タスクのタイトルを変更する（通常ブロック / 完了アーカイブ行の両対応）
+ * @param {string} taskId
+ * @param {string} newTitle
+ * @param {boolean} isChild
+ * @returns {{ success: boolean, error?: string }}
+ */
+function updateTaskTitle(taskId, newTitle, isChild = false) {
+  const block = findTaskBlock(taskId, isChild);
+  if (block) {
+    const { lines, filePath, headerIdx, isH3 } = block;
+    if (isH3) {
+      const m = lines[headerIdx].match(/^###\s+\[([^\]]+)\]/);
+      lines[headerIdx] = `### [${m[1]}] ${newTitle}`;
+    } else {
+      const m = lines[headerIdx].match(/^####\s+\[([^\]]+)\]\s+(.+)/);
+      const oldTitle = m[2].trim();
+      const parentSuffixMatch = oldTitle.match(/[（(]親[:：].+?[）)]\s*$/);
+      const parentSuffix = parentSuffixMatch ? parentSuffixMatch[0] : '';
+      lines[headerIdx] = `#### [${m[1]}] ${newTitle}${parentSuffix ? `${parentSuffix}` : ''}`;
+    }
+    fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+    console.log(`[api] Updated title of ${taskId} -> "${newTitle}"`);
+    return { success: true };
+  }
+
+  // 完了済みh3単発タスク（アーカイブテーブル行）
+  const row = findArchiveTableRow(taskId);
+  if (row) {
+    const { lines, filePath, rowIdx, cells } = row;
+    lines[rowIdx] = `| ${cells[0]} | ${cells[1]} | ${cells[2]} | ${newTitle} |`;
+    fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+
+    // archive/*.archive.md 側の見出しも合わせて更新（あれば）
+    const detail = findArchiveDetailBlock(taskId);
+    if (detail) {
+      detail.lines[detail.startIdx] = `## [${taskId}] ${newTitle}`;
+      fs.writeFileSync(detail.archivePath, detail.lines.join('\n'), 'utf8');
+    }
+
+    console.log(`[api] Updated title of archived task ${taskId} -> "${newTitle}"`);
+    return { success: true };
+  }
+
+  return { success: false, error: `Task ${taskId} not found` };
+}
+
+/**
+ * タスクの説明を変更する（通常ブロックのみ対応。完了アーカイブ行には説明フィールドがないため非対応）
+ * @param {string} taskId
+ * @param {string} newDescription
+ * @param {boolean} isChild
+ * @returns {{ success: boolean, error?: string }}
+ */
+function updateTaskDescription(taskId, newDescription, isChild = false) {
+  const block = findTaskBlock(taskId, isChild);
+  if (!block) {
+    if (findArchiveTableRow(taskId)) {
+      return { success: false, error: 'archived_no_description' };
+    }
+    return { success: false, error: `Task ${taskId} not found` };
+  }
+
+  const { lines, filePath, headerIdx, blockEnd } = block;
+
+  // 既存の「- 説明:」行（+継続行）の範囲を特定
+  let descStart = -1;
+  let descEnd = blockEnd;
+  for (let i = headerIdx + 1; i < blockEnd; i++) {
+    if (/^\s*-\s+説明[:：]/.test(lines[i])) {
+      descStart = i;
+      for (let j = i + 1; j < blockEnd; j++) {
+        if (!lines[j].trim()) { descEnd = j; break; }
+        if (/^\s*-\s+/.test(lines[j])) { descEnd = j; break; }
+        descEnd = j + 1;
+      }
+      break;
+    }
+  }
+
+  const descLines = newDescription.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const newBlock = descLines.length > 0
+    ? [`- 説明: ${descLines[0]}`, ...descLines.slice(1)]
+    : [];
+
+  if (descStart !== -1) {
+    lines.splice(descStart, descEnd - descStart, ...newBlock);
+  } else if (newBlock.length > 0) {
+    // 「状態:」行の直後に挿入
+    let insertAfter = headerIdx;
+    for (let i = headerIdx + 1; i < blockEnd; i++) {
+      if (/^\s*-\s+状態[:：]/.test(lines[i])) { insertAfter = i; break; }
+    }
+    lines.splice(insertAfter + 1, 0, ...newBlock);
+  }
+
+  fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+  console.log(`[api] Updated description of ${taskId}`);
+  return { success: true };
+}
+
+// ============================================================
+// Task Delete API
+// ============================================================
+
+/**
+ * タスクを削除する（通常ブロック / 完了アーカイブ行の両対応）
+ * 子タスクを持つh3（Epic）は誤削除防止のため削除を拒否する
+ * @param {string} taskId
+ * @param {boolean} isChild
+ * @returns {{ success: boolean, error?: string }}
+ */
+function deleteTask(taskId, isChild = false) {
+  const block = findTaskBlock(taskId, isChild);
+  if (block) {
+    const { lines, filePath, headerIdx, blockEnd, isH3 } = block;
+
+    if (isH3) {
+      const hasChildren = lines.slice(headerIdx + 1, blockEnd).some(l => /^####\s+\[/.test(l));
+      if (hasChildren) {
+        return { success: false, error: 'has_children' };
+      }
+    }
+
+    lines.splice(headerIdx, blockEnd - headerIdx);
+    fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+    console.log(`[api] Deleted task ${taskId}`);
+    return { success: true };
+  }
+
+  // 完了済みh3単発タスク（アーカイブテーブル行）
+  const row = findArchiveTableRow(taskId);
+  if (row) {
+    const { lines, filePath, rowIdx } = row;
+    lines.splice(rowIdx, 1);
+    fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+
+    // archive/*.archive.md 側のブロックも合わせて削除（あれば）
+    const detail = findArchiveDetailBlock(taskId);
+    if (detail) {
+      detail.lines.splice(detail.startIdx, detail.endIdx - detail.startIdx);
+      fs.writeFileSync(detail.archivePath, detail.lines.join('\n'), 'utf8');
+    }
+
+    console.log(`[api] Deleted archived task ${taskId}`);
+    return { success: true };
+  }
+
+  return { success: false, error: `Task ${taskId} not found` };
+}
+
 function serveStatic(req, res) {
   console.log(`[http] ${req.method} ${req.url}`);
 
@@ -1488,6 +1916,154 @@ function serveStatic(req, res) {
         broadcast(board);
       } else {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: result.error }));
+      }
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: POST /api/attach-to-parent
+  if (req.url === '/api/attach-to-parent' && req.method === 'POST') {
+    readRequestBody(req).then(({ taskIds, parentId }) => {
+      if (!Array.isArray(taskIds) || taskIds.length === 0 || !parentId) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'taskIds (non-empty array) and parentId are required' }));
+        return;
+      }
+      const result = attachToParent(taskIds, parentId);
+      if (result.success) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, attached: result.attached, failed: result.failed || [] }));
+        const board = buildBoard();
+        broadcast(board);
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: result.error, failed: result.failed || [] }));
+      }
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: POST /api/detach-from-parent
+  if (req.url === '/api/detach-from-parent' && req.method === 'POST') {
+    readRequestBody(req).then(({ taskId }) => {
+      if (!taskId) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'taskId is required' }));
+        return;
+      }
+      const result = detachFromParent(taskId);
+      if (result.success) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, id: result.id }));
+        const board = buildBoard();
+        broadcast(board);
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: result.error }));
+      }
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: POST /api/update-task
+  if (req.url === '/api/update-task' && req.method === 'POST') {
+    readRequestBody(req).then(({ taskId, isChild, title, description }) => {
+      if (!taskId) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'taskId is required' }));
+        return;
+      }
+      if (title === undefined && description === undefined) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'title or description is required' }));
+        return;
+      }
+      if (title !== undefined && !title.trim()) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'title must not be empty' }));
+        return;
+      }
+
+      let result = { success: true };
+      if (title !== undefined) {
+        result = updateTaskTitle(taskId, title.trim(), !!isChild);
+      }
+      if (result.success && description !== undefined) {
+        result = updateTaskDescription(taskId, description, !!isChild);
+      }
+
+      if (result.success) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true }));
+        const board = buildBoard();
+        broadcast(board);
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: result.error }));
+      }
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: POST /api/delete-tasks（複数一括削除, BT-042）
+  if (req.url === '/api/delete-tasks' && req.method === 'POST') {
+    readRequestBody(req).then(({ taskIds }) => {
+      if (!Array.isArray(taskIds) || taskIds.length === 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'taskIds (non-empty array) is required' }));
+        return;
+      }
+      const results = taskIds.map(taskId => {
+        const result = deleteTask(taskId, false);
+        return { taskId, success: result.success, error: result.error };
+      });
+      const succeeded = results.filter(r => r.success).map(r => r.taskId);
+      const failed = results.filter(r => !r.success);
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: true, succeeded, failed }));
+      if (succeeded.length > 0) {
+        const board = buildBoard();
+        broadcast(board);
+      }
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: POST /api/delete-task
+  if (req.url === '/api/delete-task' && req.method === 'POST') {
+    readRequestBody(req).then(({ taskId, isChild }) => {
+      if (!taskId) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'taskId is required' }));
+        return;
+      }
+      const result = deleteTask(taskId, !!isChild);
+      if (result.success) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true }));
+        const board = buildBoard();
+        broadcast(board);
+      } else if (result.error === 'has_children') {
+        res.writeHead(409, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: result.error }));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: result.error }));
       }
     }).catch(e => {

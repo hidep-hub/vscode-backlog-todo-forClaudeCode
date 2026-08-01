@@ -2,7 +2,7 @@
 node_modules/
 
 # 作業ログ・裏メモ（本名・前PCの実パス・社内ツール名を含むため非公開）
-docks/
+docs/
 
 # 実際の運用設定（ワークスペースパス等の個人環境依存値を含むため非公開。config.json.exampleをコピーして使う）
 backlog-dashboard/config.json
@@ -15,3 +15,7 @@ workspaceState.state.json
 
 # エディタのローカル設定（テーマ・フォント等の個人環境依存値。他者と共有しない）
 .vscode/
+backlog-todo.code-workspace
+
+# 完了タスクの詳細な記録（作業経緯を含む個人の作業履歴のため非公開）
+archive/
