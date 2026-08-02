@@ -58,6 +58,7 @@
   ],
   "port": "__PORT__",
   "backlogDir": "__BACKLOG_DIR__",
+  "defaultWorkspaceParent": "__WORKSPACE_PARENT__",
   "projects": [
     {
       "file": "__PROJECT_FILE__",

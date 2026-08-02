@@ -3,6 +3,7 @@
 const boardEl = document.getElementById('board');
 const statusEl = document.getElementById('status');
 const projectFilterEl = document.getElementById('project-filter');
+const searchBtn = document.getElementById('search-btn');
 const themeSelectEl = document.getElementById('theme-select');
 const settingsBtn = document.getElementById('settings-btn');
 const settingsOverlay = document.getElementById('settings-overlay');
@@ -20,6 +21,12 @@ let expandedCols = new Set(); // 完了カラム等で「他N件」を展開表�
 let expandedMiniCols = new Set(); // ミニボードの完了カラムで「他N件」展開中のカラムID
 let workspaceFilterMap = null; // サーバーから取得: { workspaceKey -> projectName }
 let wsDefaultFilter = ''; // URLパラメータから決まるデフォルトフィルタ（プロジェクト名）
+
+// --- 複数選択→親付け (BT-034) ---
+let selectionMode = false;
+let selectedIds = new Set(); // 選択中のタスクID
+let parentPickerProject = ''; // 親ピッカー表示中に対象とするプロジェクト名
+let pendingAttachIds = []; // 親ピッカーで実際にアタッチ対象となっているID一覧（複数選択 or 単独タスク詳細からの単発指定）
 
 // --- Workspace Filter: sessionStorage + URLパラメータ ハイブリッド ---
 // 優先順位: sessionStorage(ユーザー操作記憶) > URLパラメータ(ワークスペースのデフォルト) > All
@@ -141,6 +148,22 @@ if (projectBadgesEl) {
   });
 }
 
+// --- Search Modal ---
+searchBtn.addEventListener('click', openSearchModal);
+
+// ショートカット: "/" または Ctrl+K（Mac: Cmd+K）で検索ダイアログを開く
+document.addEventListener('keydown', (e) => {
+  const el = document.activeElement;
+  const isTyping = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+  if (e.key === '/' && !isTyping) {
+    e.preventDefault();
+    openSearchModal();
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    openSearchModal();
+  }
+});
+
 // --- Today Filter ---
 const todayFilterBtn = document.getElementById('today-filter-btn');
 if (todayFilterActive) todayFilterBtn.classList.add('filter-active');
@@ -148,6 +171,15 @@ todayFilterBtn.addEventListener('click', () => {
   todayFilterActive = !todayFilterActive;
   localStorage.setItem('todayFilterActive', todayFilterActive);
   todayFilterBtn.classList.toggle('filter-active', todayFilterActive);
+  if (currentBoardData) renderBoard(currentBoardData);
+});
+
+// --- Selection Mode Toggle ---
+const selectModeBtn = document.getElementById('select-mode-btn');
+selectModeBtn.addEventListener('click', () => {
+  selectionMode = !selectionMode;
+  selectModeBtn.classList.toggle('filter-active', selectionMode);
+  if (!selectionMode) selectedIds.clear();
   if (currentBoardData) renderBoard(currentBoardData);
 });
 
@@ -332,6 +364,15 @@ function renderBoard(data) {
       // KT-054: 実行中カードの強調（カード全体グロー点滅、B案）
       if (item.running) card.classList.add('is-running');
 
+      // 選択モード（BT-034）: Epic/完了カードは選択不可、それ以外は選択状態を反映
+      if (selectionMode && item.id && item.id !== '-') {
+        if (isEpic || isCompact) {
+          card.classList.add('card-select-disabled');
+        } else if (selectedIds.has(item.id)) {
+          card.classList.add('card-selected');
+        }
+      }
+
       const showField = (name) => fields.includes(name);
 
       const id = (showField('id') && item.id && item.id !== '-') ? item.id : '';
@@ -377,7 +418,16 @@ function renderBoard(data) {
         }
       }
 
-      card.innerHTML = `${pinHtml}${idHtml}${titleHtml}${metaHtml}`;
+      // ✏️🗑 編集・削除ボタン（BT-041: 詳細モーダルを開かずカードから直接操作。完了カラムには不要。Epicは削除不可のため編集のみ）
+      let cardActionsHtml = '';
+      if (!isCompact && item.id && item.id !== '-') {
+        cardActionsHtml = `<div class="card-actions">
+          <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集">✏️</button>
+          ${!isEpic ? `<button class="card-action-btn card-delete-btn danger" data-task-id="${item.id}" title="削除">🗑</button>` : ''}
+        </div>`;
+      }
+
+      card.innerHTML = `${pinHtml}${cardActionsHtml}${idHtml}${titleHtml}${metaHtml}`;
       body.appendChild(card);
     }
 
@@ -457,6 +507,53 @@ function renderBoard(data) {
       toggleTodayFlag(taskId, isChild, !isActive);
     });
   });
+
+  // ✏️ カード直接編集ボタンのイベントリスナー（BT-041）
+  boardEl.querySelectorAll('.card-edit-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const item = findItemById(btn.dataset.taskId);
+      if (item) openCardEditDirect(item);
+    });
+  });
+
+  // 🗑 カード直接削除ボタンのイベントリスナー（BT-041）
+  boardEl.querySelectorAll('.card-delete-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const item = findItemById(btn.dataset.taskId);
+      if (item) openDeleteConfirm(item, false);
+    });
+  });
+
+  updateSelectionBar();
+}
+
+/**
+ * カードの✏️ボタンから直接呼ばれる: 詳細モーダルを開いて即編集モードにする（BT-041）
+ * @param {object} item
+ */
+function openCardEditDirect(item) {
+  openCardDetail(item);
+  const modal = getOrCreateModal();
+  const body = modal.querySelector('.modal-body');
+  const isEpic = item.children && item.children.length > 0;
+  const isArchivedSingle = !isEpic && item.status === '完了';
+  enterEditMode(item, body, false, isArchivedSingle, renderModalContent);
+}
+
+/**
+ * ミニボード子カードの✏️ボタンから直接呼ばれる: 子詳細モーダルを開いて即編集モードにする（BT-041）
+ * @param {object} childWithProject
+ * @param {object} epic
+ */
+function openChildCardEditDirect(childWithProject, epic) {
+  openCardDetail(childWithProject, epic);
+  const modal = getOrCreateChildModal();
+  const body = modal.querySelector('.modal-body');
+  enterEditMode(childWithProject, body, true, false, openChildModal);
 }
 
 function buildArtifactsHtml(item) {
@@ -469,6 +566,52 @@ function buildArtifactsHtml(item) {
     return `<li class="artifact-item"><code>${escaped}</code> <button class="artifact-copy-btn" data-path="${escapeHtml(fullPath)}" title="パスをコピー">&#128203;</button></li>`;
   }).join('');
   return `<div class="detail-section"><h4>成果物</h4><ul class="detail-artifacts">${artifactItems}</ul></div>`;
+}
+
+// ワークスペース導線ボタンのHTMLを生成する（BT-053）
+// プロジェクトにworkspaceパスが設定済みなら「開く」、未設定なら「作る」を出し分ける
+function buildWorkspaceActionHtml(item) {
+  if (!item.id || item.id === '-') return '';
+  const workspaceMap = currentBoardData && currentBoardData.workspaceMap || {};
+  const wsPath = workspaceMap[item.project] || '';
+  if (wsPath) {
+    return `<div class="detail-add-child"><button class="add-child-btn" id="modal-open-workspace-btn">📂 ワークスペースを開く</button></div>`;
+  }
+  return `<div class="detail-add-child"><button class="add-child-btn" id="modal-create-workspace-btn">🛠 ワークスペースを作る</button></div>`;
+}
+
+function setupWorkspaceActionButtons(body, item) {
+  const openBtn = body.querySelector('#modal-open-workspace-btn');
+  if (openBtn) {
+    openBtn.addEventListener('click', () => openTaskWorkspace(item.id, openBtn));
+  }
+  const createBtn = body.querySelector('#modal-create-workspace-btn');
+  if (createBtn) {
+    createBtn.addEventListener('click', () => openWorkspaceCreateForm());
+  }
+}
+
+async function openTaskWorkspace(taskId, btnEl) {
+  const originalText = btnEl.textContent;
+  btnEl.disabled = true;
+  btnEl.textContent = '開いてるよ...';
+  try {
+    const resp = await fetch('/api/open-workspace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      alert(`ワークスペースを開けなかったよ: ${data.error || ''}`);
+    }
+  } catch (e) {
+    console.error('[open-workspace] Network error:', e);
+    alert('ネットワークエラーが発生したよ');
+  } finally {
+    btnEl.disabled = false;
+    btnEl.textContent = originalText;
+  }
 }
 
 function setupArtifactCopyButtons(container) {
@@ -487,6 +630,201 @@ function setupArtifactCopyButtons(container) {
       });
     });
   });
+}
+
+// 検索クエリ（小文字化済み）がタイトル・ID・説明・担当のいずれかに部分一致するか判定
+function itemMatchesSearch(item, query) {
+  const fields = [item.title, item.id, item.description, item.assignee];
+  return fields.some(f => f && String(f).toLowerCase().includes(query));
+}
+
+// --- Search Dialog ---
+
+function getOrCreateSearchModal() {
+  let el = document.getElementById('search-modal-overlay');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'search-modal-overlay';
+  el.className = 'modal-overlay';
+  el.innerHTML = `
+    <div class="modal-content search-modal-content">
+      <button class="modal-close" id="search-modal-close">&times;</button>
+      <input type="text" class="search-modal-input" id="search-modal-input" placeholder="タイトル・ID・説明・担当で検索">
+      <div class="search-result-list" id="search-result-list"></div>
+    </div>
+  `;
+  document.body.appendChild(el);
+  el.addEventListener('click', (e) => {
+    if (e.target === el) closeSearchModal();
+  });
+  el.querySelector('#search-modal-close').addEventListener('click', closeSearchModal);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && el.classList.contains('modal-visible')) closeSearchModal();
+  });
+  const inputEl = el.querySelector('#search-modal-input');
+  inputEl.addEventListener('input', (e) => {
+    renderSearchResults(e.target.value.trim().toLowerCase());
+  });
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      moveSearchSelection(1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveSearchSelection(-1);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      activateSearchSelection();
+    }
+  });
+  return el;
+}
+
+function closeSearchModal() {
+  const el = document.getElementById('search-modal-overlay');
+  if (el) el.classList.remove('modal-visible');
+}
+
+function openSearchModal() {
+  const el = getOrCreateSearchModal();
+  const input = el.querySelector('#search-modal-input');
+  input.value = '';
+  renderSearchResults('');
+  el.classList.add('modal-visible');
+  input.focus();
+}
+
+// ワークスペース(project) → Epic → 子タスク の階層でグルーピングする
+// （BT-032: 完了カラムのlimitで隠れたタスク／Epic配下の子タスクが検索にかからない問題の解消）
+function buildSearchTree() {
+  const projectMap = new Map(); // project名 -> { epics: Map(epicId -> {epic, children:[]}), singles: [] }
+  if (!currentBoardData) return projectMap;
+  for (const col of currentBoardData.columns) {
+    for (const item of col.items) {
+      if (!item.id || item.id === '-') continue;
+      const proj = item.project || '-';
+      if (!projectMap.has(proj)) projectMap.set(proj, { epics: new Map(), singles: [] });
+      const projEntry = projectMap.get(proj);
+      if (item.children && item.children.length) {
+        const children = item.children
+          .filter(c => c.id && c.id !== '-')
+          .map(c => ({ ...c, project: proj })); // 子タスクはprojectを持たないため親から補う
+        projEntry.epics.set(item.id, { epic: item, children });
+      } else {
+        projEntry.singles.push(item);
+      }
+    }
+  }
+  return projectMap;
+}
+
+// 現在の検索クエリに対する表示行（ワークスペース見出し／選択可能なタスク行）を平坦なリストで持つ。
+// キーボードの上下移動・Enterでの選択で使う。
+let searchEntries = [];
+let searchSelectableIndices = [];
+let searchSelectedPos = 0;
+
+function buildFilteredEntries(query) {
+  const tree = buildSearchTree();
+  const entries = [];
+  for (const [projName, projEntry] of tree) {
+    const matchedEpics = [];
+    for (const epicEntry of projEntry.epics.values()) {
+      const epicMatches = !query || itemMatchesSearch(epicEntry.epic, query);
+      const matchedChildren = epicEntry.children.filter(c => !query || itemMatchesSearch(c, query));
+      if (epicMatches || matchedChildren.length > 0) {
+        matchedEpics.push({ epic: epicEntry.epic, children: matchedChildren });
+      }
+    }
+    const matchedSingles = projEntry.singles.filter(s => !query || itemMatchesSearch(s, query));
+    if (matchedEpics.length === 0 && matchedSingles.length === 0) continue;
+
+    entries.push({ type: 'header', label: projName });
+    for (const me of matchedEpics) {
+      entries.push({ type: 'task', item: me.epic, isChild: false, isEpic: true, indent: 1 });
+      for (const c of me.children) {
+        entries.push({ type: 'task', item: c, isChild: true, indent: 2 });
+      }
+    }
+    for (const s of matchedSingles) {
+      entries.push({ type: 'task', item: s, isChild: false, indent: 1 });
+    }
+  }
+  return entries;
+}
+
+function renderSearchResults(query) {
+  const listEl = document.getElementById('search-result-list');
+  if (!listEl) return;
+
+  searchEntries = buildFilteredEntries(query);
+  searchSelectableIndices = [];
+  searchEntries.forEach((entry, idx) => { if (entry.type === 'task') searchSelectableIndices.push(idx); });
+  searchSelectedPos = 0;
+
+  if (searchSelectableIndices.length === 0) {
+    listEl.innerHTML = `<div class="search-result-empty">${query ? '見つからなかったよ' : 'タスクがまだないよ'}</div>`;
+    return;
+  }
+
+  listEl.innerHTML = searchEntries.map((entry, idx) => {
+    if (entry.type === 'header') {
+      return `<div class="search-group-header">${escapeHtml(entry.label)}</div>`;
+    }
+    const epicIcon = entry.isEpic ? '<span class="epic-icon" title="Epic">⧉</span>' : '';
+    return `<div class="search-result-item search-indent-${entry.indent}" data-entry-idx="${idx}">
+      ${epicIcon}<span class="search-result-id">${escapeHtml(entry.item.id)}</span>
+      <span class="search-result-title">${escapeHtml(entry.item.title)}</span>
+      <span class="search-result-status">${escapeHtml(entry.item.status || '-')}</span>
+    </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('.search-result-item').forEach(itemEl => {
+    const entryIdx = Number(itemEl.dataset.entryIdx);
+    itemEl.addEventListener('click', () => {
+      const pos = searchSelectableIndices.indexOf(entryIdx);
+      if (pos < 0) return;
+      searchSelectedPos = pos;
+      activateSearchSelection();
+    });
+    itemEl.addEventListener('mouseenter', () => {
+      const pos = searchSelectableIndices.indexOf(entryIdx);
+      if (pos < 0) return;
+      searchSelectedPos = pos;
+      updateSearchHighlight();
+    });
+  });
+
+  updateSearchHighlight();
+}
+
+function updateSearchHighlight() {
+  const listEl = document.getElementById('search-result-list');
+  if (!listEl) return;
+  listEl.querySelectorAll('.search-result-item').forEach(el => el.classList.remove('search-result-selected'));
+  const entryIdx = searchSelectableIndices[searchSelectedPos];
+  if (entryIdx === undefined) return;
+  const el = listEl.querySelector(`.search-result-item[data-entry-idx="${entryIdx}"]`);
+  if (el) {
+    el.classList.add('search-result-selected');
+    el.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function moveSearchSelection(delta) {
+  if (searchSelectableIndices.length === 0) return;
+  searchSelectedPos = Math.max(0, Math.min(searchSelectableIndices.length - 1, searchSelectedPos + delta));
+  updateSearchHighlight();
+}
+
+function activateSearchSelection() {
+  const entryIdx = searchSelectableIndices[searchSelectedPos];
+  if (entryIdx === undefined) return;
+  const entry = searchEntries[entryIdx];
+  if (!entry) return;
+  closeSearchModal();
+  if (entry.isChild) openChildModal(entry.item);
+  else openCardDetail(entry.item);
 }
 
 function escapeHtml(str) {
@@ -816,6 +1154,22 @@ function openChildModal(item) {
 
   const detailSpinner = item.running ? '<span class="running-spinner detail-spinner"></span>' : '';
 
+  // 親から外すボタン（BT-034: attachの逆操作。単に外すだけで他の親には付け替えない）
+  const detachBtn = (item.id && item.id !== '-')
+    ? `<div class="detail-add-child"><button class="add-child-btn detach-btn" id="modal-detach-btn">🔓 親から外す</button></div>`
+    : '';
+
+  // 編集・削除ボタン（BT-036/BT-031: 子タスクは常に単独削除可）
+  const editDeleteBtn = (item.id && item.id !== '-')
+    ? `<div class="detail-actions">
+        <button class="detail-action-btn" id="modal-edit-btn">✏️ 編集</button>
+        <button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>
+      </div>`
+    : '';
+
+  // ワークスペース導線ボタン（BT-053）
+  const workspaceActionHtml = buildWorkspaceActionHtml(item);
+
   body.innerHTML = `
     <div class="detail-header">
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
@@ -826,12 +1180,209 @@ function openChildModal(item) {
     ${desc}
     ${artifactsHtml}
     ${metaHtml}
+    ${editDeleteBtn}
+    ${workspaceActionHtml}
+    ${detachBtn}
   `;
+
+  // 親から外すボタンのイベント
+  const detachBtnEl = body.querySelector('#modal-detach-btn');
+  if (detachBtnEl) {
+    detachBtnEl.addEventListener('click', () => detachTask(item.id));
+  }
+
+  // 編集ボタンのイベント（BT-036: 子タスクは常に説明編集可）
+  const editBtnEl = body.querySelector('#modal-edit-btn');
+  if (editBtnEl) {
+    editBtnEl.addEventListener('click', () => {
+      enterEditMode(item, body, true, false, openChildModal);
+    });
+  }
+
+  // 削除ボタンのイベント（BT-031）
+  const deleteBtnEl = body.querySelector('#modal-delete-btn');
+  if (deleteBtnEl) {
+    deleteBtnEl.addEventListener('click', () => {
+      openDeleteConfirm(item, true);
+    });
+  }
 
   // 成果物コピーボタンのイベント
   setupArtifactCopyButtons(body);
 
+  // ワークスペース導線ボタンのイベント（BT-053）
+  setupWorkspaceActionButtons(body, item);
+
   modal.classList.add('modal-visible');
+}
+
+async function detachTask(taskId) {
+  try {
+    const resp = await fetch('/api/detach-from-parent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      console.error('[detach] Failed:', data.error);
+      alert(`外すのに失敗したよ: ${data.error || ''}`);
+      return;
+    }
+    closeChildModal();
+  } catch (e) {
+    console.error('[detach] Network error:', e);
+  }
+}
+
+// --- Task Edit (BT-036) ---
+
+/**
+ * 詳細モーダルのbodyを編集フォームに差し替える
+ * @param {object} item - 編集対象タスク
+ * @param {HTMLElement} body - モーダルの .modal-body 要素
+ * @param {boolean} isChild - h4子タスクか
+ * @param {boolean} isArchivedSingle - 完了済みアーカイブ単発タスクか（説明編集不可）
+ * @param {(item: object) => void} renderFn - 表示モードに戻す際に呼ぶ描画関数
+ */
+function enterEditMode(item, body, isChild, isArchivedSingle, renderFn) {
+  const descValue = item.description || '';
+  const descField = isArchivedSingle
+    ? `<div class="detail-section"><p class="archived-note">完了済みタスクのため説明は編集できないよ</p></div>`
+    : `<div class="settings-group"><label>説明</label><textarea id="edit-task-description" rows="6" placeholder="説明を入力">${escapeHtml(descValue)}</textarea></div>`;
+
+  body.innerHTML = `
+    <div class="detail-header">
+      <span class="detail-id">${escapeHtml(item.id || '-')}</span>
+    </div>
+    <div class="settings-group">
+      <label>タイトル</label>
+      <input type="text" id="edit-task-title" value="${escapeHtml(item.title)}">
+    </div>
+    ${descField}
+    <p class="edit-task-error" style="display:none;"></p>
+    <div class="edit-form-actions">
+      <button class="add-task-submit" id="edit-task-save">保存</button>
+      <button class="add-child-btn" id="edit-task-cancel">キャンセル</button>
+    </div>
+  `;
+
+  const titleInput = body.querySelector('#edit-task-title');
+  const descInput = body.querySelector('#edit-task-description');
+  const errorEl = body.querySelector('.edit-task-error');
+  const saveBtn = body.querySelector('#edit-task-save');
+  const cancelBtn = body.querySelector('#edit-task-cancel');
+
+  cancelBtn.addEventListener('click', () => renderFn(item));
+
+  saveBtn.addEventListener('click', async () => {
+    const newTitle = titleInput.value.trim();
+    if (!newTitle) {
+      errorEl.textContent = 'タイトルは必須だよ';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    const payload = { taskId: item.id, isChild, title: newTitle };
+    if (descInput) payload.description = descInput.value;
+
+    try {
+      const resp = await fetch('/api/update-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        errorEl.textContent = `保存に失敗したよ: ${data.error || ''}`;
+        errorEl.style.display = 'block';
+        return;
+      }
+      item.title = newTitle;
+      if (descInput) item.description = descInput.value;
+      renderFn(item);
+    } catch (e) {
+      console.error('[edit] Network error:', e);
+      errorEl.textContent = 'ネットワークエラーが発生したよ';
+      errorEl.style.display = 'block';
+    }
+  });
+
+  titleInput.focus();
+}
+
+// --- Task Delete (BT-031) ---
+
+function getOrCreateDeleteConfirm() {
+  let el = document.getElementById('delete-confirm-overlay');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'delete-confirm-overlay';
+  el.className = 'modal-overlay';
+  el.innerHTML = `<div class="modal-content delete-confirm-modal"></div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', (e) => {
+    if (e.target === el) closeDeleteConfirm();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && el.classList.contains('modal-visible')) closeDeleteConfirm();
+  });
+  return el;
+}
+
+function closeDeleteConfirm() {
+  const el = document.getElementById('delete-confirm-overlay');
+  if (el) el.classList.remove('modal-visible');
+}
+
+/**
+ * 削除確認モーダルを開く
+ * @param {object} item - 削除対象タスク
+ * @param {boolean} isChild - h4子タスクか
+ */
+function openDeleteConfirm(item, isChild) {
+  const el = getOrCreateDeleteConfirm();
+  const content = el.querySelector('.modal-content');
+  content.innerHTML = `
+    <button class="modal-close" id="delete-confirm-close">&times;</button>
+    <h3 class="add-form-title">タスクを削除</h3>
+    <p class="delete-confirm-text">「${escapeHtml(item.title)}」(${escapeHtml(item.id)}) を削除するよ。元に戻せないけど大丈夫?</p>
+    <p class="delete-confirm-error" style="display:none;"></p>
+    <div class="edit-form-actions">
+      <button class="add-task-submit danger" id="delete-confirm-ok">削除する</button>
+      <button class="add-child-btn" id="delete-confirm-cancel">キャンセル</button>
+    </div>
+  `;
+
+  content.querySelector('#delete-confirm-close').addEventListener('click', closeDeleteConfirm);
+  content.querySelector('#delete-confirm-cancel').addEventListener('click', closeDeleteConfirm);
+  content.querySelector('#delete-confirm-ok').addEventListener('click', async () => {
+    const errorEl = content.querySelector('.delete-confirm-error');
+    try {
+      const resp = await fetch('/api/delete-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: item.id, isChild }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        errorEl.textContent = data.error === 'has_children'
+          ? '子タスクがあるため削除できないよ。先に子タスクを外すか削除してね'
+          : `削除に失敗したよ: ${data.error || ''}`;
+        errorEl.style.display = 'block';
+        return;
+      }
+      closeDeleteConfirm();
+      if (isChild) closeChildModal();
+      else closeModal();
+    } catch (e) {
+      console.error('[delete] Network error:', e);
+      errorEl.textContent = 'ネットワークエラーが発生したよ';
+      errorEl.style.display = 'block';
+    }
+  });
+
+  el.classList.add('modal-visible');
 }
 
 function renderModalContent(item) {
@@ -875,7 +1426,23 @@ function renderModalContent(item) {
     ? `<div class="detail-add-child"><button class="add-child-btn" id="modal-add-child-btn">＋ 子タスクを追加</button></div>`
     : '';
 
+  // 親を設定ボタン（BT-034: 単独タスク→その場でEPIC化。子を持つ/完了済みは対象外）
+  const setParentBtn = (item.id && item.id !== '-' && !isEpic && item.status !== '完了')
+    ? `<div class="detail-add-child"><button class="add-child-btn" id="modal-set-parent-btn">🔗 親を設定</button></div>`
+    : '';
+
   const detailSpinner = item.running ? '<span class="running-spinner detail-spinner"></span>' : '';
+
+  // 編集・削除ボタン（BT-036/BT-031: 子ありEpicは削除不可のため削除ボタンを出さない）
+  const editDeleteBtn = (item.id && item.id !== '-')
+    ? `<div class="detail-actions">
+        <button class="detail-action-btn" id="modal-edit-btn">✏️ 編集</button>
+        ${!isEpic ? `<button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>` : ''}
+      </div>`
+    : '';
+
+  // ワークスペース導線ボタン（BT-053）
+  const workspaceActionHtml = buildWorkspaceActionHtml(item);
 
   body.innerHTML = `
     <div class="detail-header">
@@ -888,7 +1455,10 @@ function renderModalContent(item) {
     ${desc}
     ${artifactsHtml}
     ${metaHtml}
+    ${editDeleteBtn}
     ${addChildBtn}
+    ${setParentBtn}
+    ${workspaceActionHtml}
     ${miniBoard}
   `;
 
@@ -912,8 +1482,36 @@ function renderModalContent(item) {
     });
   }
 
+  // 親を設定ボタンのイベント（BT-034）
+  const setParentBtnEl = body.querySelector('#modal-set-parent-btn');
+  if (setParentBtnEl) {
+    setParentBtnEl.addEventListener('click', () => {
+      openParentPicker([item.id]);
+    });
+  }
+
+  // 編集ボタンのイベント（BT-036: 完了済み単発タスクは説明編集不可）
+  const editBtnEl = body.querySelector('#modal-edit-btn');
+  if (editBtnEl) {
+    editBtnEl.addEventListener('click', () => {
+      const isArchivedSingle = !isEpic && item.status === '完了';
+      enterEditMode(item, body, false, isArchivedSingle, renderModalContent);
+    });
+  }
+
+  // 削除ボタンのイベント（BT-031）
+  const deleteBtnEl = body.querySelector('#modal-delete-btn');
+  if (deleteBtnEl) {
+    deleteBtnEl.addEventListener('click', () => {
+      openDeleteConfirm(item, false);
+    });
+  }
+
   // 成果物コピーボタンのイベント
   setupArtifactCopyButtons(body);
+
+  // ワークスペース導線ボタンのイベント（BT-053）
+  setupWorkspaceActionButtons(body, item);
 
   if (isEpic) buildMiniBoard(item);
 }
@@ -1041,7 +1639,15 @@ function buildMiniBoard(epic) {
         ? `<button class="today-pin-btn${child.todayFlag ? ' pin-active' : ''}" data-task-id="${child.id}" data-is-child="true" title="今日やる">📌</button>`
         : '';
 
-      card.innerHTML = `${childPinHtml}${childId}${childTitle}${mHtml}`;
+      // ✏️🗑 編集・削除ボタン（ミニボード子カード、BT-041: 子タスクは常に単独削除可）
+      const childActionsHtml = child.id
+        ? `<div class="card-actions">
+            <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集">✏️</button>
+            <button class="card-action-btn card-child-delete-btn danger" data-task-id="${child.id}" title="削除">🗑</button>
+          </div>`
+        : '';
+
+      card.innerHTML = `${childPinHtml}${childActionsHtml}${childId}${childTitle}${mHtml}`;
       card.classList.add('card-clickable');
       card.addEventListener('click', (e) => {
         if (e.defaultPrevented) return;
@@ -1049,6 +1655,29 @@ function buildMiniBoard(epic) {
         const childWithProject = { ...child, project: epic.project };
         openCardDetail(childWithProject, epic);
       });
+
+      // 編集ボタンのイベント（BT-041）
+      const childEditBtnEl = card.querySelector('.card-child-edit-btn');
+      if (childEditBtnEl) {
+        childEditBtnEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const childWithProject = { ...child, project: epic.project };
+          openChildCardEditDirect(childWithProject, epic);
+        });
+      }
+
+      // 削除ボタンのイベント（BT-041）
+      const childDeleteBtnEl = card.querySelector('.card-child-delete-btn');
+      if (childDeleteBtnEl) {
+        childDeleteBtnEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const childWithProject = { ...child, project: epic.project };
+          openDeleteConfirm(childWithProject, true);
+        });
+      }
+
       body.appendChild(card);
     }
 
@@ -1135,8 +1764,387 @@ function buildMiniBoard(epic) {
 function setupCardClick(card, item) {
   card.addEventListener('click', (ev) => {
     if (ev.defaultPrevented) return;
+    if (selectionMode) {
+      toggleCardSelection(item);
+      return;
+    }
     openCardDetail(item);
   });
+}
+
+// --- 複数選択→親付け (BT-034) ---
+function toggleCardSelection(item) {
+  if (!item.id || item.id === '-') return;
+  const isEpic = item.childrenTotal > 0;
+  const isDone = item.status === '完了';
+  if (isEpic || isDone) return; // 選択不可（グレーアウト対象と同条件）
+  if (selectedIds.has(item.id)) selectedIds.delete(item.id);
+  else selectedIds.add(item.id);
+  renderBoard(lastBoardData);
+}
+
+let selectionBarEl = null;
+
+function getOrCreateSelectionBar() {
+  if (selectionBarEl) return selectionBarEl;
+  selectionBarEl = document.createElement('div');
+  selectionBarEl.className = 'selection-bar';
+  selectionBarEl.innerHTML = `
+    <span class="selection-bar-count"></span>
+    <button class="selection-bar-btn selection-bar-parent" id="selection-pick-parent">親を選ぶ</button>
+    <button class="selection-bar-btn selection-bar-delete danger" id="selection-delete">🗑 削除</button>
+    <button class="selection-bar-btn selection-bar-cancel" id="selection-cancel">キャンセル</button>
+  `;
+  document.body.appendChild(selectionBarEl);
+  selectionBarEl.querySelector('#selection-pick-parent').addEventListener('click', () => openParentPicker());
+  selectionBarEl.querySelector('#selection-delete').addEventListener('click', () => openBulkDeleteConfirm());
+  selectionBarEl.querySelector('#selection-cancel').addEventListener('click', () => {
+    selectionMode = false;
+    selectedIds.clear();
+    document.getElementById('select-mode-btn').classList.remove('filter-active');
+    renderBoard(lastBoardData);
+  });
+  return selectionBarEl;
+}
+
+/**
+ * 一括削除確認モーダルを開く（BT-042）
+ */
+function openBulkDeleteConfirm() {
+  const taskIds = [...selectedIds];
+  if (taskIds.length === 0) return;
+
+  const el = getOrCreateDeleteConfirm();
+  const content = el.querySelector('.modal-content');
+  content.innerHTML = `
+    <button class="modal-close" id="delete-confirm-close">&times;</button>
+    <h3 class="add-form-title">タスクを一括削除</h3>
+    <p class="delete-confirm-text">選択中の ${taskIds.length}件 を削除するよ。元に戻せないけど大丈夫?</p>
+    <p class="delete-confirm-error" style="display:none;"></p>
+    <div class="edit-form-actions">
+      <button class="add-task-submit danger" id="delete-confirm-ok">削除する</button>
+      <button class="add-child-btn" id="delete-confirm-cancel">キャンセル</button>
+    </div>
+  `;
+
+  content.querySelector('#delete-confirm-close').addEventListener('click', closeDeleteConfirm);
+  content.querySelector('#delete-confirm-cancel').addEventListener('click', closeDeleteConfirm);
+  content.querySelector('#delete-confirm-ok').addEventListener('click', async () => {
+    const errorEl = content.querySelector('.delete-confirm-error');
+    try {
+      const resp = await fetch('/api/delete-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskIds }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        errorEl.textContent = `削除に失敗したよ: ${data.error || ''}`;
+        errorEl.style.display = 'block';
+        return;
+      }
+      closeDeleteConfirm();
+      if (data.failed && data.failed.length > 0) {
+        const reasons = data.failed.map(f => `${f.taskId}(${f.error})`).join(', ');
+        alert(`${data.succeeded.length}件削除したよ。${data.failed.length}件は失敗: ${reasons}`);
+      }
+      selectionMode = false;
+      selectedIds.clear();
+      document.getElementById('select-mode-btn').classList.remove('filter-active');
+      renderBoard(lastBoardData);
+    } catch (e) {
+      console.error('[bulk-delete] Network error:', e);
+      errorEl.textContent = 'ネットワークエラーが発生したよ';
+      errorEl.style.display = 'block';
+    }
+  });
+
+  el.classList.add('modal-visible');
+}
+
+function updateSelectionBar() {
+  if (!selectionMode || selectedIds.size === 0) {
+    if (selectionBarEl) selectionBarEl.classList.remove('selection-bar-visible');
+    return;
+  }
+  const bar = getOrCreateSelectionBar();
+  bar.querySelector('.selection-bar-count').textContent = `${selectedIds.size}件選択中`;
+  bar.classList.add('selection-bar-visible');
+}
+
+let parentPickerEl = null;
+
+function getOrCreateParentPicker() {
+  if (parentPickerEl) return parentPickerEl;
+  parentPickerEl = document.createElement('div');
+  parentPickerEl.className = 'modal-overlay';
+  parentPickerEl.innerHTML = `
+    <div class="modal-content parent-picker-modal">
+      <button class="modal-close" id="parent-picker-close">&times;</button>
+      <h3 class="add-form-title">親タスクを選ぶ</h3>
+      <button class="parent-picker-new-btn" id="parent-picker-new">＋ 新しい親タスクを作る</button>
+      <input type="text" id="parent-picker-search" class="parent-picker-search" placeholder="検索...">
+      <div class="parent-picker-list" id="parent-picker-list"></div>
+    </div>
+  `;
+  document.body.appendChild(parentPickerEl);
+  parentPickerEl.addEventListener('click', (e) => {
+    if (e.target === parentPickerEl) closeParentPicker();
+  });
+  parentPickerEl.querySelector('#parent-picker-close').addEventListener('click', closeParentPicker);
+  parentPickerEl.querySelector('#parent-picker-new').addEventListener('click', openNewParentForm);
+  parentPickerEl.querySelector('#parent-picker-search').addEventListener('input', (e) => {
+    renderParentPickerList(e.target.value);
+  });
+  return parentPickerEl;
+}
+
+function openParentPicker(idsOverride) {
+  pendingAttachIds = (idsOverride && idsOverride.length > 0) ? idsOverride : [...selectedIds];
+  if (pendingAttachIds.length === 0) return;
+  const items = pendingAttachIds.map(id => findItemById(id)).filter(Boolean);
+  const projects = new Set(items.map(i => i.project));
+  if (projects.size > 1) {
+    alert('選択したタスクが複数のプロジェクトにまたがっているよ。同じプロジェクト内のタスクだけ選んでね');
+    return;
+  }
+  parentPickerProject = items[0] ? items[0].project : '';
+
+  const picker = getOrCreateParentPicker();
+  // 新規作成フォームを表示中だった場合に備えて一覧UIへ戻す
+  picker.querySelector('.modal-content').innerHTML = `
+    <button class="modal-close" id="parent-picker-close">&times;</button>
+    <h3 class="add-form-title">親タスクを選ぶ</h3>
+    <button class="parent-picker-new-btn" id="parent-picker-new">＋ 新しい親タスクを作る</button>
+    <input type="text" id="parent-picker-search" class="parent-picker-search" placeholder="検索...">
+    <div class="parent-picker-list" id="parent-picker-list"></div>
+  `;
+  picker.querySelector('#parent-picker-close').addEventListener('click', closeParentPicker);
+  picker.querySelector('#parent-picker-new').addEventListener('click', openNewParentForm);
+  picker.querySelector('#parent-picker-search').addEventListener('input', (e) => {
+    renderParentPickerList(e.target.value);
+  });
+
+  renderParentPickerList('');
+  picker.classList.add('modal-visible');
+}
+
+function closeParentPicker() {
+  if (parentPickerEl) parentPickerEl.classList.remove('modal-visible');
+  pendingAttachIds = [];
+}
+
+function renderParentPickerList(query) {
+  const listEl = parentPickerEl.querySelector('#parent-picker-list');
+  if (!listEl || !currentBoardData) return;
+
+  const q = query.trim().toLowerCase();
+  const candidates = [];
+  // ボード表示順（🔥アクティブ→💡保留、完了カラムは除外）で同一プロジェクトの候補を収集
+  for (const col of currentBoardData.columns) {
+    if (col.compact || col.id === 'done') continue;
+    for (const item of col.items) {
+      if (!item.id || item.id === '-') continue;
+      if (item.project !== parentPickerProject) continue;
+      if (pendingAttachIds.includes(item.id)) continue; // アタッチ対象の自分自身は親にできない
+      if (q && !(item.title.toLowerCase().includes(q) || item.id.toLowerCase().includes(q))) continue;
+      candidates.push(item);
+    }
+  }
+
+  if (candidates.length === 0) {
+    listEl.innerHTML = '<div class="parent-picker-empty">候補がないよ</div>';
+    return;
+  }
+
+  listEl.innerHTML = candidates.map(item => {
+    const badge = item.childrenTotal
+      ? `<span class="card-badge"><span class="badge-num">${item.childrenDone}</span><span class="badge-den">/${item.childrenTotal}</span></span>`
+      : '';
+    return `<div class="parent-picker-item" data-id="${escapeHtml(item.id)}">
+      <span class="parent-picker-item-id">${escapeHtml(item.id)}</span>
+      <span class="parent-picker-item-title">${escapeHtml(item.title)}</span>
+      ${badge}
+    </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('.parent-picker-item').forEach(el => {
+    el.addEventListener('click', () => confirmAttach(el.dataset.id));
+  });
+}
+
+function openNewParentForm() {
+  const picker = getOrCreateParentPicker();
+  const content = picker.querySelector('.modal-content');
+  content.querySelector('#parent-picker-search').style.display = 'none';
+  content.querySelector('#parent-picker-list').innerHTML = `
+    <div class="parent-picker-new-form">
+      <input type="text" id="new-parent-title" class="parent-picker-search" placeholder="新しい親タスクのタイトル">
+      <button class="add-task-submit" id="new-parent-submit">作成してアタッチ</button>
+    </div>
+  `;
+  const titleInput = content.querySelector('#new-parent-title');
+  content.querySelector('#new-parent-submit').addEventListener('click', () => submitNewParent(titleInput.value));
+  titleInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitNewParent(titleInput.value); });
+  setTimeout(() => titleInput.focus(), 50);
+}
+
+async function submitNewParent(title) {
+  title = (title || '').trim();
+  if (!title) return;
+  try {
+    const resp = await fetch('/api/add-task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, project: parentPickerProject, status: '未着手', origin: 'user' }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      console.error('[attach] add-task failed:', data.error);
+      alert(`親タスクの作成に失敗したよ: ${data.error || ''}`);
+      return;
+    }
+    await confirmAttach(data.id);
+  } catch (e) {
+    console.error('[attach] Network error:', e);
+  }
+}
+
+async function confirmAttach(parentId) {
+  const taskIds = pendingAttachIds.length > 0 ? pendingAttachIds : [...selectedIds];
+  try {
+    const resp = await fetch('/api/attach-to-parent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskIds, parentId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      console.error('[attach] Failed:', data.error, data.failed);
+      alert(`アタッチに失敗したよ: ${data.error || ''}`);
+      return;
+    }
+    if (data.failed && data.failed.length > 0) {
+      alert(`${data.attached.length}件はアタッチできたけど、${data.failed.length}件は失敗したよ(${data.failed.map(f => f.id).join(', ')})`);
+    }
+    closeParentPicker();
+    // 単独タスク詳細から実行した場合、そのタスクはもう子になったので詳細モーダルも閉じる
+    if (currentModalItemId && taskIds.includes(currentModalItemId)) {
+      closeModal();
+    }
+    selectionMode = false;
+    selectedIds.clear();
+    pendingAttachIds = [];
+    document.getElementById('select-mode-btn').classList.remove('filter-active');
+    renderBoard(lastBoardData);
+  } catch (e) {
+    console.error('[attach] Network error:', e);
+  }
+}
+
+// --- Workspace Create Form (BT-053) ---
+let workspaceFormEl = null;
+
+function getOrCreateWorkspaceCreateForm() {
+  if (workspaceFormEl) return workspaceFormEl;
+  workspaceFormEl = document.createElement('div');
+  workspaceFormEl.className = 'modal-overlay';
+  workspaceFormEl.innerHTML = `
+    <div class="modal-content add-task-modal">
+      <button class="modal-close" id="workspace-form-close">&times;</button>
+      <h3 class="add-form-title">ワークスペースを作る</h3>
+      <div class="settings-group">
+        <label>フォルダ名（英数字・_-のみ）</label>
+        <input type="text" id="workspace-form-file" placeholder="my-project">
+        <p class="workspace-form-path-preview" id="workspace-form-path-preview"></p>
+      </div>
+      <div class="settings-group">
+        <label>プレフィクス（英大文字2文字・タスクIDの接頭辞）</label>
+        <input type="text" id="workspace-form-prefix" maxlength="2" placeholder="MP">
+      </div>
+      <p class="edit-task-error" id="workspace-form-error" style="display:none;"></p>
+      <button class="add-task-submit" id="workspace-form-submit">作って開く</button>
+    </div>
+  `;
+  document.body.appendChild(workspaceFormEl);
+
+  workspaceFormEl.addEventListener('click', (e) => {
+    if (e.target === workspaceFormEl) closeWorkspaceCreateForm();
+  });
+  workspaceFormEl.querySelector('#workspace-form-close').addEventListener('click', closeWorkspaceCreateForm);
+
+  const fileInput = workspaceFormEl.querySelector('#workspace-form-file');
+  const pathPreview = workspaceFormEl.querySelector('#workspace-form-path-preview');
+  fileInput.addEventListener('input', () => updateWorkspacePathPreview(fileInput, pathPreview));
+
+  workspaceFormEl.querySelector('#workspace-form-submit').addEventListener('click', submitCreateWorkspace);
+
+  return workspaceFormEl;
+}
+
+function updateWorkspacePathPreview(fileInput, pathPreview) {
+  const parent = (currentBoardData && currentBoardData.defaultWorkspaceParent) || '';
+  pathPreview.textContent = fileInput.value ? `${parent}/${fileInput.value}` : parent;
+}
+
+function openWorkspaceCreateForm() {
+  const form = getOrCreateWorkspaceCreateForm();
+  const fileInput = form.querySelector('#workspace-form-file');
+  const prefixInput = form.querySelector('#workspace-form-prefix');
+  const pathPreview = form.querySelector('#workspace-form-path-preview');
+  const errorEl = form.querySelector('#workspace-form-error');
+
+  fileInput.value = '';
+  prefixInput.value = '';
+  errorEl.style.display = 'none';
+  updateWorkspacePathPreview(fileInput, pathPreview);
+
+  form.classList.add('modal-visible');
+  setTimeout(() => fileInput.focus(), 100);
+}
+
+function closeWorkspaceCreateForm() {
+  if (workspaceFormEl) workspaceFormEl.classList.remove('modal-visible');
+}
+
+async function submitCreateWorkspace() {
+  const form = getOrCreateWorkspaceCreateForm();
+  const file = form.querySelector('#workspace-form-file').value.trim();
+  const prefix = form.querySelector('#workspace-form-prefix').value.trim().toUpperCase();
+  const errorEl = form.querySelector('#workspace-form-error');
+  const parent = (currentBoardData && currentBoardData.defaultWorkspaceParent) || '';
+
+  if (!file || !/^[A-Za-z0-9_-]+$/.test(file)) {
+    errorEl.textContent = 'フォルダ名は英数字・_-のみで入力してね';
+    errorEl.style.display = 'block';
+    return;
+  }
+  if (!prefix || !/^[A-Z]{2}$/.test(prefix)) {
+    errorEl.textContent = 'プレフィクスは英大文字2文字で入力してね';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  const workspace = parent ? `${parent}/${file}` : file;
+
+  try {
+    const resp = await fetch('/api/create-workspace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file, prefix, workspace }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      errorEl.textContent = `作成に失敗したよ: ${data.error || ''}`;
+      errorEl.style.display = 'block';
+      return;
+    }
+    closeWorkspaceCreateForm();
+  } catch (e) {
+    console.error('[create-workspace] Network error:', e);
+    errorEl.textContent = 'ネットワークエラーが発生したよ';
+    errorEl.style.display = 'block';
+  }
 }
 
 // --- Add Task Form ---

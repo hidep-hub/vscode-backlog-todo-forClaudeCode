@@ -37,6 +37,7 @@ assets/
 | バックログmdの置き場(`backlogDir`) | `~/.backlog` | 複数ワークスペースで共有する場所 |
 | ダッシュボードアプリの設置場所 | `<今のワークスペース>/backlog-dashboard` | 新規インストール時のみ |
 | ポート(`port`) | `3333` | 既存プロセスと衝突する場合のみ変更 |
+| ワークスペース作成時のデフォルト親ディレクトリ(`defaultWorkspaceParent`) | 既存ワークスペース群の共通の親フォルダ(例: `c:/dev/claud`) | UIの「ワークスペースを作る」でフォルダ名だけ入力させるための基点。既存プロジェクトの`workspace`パスから推測できることが多い |
 | このワークスペースの `prefix` | 未使用の2英大文字(例: プロジェクト名の頭文字) | `_counter.md` や他の `*.backlog.md` と重複しないか確認 |
 | `file` / `name` | ワークスペースのフォルダ名 | 表示名として使われる |
 | `workspace`(絶対パス) | 今のワークスペースの絶対パス | スラッシュ区切り推奨(`C:/...`) |
@@ -47,6 +48,7 @@ assets/
 2. `config.json` のプレースホルダーを実値に置換する:
    - `__PORT__` → 決めたポート番号(数値。クォート除去すること)
    - `__BACKLOG_DIR__` → 決めたbacklogDir
+   - `__WORKSPACE_PARENT__` → 決めたdefaultWorkspaceParent
    - `__PROJECT_FILE__` / `__PROJECT_PREFIX__` / `__PROJECT_NAME__` / `__WORKSPACE_PATH__` → 決めた値
    - `inbox` プロジェクトのエントリはそのまま残す
 3. `backlogDir` のディレクトリが無ければ作成する。
@@ -80,8 +82,10 @@ assets/
 2. `projects[]` に、決めた `file`/`prefix`/`name`/`workspace` のエントリを追記する(既存エントリは変更しない)。
 3. `prefix` が他エントリや `_counter.md` と重複していないか確認する。
 4. `<backlogDir>/<file>.backlog.md` を上記テンプレートで新規作成する。
-5. **config.jsonはサーバー起動時に1度だけ読み込まれる**(`fs.watch` の監視対象は `backlogDir` 配下のmdファイルのみで、config.json自体は対象外)。`projects[]` を追記しただけでは反映されないため、稼働中のサーバープロセスを一度停止し、`node server.js` で再起動する。
-6. 再起動後、`GET /api/health` → `GET /api/board` の `workspaceMap` に新プロジェクトが載っているか確認する。`POST /api/add-task` でテスト投入し、プレフィクス通りに採番されることを確認したら、テストタスクは削除してmdをクリーンな状態に戻す。
+5. `config.json` は設置ディレクトリを `fs.watch` で監視するホットリロード機構を持つため、**サーバー再起動は不要**。保存後300ms程度で自動反映される。
+6. `GET /api/health` → `GET /api/board` の `workspaceMap` に新プロジェクトが載っているか確認する。`POST /api/add-task` でテスト投入し、プレフィクス通りに採番されることを確認したら、テストタスクは削除してmdをクリーンな状態に戻す。
+
+補足: 手順1〜4は、ダッシュボードUIのタスク詳細にある「🛠 ワークスペースを作る」ボタン(内部で `POST /api/create-workspace` を呼ぶ)を使えば1操作で完結する。workspaceフォルダ作成・mdファイル雛形作成・config.json追記・VS Code起動までを自動で行う。
 
 ## 4. ルール層のセットアップ
 
