@@ -772,7 +772,7 @@ function buildBoard() {
     remainingByProject[t.project] = (remainingByProject[t.project] || 0) + 1;
   }
 
-  return { columns, projects, remainingByProject, updatedAt: new Date().toISOString(), workspaceMap: getWorkspaceMap(), workspaceFilterMap: getWorkspaceFilterMap(), defaultWorkspaceParent: config.defaultWorkspaceParent || '' };
+  return { columns, projects, remainingByProject, updatedAt: new Date().toISOString(), workspaceMap: getWorkspaceMap(), workspaceFilterMap: getWorkspaceFilterMap(), projectFileMap: getProjectFileMap(), defaultWorkspaceParent: config.defaultWorkspaceParent || '' };
 }
 
 // プロジェクト表示名 → ワークスペースパスのマッピングを返す
@@ -800,6 +800,16 @@ function getWorkspaceFilterMap() {
       const dirName = p.workspace.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
       if (dirName) map[dirName.toLowerCase()] = p.name;
     }
+  }
+  return map;
+}
+
+// プロジェクト表示名 → file名 のマッピングを返す（BT-063: 移管先ピッカーが
+// /api/move-task に渡すfile名を、フロントの表示名からも解決できるようにする）
+function getProjectFileMap() {
+  const map = {};
+  for (const p of config.projects) {
+    if (p.name && p.file) map[p.name] = p.file;
   }
   return map;
 }
@@ -1698,6 +1708,90 @@ function detachFromParent(taskId) {
 }
 
 // ============================================================
+// Cross-Project Task Move API (BT-052)
+// ============================================================
+
+/**
+ * タスクを別プロジェクトへ移管し、移動先プレフィクスで再採番する
+ * - h3単発タスク（子なし）またはh4子タスクのみ対応
+ * - 子タスクを持つh3(Epic)は誤操作防止のため拒否する（移動は個別に子から行う）
+ * - h4子タスクを移動する場合は「（親:XXX）」表記を外し、移動先ではh3の単発タスクとして扱う
+ * @param {string} taskId - 移動元タスクID
+ * @param {string} targetFile - 移動先プロジェクトのfile名（config.projects[].file）
+ * @param {boolean} isChild - 移動元がh4子タスクかどうか
+ * @returns {{ success: boolean, oldId?: string, newId?: string, targetFile?: string, error?: string }}
+ */
+function moveTaskToProject(taskId, targetFile, isChild = false) {
+  const targetProject = (config.projects || []).find(p => p.file === targetFile || p.file.toLowerCase() === targetFile.toLowerCase());
+  if (!targetProject) {
+    return { success: false, error: `Target project "${targetFile}" not found` };
+  }
+  if (!targetProject.prefix) {
+    return { success: false, error: `Target project "${targetProject.file}" has no prefix configured` };
+  }
+
+  const block = findTaskBlock(taskId, isChild);
+  if (!block) {
+    return { success: false, error: `Task ${taskId} not found` };
+  }
+  const { lines, filePath, file, headerIdx, blockEnd, isH3 } = block;
+
+  if (path.basename(file, '.backlog.md').toLowerCase() === targetProject.file.toLowerCase()) {
+    return { success: false, error: `Task ${taskId} is already in project "${targetProject.file}"` };
+  }
+
+  if (isH3) {
+    const hasChildren = lines.slice(headerIdx + 1, blockEnd).some(l => /^####\s+\[/.test(l));
+    if (hasChildren) {
+      return { success: false, error: 'has_children' };
+    }
+  }
+
+  // 移動先ファイル・アクティブセクションの存在を先に検証する（元ファイル削除後の
+  // 書き込み失敗によるタスク消失を防ぐため、破壊的な変更は全検証が通ってから行う）
+  const targetPath = path.join(BACKLOG_DIR, `${targetProject.file}.backlog.md`);
+  if (!fs.existsSync(targetPath)) {
+    return { success: false, error: `${targetProject.file}.backlog.md not found` };
+  }
+  const targetLines = fs.readFileSync(targetPath, 'utf8').split(/\r?\n/);
+  let activeIdx = -1;
+  for (let i = 0; i < targetLines.length; i++) {
+    if (/^##\s+.*🔥/.test(targetLines[i])) { activeIdx = i; break; }
+  }
+  if (activeIdx === -1) {
+    return { success: false, error: `Active section (🔥) not found in ${targetProject.file}.backlog.md` };
+  }
+
+  const raw = lines.slice(headerIdx, blockEnd);
+  const headerMatch = isH3
+    ? raw[0].match(/^###\s+\[([^\]]+)\]\s+(.+)/)
+    : raw[0].match(/^####\s+\[([^\]]+)\]\s+(.+)/);
+  let title = headerMatch ? headerMatch[2].trim() : '';
+  title = title.replace(/[（(]親[:：].+?[）)]\s*$/, '').trim();
+
+  const newId = allocateId(targetProject.prefix);
+  raw[0] = `### [${newId}] ${title}`;
+  while (raw.length > 0 && raw[raw.length - 1].trim() === '') raw.pop();
+
+  // 元ファイルからブロック削除
+  lines.splice(headerIdx, blockEnd - headerIdx);
+  fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+
+  // 移動先の🔥アクティブセクション末尾に挿入
+  let insertIdx = targetLines.length;
+  for (let i = activeIdx + 1; i < targetLines.length; i++) {
+    if (/^##\s/.test(targetLines[i])) { insertIdx = i; break; }
+  }
+  const insertBlock = [...raw, ''];
+  if (insertIdx > 0 && targetLines[insertIdx - 1].trim() !== '') insertBlock.unshift('');
+  targetLines.splice(insertIdx, 0, ...insertBlock);
+  fs.writeFileSync(targetPath, targetLines.join('\n'), 'utf8');
+
+  console.log(`[api] Moved ${taskId} -> ${newId} (${file} -> ${targetProject.file}.backlog.md)`);
+  return { success: true, oldId: taskId, newId, targetFile: targetProject.file };
+}
+
+// ============================================================
 // Task Update (title/description) API
 // ============================================================
 
@@ -2215,6 +2309,32 @@ function serveStatic(req, res) {
         broadcast(board);
       } else {
         res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: result.error }));
+      }
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: POST /api/move-task
+  if (req.url === '/api/move-task' && req.method === 'POST') {
+    readRequestBody(req).then(({ taskId, targetFile, isChild }) => {
+      if (!taskId || !targetFile) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'taskId and targetFile are required' }));
+        return;
+      }
+      const result = moveTaskToProject(taskId, targetFile, !!isChild);
+      if (result.success) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, oldId: result.oldId, newId: result.newId, targetFile: result.targetFile }));
+        const board = buildBoard();
+        broadcast(board);
+      } else {
+        const statusCode = result.error === 'has_children' ? 409 : 404;
+        res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: result.error }));
       }
     }).catch(e => {

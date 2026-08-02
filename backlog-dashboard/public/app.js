@@ -568,6 +568,14 @@ function buildArtifactsHtml(item) {
   return `<div class="detail-section"><h4>成果物</h4><ul class="detail-artifacts">${artifactItems}</ul></div>`;
 }
 
+// ボタン群を横並び1行にまとめる（BT-063: 編集/削除、子タスク追加/親設定、
+// ワークスペース開く/移管 のように意味のあるペアを1行にレイアウトするため）
+// 引数のうち空文字列は無視するので、片方しかないボタンは自動で全幅表示になる
+function actionsRow(...btns) {
+  const content = btns.filter(Boolean).join('');
+  return content ? `<div class="detail-actions-row">${content}</div>` : '';
+}
+
 // ワークスペース導線ボタンのHTMLを生成する（BT-053）
 // プロジェクトにworkspaceパスが設定済みなら「開く」、未設定なら「作る」を出し分ける
 function buildWorkspaceActionHtml(item) {
@@ -575,9 +583,9 @@ function buildWorkspaceActionHtml(item) {
   const workspaceMap = currentBoardData && currentBoardData.workspaceMap || {};
   const wsPath = workspaceMap[item.project] || '';
   if (wsPath) {
-    return `<div class="detail-add-child"><button class="add-child-btn" id="modal-open-workspace-btn">📂 ワークスペースを開く</button></div>`;
+    return `<button class="add-child-btn" id="modal-open-workspace-btn">📂 ワークスペースを開く</button>`;
   }
-  return `<div class="detail-add-child"><button class="add-child-btn" id="modal-create-workspace-btn">🛠 ワークスペースを作る</button></div>`;
+  return `<button class="add-child-btn" id="modal-create-workspace-btn">🛠 ワークスペースを作る</button>`;
 }
 
 function setupWorkspaceActionButtons(body, item) {
@@ -588,6 +596,19 @@ function setupWorkspaceActionButtons(body, item) {
   const createBtn = body.querySelector('#modal-create-workspace-btn');
   if (createBtn) {
     createBtn.addEventListener('click', () => openWorkspaceCreateForm());
+  }
+}
+
+// ワークスペース移管ボタンのHTMLを生成する（BT-063）
+function buildMoveActionHtml(item) {
+  if (!item.id || item.id === '-') return '';
+  return `<button class="add-child-btn" id="modal-move-btn">🚚 ワークスペースを移管</button>`;
+}
+
+function setupMoveActionButton(body, item, isChild) {
+  const moveBtn = body.querySelector('#modal-move-btn');
+  if (moveBtn) {
+    moveBtn.addEventListener('click', () => openMovePicker([item.id], isChild));
   }
 }
 
@@ -1156,19 +1177,18 @@ function openChildModal(item) {
 
   // 親から外すボタン（BT-034: attachの逆操作。単に外すだけで他の親には付け替えない）
   const detachBtn = (item.id && item.id !== '-')
-    ? `<div class="detail-add-child"><button class="add-child-btn detach-btn" id="modal-detach-btn">🔓 親から外す</button></div>`
+    ? `<button class="add-child-btn detach-btn" id="modal-detach-btn">🔓 親から外す</button>`
     : '';
 
   // 編集・削除ボタン（BT-036/BT-031: 子タスクは常に単独削除可）
-  const editDeleteBtn = (item.id && item.id !== '-')
-    ? `<div class="detail-actions">
-        <button class="detail-action-btn" id="modal-edit-btn">✏️ 編集</button>
-        <button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>
-      </div>`
-    : '';
+  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn" id="modal-edit-btn">✏️ 編集</button>` : '';
+  const deleteBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>` : '';
 
   // ワークスペース導線ボタン（BT-053）
   const workspaceActionHtml = buildWorkspaceActionHtml(item);
+
+  // ワークスペース移管ボタン（BT-063）
+  const moveActionHtml = buildMoveActionHtml(item);
 
   body.innerHTML = `
     <div class="detail-header">
@@ -1180,9 +1200,9 @@ function openChildModal(item) {
     ${desc}
     ${artifactsHtml}
     ${metaHtml}
-    ${editDeleteBtn}
-    ${workspaceActionHtml}
-    ${detachBtn}
+    ${actionsRow(editBtnHtml, deleteBtnHtml)}
+    ${actionsRow(workspaceActionHtml, moveActionHtml)}
+    ${actionsRow(detachBtn)}
   `;
 
   // 親から外すボタンのイベント
@@ -1212,6 +1232,9 @@ function openChildModal(item) {
 
   // ワークスペース導線ボタンのイベント（BT-053）
   setupWorkspaceActionButtons(body, item);
+
+  // プロジェクト移管ボタンのイベント（BT-063）
+  setupMoveActionButton(body, item, true);
 
   modal.classList.add('modal-visible');
 }
@@ -1423,26 +1446,25 @@ function renderModalContent(item) {
 
   // 子タスク追加ボタン（Epicでも非Epicでも表示）
   const addChildBtn = (item.id && item.id !== '-')
-    ? `<div class="detail-add-child"><button class="add-child-btn" id="modal-add-child-btn">＋ 子タスクを追加</button></div>`
+    ? `<button class="add-child-btn" id="modal-add-child-btn">＋ 子タスクを追加</button>`
     : '';
 
   // 親を設定ボタン（BT-034: 単独タスク→その場でEPIC化。子を持つ/完了済みは対象外）
   const setParentBtn = (item.id && item.id !== '-' && !isEpic && item.status !== '完了')
-    ? `<div class="detail-add-child"><button class="add-child-btn" id="modal-set-parent-btn">🔗 親を設定</button></div>`
+    ? `<button class="add-child-btn" id="modal-set-parent-btn">🔗 親を設定</button>`
     : '';
 
   const detailSpinner = item.running ? '<span class="running-spinner detail-spinner"></span>' : '';
 
   // 編集・削除ボタン（BT-036/BT-031: 子ありEpicは削除不可のため削除ボタンを出さない）
-  const editDeleteBtn = (item.id && item.id !== '-')
-    ? `<div class="detail-actions">
-        <button class="detail-action-btn" id="modal-edit-btn">✏️ 編集</button>
-        ${!isEpic ? `<button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>` : ''}
-      </div>`
-    : '';
+  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn" id="modal-edit-btn">✏️ 編集</button>` : '';
+  const deleteBtnHtml = (item.id && item.id !== '-' && !isEpic) ? `<button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>` : '';
 
   // ワークスペース導線ボタン（BT-053）
   const workspaceActionHtml = buildWorkspaceActionHtml(item);
+
+  // ワークスペース移管ボタン（BT-063: 子ありEpicはサーバー側でも拒否されるため出さない）
+  const moveActionHtml = (!isEpic && item.status !== '完了') ? buildMoveActionHtml(item) : '';
 
   body.innerHTML = `
     <div class="detail-header">
@@ -1455,10 +1477,9 @@ function renderModalContent(item) {
     ${desc}
     ${artifactsHtml}
     ${metaHtml}
-    ${editDeleteBtn}
-    ${addChildBtn}
-    ${setParentBtn}
-    ${workspaceActionHtml}
+    ${actionsRow(editBtnHtml, deleteBtnHtml)}
+    ${actionsRow(addChildBtn, setParentBtn)}
+    ${actionsRow(workspaceActionHtml, moveActionHtml)}
     ${miniBoard}
   `;
 
@@ -1512,6 +1533,9 @@ function renderModalContent(item) {
 
   // ワークスペース導線ボタンのイベント（BT-053）
   setupWorkspaceActionButtons(body, item);
+
+  // プロジェクト移管ボタンのイベント（BT-063）
+  setupMoveActionButton(body, item, false);
 
   if (isEpic) buildMiniBoard(item);
 }
@@ -1792,11 +1816,13 @@ function getOrCreateSelectionBar() {
   selectionBarEl.innerHTML = `
     <span class="selection-bar-count"></span>
     <button class="selection-bar-btn selection-bar-parent" id="selection-pick-parent">親を選ぶ</button>
+    <button class="selection-bar-btn selection-bar-move" id="selection-pick-move">🚚 移動</button>
     <button class="selection-bar-btn selection-bar-delete danger" id="selection-delete">🗑 削除</button>
     <button class="selection-bar-btn selection-bar-cancel" id="selection-cancel">キャンセル</button>
   `;
   document.body.appendChild(selectionBarEl);
   selectionBarEl.querySelector('#selection-pick-parent').addEventListener('click', () => openParentPicker());
+  selectionBarEl.querySelector('#selection-pick-move').addEventListener('click', () => openMovePicker(null, false));
   selectionBarEl.querySelector('#selection-delete').addEventListener('click', () => openBulkDeleteConfirm());
   selectionBarEl.querySelector('#selection-cancel').addEventListener('click', () => {
     selectionMode = false;
@@ -1897,6 +1923,121 @@ function getOrCreateParentPicker() {
     renderParentPickerList(e.target.value);
   });
   return parentPickerEl;
+}
+
+// --- プロジェクト移管 (BT-063) ---
+let pendingMoveIds = [];
+let moveIsChild = false;
+let movePickerEl = null;
+
+function getOrCreateMovePicker() {
+  if (movePickerEl) return movePickerEl;
+  movePickerEl = document.createElement('div');
+  movePickerEl.className = 'modal-overlay';
+  movePickerEl.innerHTML = `
+    <div class="modal-content parent-picker-modal">
+      <button class="modal-close" id="move-picker-close">&times;</button>
+      <h3 class="add-form-title">移動先プロジェクトを選ぶ</h3>
+      <div class="parent-picker-list" id="move-picker-list"></div>
+    </div>
+  `;
+  document.body.appendChild(movePickerEl);
+  movePickerEl.addEventListener('click', (e) => {
+    if (e.target === movePickerEl) closeMovePicker();
+  });
+  movePickerEl.querySelector('#move-picker-close').addEventListener('click', closeMovePicker);
+  return movePickerEl;
+}
+
+function closeMovePicker() {
+  if (movePickerEl) movePickerEl.classList.remove('modal-visible');
+  pendingMoveIds = [];
+}
+
+/**
+ * 移動先プロジェクトのピッカーを開く
+ * @param {string[]|null} idsOverride - 単独タスク詳細から呼ぶ場合のID配列。nullなら複数選択中のIDを使う
+ * @param {boolean} isChild - 移動元がh4子タスクか
+ */
+function openMovePicker(idsOverride, isChild) {
+  pendingMoveIds = (idsOverride && idsOverride.length > 0) ? idsOverride : [...selectedIds];
+  if (pendingMoveIds.length === 0) return;
+  moveIsChild = !!isChild;
+
+  const items = pendingMoveIds.map(id => findItemById(id)).filter(Boolean);
+  const currentProjects = new Set(items.map(i => i.project));
+
+  const picker = getOrCreateMovePicker();
+  const listEl = picker.querySelector('#move-picker-list');
+  const projectFileMap = (currentBoardData && currentBoardData.projectFileMap) || {};
+  const projectNames = (currentBoardData && currentBoardData.projects) || [];
+
+  // 移動元と同じプロジェクトは候補から除外（複数選択で複数プロジェクトにまたがる場合はどちらも除外）
+  const candidates = projectNames.filter(name => projectFileMap[name] && !currentProjects.has(name));
+
+  if (candidates.length === 0) {
+    listEl.innerHTML = '<div class="parent-picker-empty">移動できる別プロジェクトがないよ</div>';
+  } else {
+    listEl.innerHTML = candidates.map(name => {
+      return `<div class="parent-picker-item" data-file="${escapeHtml(projectFileMap[name])}">
+        <span class="parent-picker-item-title">${escapeHtml(name)}</span>
+      </div>`;
+    }).join('');
+    listEl.querySelectorAll('.parent-picker-item').forEach(el => {
+      el.addEventListener('click', () => confirmMove(el.dataset.file));
+    });
+  }
+
+  picker.classList.add('modal-visible');
+}
+
+/**
+ * 選択中タスクを移動先プロジェクトへ移管する（1件ずつ順にAPIを呼ぶ）
+ * @param {string} targetFile - 移動先プロジェクトのfile名
+ */
+async function confirmMove(targetFile) {
+  const taskIds = pendingMoveIds.length > 0 ? pendingMoveIds : [...selectedIds];
+  const isChild = moveIsChild;
+  const succeeded = [];
+  const failed = [];
+
+  for (const taskId of taskIds) {
+    try {
+      const resp = await fetch('/api/move-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId, targetFile, isChild }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        failed.push({ taskId, error: data.error || '' });
+      } else {
+        succeeded.push({ taskId, newId: data.newId });
+      }
+    } catch (e) {
+      console.error('[move-task] Network error:', e);
+      failed.push({ taskId, error: 'network' });
+    }
+  }
+
+  closeMovePicker();
+  if (failed.length > 0) {
+    const reasons = failed.map(f => `${f.taskId}(${f.error})`).join(', ');
+    alert(`${succeeded.length}件移管したよ。${failed.length}件は失敗: ${reasons}`);
+  }
+
+  // 単独タスク詳細から実行した場合、そのタスクは別プロジェクトへ移ったので詳細モーダルも閉じる
+  if (isChild) {
+    closeChildModal();
+  } else if (currentModalItemId && taskIds.includes(currentModalItemId)) {
+    closeModal();
+  }
+
+  selectionMode = false;
+  selectedIds.clear();
+  const selectBtn = document.getElementById('select-mode-btn');
+  if (selectBtn) selectBtn.classList.remove('filter-active');
+  renderBoard(lastBoardData);
 }
 
 function openParentPicker(idsOverride) {
