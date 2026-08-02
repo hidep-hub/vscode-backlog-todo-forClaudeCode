@@ -292,8 +292,8 @@ function projectTemplate(name) {
 
 ## ✅ 完了（アーカイブ）
 
-| 完了日 | 親 | ID | 件名 |
-|---|---|---|---|
+| 完了日 | ts | 親 | ID | 件名 |
+|---|---|---|---|---|
 `;
 }
 
@@ -453,18 +453,21 @@ function parseBacklogFile(filePath) {
       continue;
     }
 
-    // 完了テーブル行: | YYYY-MM-DD | EP | ID | 件名 |
+    // 完了テーブル行: | YYYY-MM-DD | 親 | ID | 件名 |（BT-066以降は | YYYY-MM-DD | ts | 親 | ID | 件名 |）
     if (currentSection === 'done' && line.match(/^\|.*\|$/)) {
       const cells = line.split('|').map(c => c.trim()).filter(Boolean);
       // ヘッダー行/セパレータをスキップ
       if (cells.length >= 4 && cells[0].match(/^\d{4}-\d{2}-\d{2}$/)) {
+        const hasTs = cells.length >= 5 && /^\d{2}:\d{2}:\d{2}$/.test(cells[1]);
+        const offset = hasTs ? 1 : 0;
         tasks.push({
-          id: cells[2] || '-',
-          title: cells[3],
+          id: cells[2 + offset] || '-',
+          title: cells[3 + offset],
           project: projectName,
           status: '完了',
           category: '-',
           completedDate: cells[0],
+          completedTs: hasTs ? cells[1] : '',
         });
       }
       continue;
@@ -743,7 +746,12 @@ function buildBoard() {
         const db = b.completedDate || '0000-00-00';
         const dateCmp = db.localeCompare(da); // 降順（新しい順）
         if (dateCmp !== 0) return dateCmp;
-        return (b.id || '').localeCompare(a.id || ''); // 同日ならID降順
+        // 同日ならts（完了時刻）降順。ts未記録の旧データはID降順にフォールバック（BT-066）
+        if (a.completedTs && b.completedTs) {
+          const tsCmp = b.completedTs.localeCompare(a.completedTs);
+          if (tsCmp !== 0) return tsCmp;
+        }
+        return (b.id || '').localeCompare(a.id || '');
       });
     }
     // limitはフロント側で制御するため、サーバーでは切らない（全件返す）
@@ -909,6 +917,7 @@ function updateTaskStatus(taskId, newStatus, isChild = false) {
       const now = new Date();
       const jstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
       const dateStr = jstDate.toISOString().slice(0, 10);
+      const tsStr = jstDate.toISOString().slice(11, 19); // 完了カラムの並び順用（BT-066）
       let completedLineIdx = -1;
       for (let i = taskLineIdx + 1; i < blockEnd; i++) {
         if (/^\s*-\s+完了日[:：]/.test(lines[i])) {
@@ -951,7 +960,7 @@ function updateTaskStatus(taskId, newStatus, isChild = false) {
             }
             let insertAt = tableEnd;
             while (insertAt > doneSectionIdx + 1 && lines[insertAt - 1].trim() === '') insertAt--;
-            lines.splice(insertAt, 0, `| ${dateStr} | - | ${taskId} | ${title} |`);
+            lines.splice(insertAt, 0, `| ${dateStr} | ${tsStr} | - | ${taskId} | ${title} |`);
           }
         }
       }
@@ -1382,8 +1391,8 @@ const INBOX_TEMPLATE = `# Inbox バックログ
 
 ## ✅ 完了（アーカイブ）
 
-| 完了日 | EP | ID | 件名 |
-|---|---|---|---|
+| 完了日 | ts | 親 | ID | 件名 |
+|---|---|---|---|---|
 `;
 
 /**
@@ -1406,7 +1415,7 @@ function ensureInbox() {
  * @param {string} origin - 起源 (user / claude)
  * @returns {{ success: boolean, id?: string, error?: string }}
  */
-function addTask(title, project, status = '未着手', origin = 'user') {
+function addTask(title, project, status = '未着手', origin = 'user', description = '') {
   // ファイル特定
   let filePath;
   if (project === 'inbox' || !project) {
@@ -1460,9 +1469,11 @@ function addTask(title, project, status = '未着手', origin = 'user') {
   const taskId = prefix ? allocateId(prefix) : '未採番';
 
   // 空行調整: 直前が空行でなければ空行を入れる
+  const descLines = description.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const taskBlock = [
     `### [${taskId}] ${title}`,
     `- 状態: ${status}`,
+    ...(descLines.length > 0 ? [`- 説明: ${descLines[0]}`, ...descLines.slice(1)] : []),
     `- 起源: ${origin}`,
     '',
   ];
@@ -1487,7 +1498,7 @@ function addTask(title, project, status = '未着手', origin = 'user') {
  * @param {string} origin - 起源
  * @returns {{ success: boolean, error?: string }}
  */
-function addChildTask(title, parentId, status = '未着手', origin = 'user') {
+function addChildTask(title, parentId, status = '未着手', origin = 'user', description = '') {
   const files = fs.readdirSync(BACKLOG_DIR)
     .filter(f => f.endsWith('.backlog.md'));
 
@@ -1516,9 +1527,11 @@ function addChildTask(title, parentId, status = '未着手', origin = 'user') {
     const childId = prefix ? allocateId(prefix) : '未採番';
 
     // 親の末尾に子タスクブロックを挿入
+    const descLines = description.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     const childBlock = [
       `#### [${childId}] ${title}（親:${parentId}）`,
       `- 状態: ${status}`,
+      ...(descLines.length > 0 ? [`- 説明: ${descLines[0]}`, ...descLines.slice(1)] : []),
       `- 起源: ${origin}`,
       '',
     ];
@@ -1857,8 +1870,12 @@ function findArchiveTableRow(taskId) {
       const line = lines[i];
       if (!/^\|.*\|$/.test(line)) continue;
       const cells = line.split('|').map(c => c.trim()).filter(Boolean);
-      if (cells.length >= 4 && cells[0].match(/^\d{4}-\d{2}-\d{2}$/) && cells[2] === taskId) {
-        return { lines, filePath, file, rowIdx: i, cells };
+      if (cells.length < 4 || !cells[0].match(/^\d{4}-\d{2}-\d{2}$/)) continue;
+      // ts列（BT-066）の有無でID/件名の位置がずれるため判定してから比較
+      const hasTs = cells.length >= 5 && /^\d{2}:\d{2}:\d{2}$/.test(cells[1]);
+      const offset = hasTs ? 1 : 0;
+      if (cells[2 + offset] === taskId) {
+        return { lines, filePath, file, rowIdx: i, cells, hasTs, offset };
       }
     }
   }
@@ -1928,7 +1945,7 @@ function updateTaskTitle(taskId, newTitle, isChild = false) {
   const row = findArchiveTableRow(taskId);
   if (row) {
     const { lines, filePath, rowIdx, cells } = row;
-    lines[rowIdx] = `| ${cells[0]} | ${cells[1]} | ${cells[2]} | ${newTitle} |`;
+    lines[rowIdx] = `| ${cells.slice(0, cells.length - 1).join(' | ')} | ${newTitle} |`;
     fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
 
     // archive/*.archive.md 側の見出しも合わせて更新（あれば）
@@ -2177,7 +2194,7 @@ function serveStatic(req, res) {
 
   // API: POST /api/add-task
   if (req.url === '/api/add-task' && req.method === 'POST') {
-    readRequestBody(req).then(({ title, project, status, origin, parentId }) => {
+    readRequestBody(req).then(({ title, project, status, origin, parentId, description }) => {
       if (!title || !title.trim()) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'title is required' }));
@@ -2193,14 +2210,15 @@ function serveStatic(req, res) {
       let result;
       if (parentId) {
         // 子タスク追加
-        result = addChildTask(title.trim(), parentId, status || '未着手', origin || 'user');
+        result = addChildTask(title.trim(), parentId, status || '未着手', origin || 'user', description || '');
       } else {
         // 親タスク追加
         result = addTask(
           title.trim(),
           project || 'inbox',
           status || '未着手',
-          origin || 'user'
+          origin || 'user',
+          description || ''
         );
       }
 

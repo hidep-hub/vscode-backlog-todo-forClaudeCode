@@ -254,11 +254,58 @@ function setStatus(cls, text) {
   statusEl.textContent = text;
 }
 
+// --- 進行中タスク表示（ステータスバー / BT-059） ---
+function collectRunningTasks(data) {
+  const result = [];
+  const seen = new Set();
+  if (!data || !data.columns) return result;
+  for (const col of data.columns) {
+    for (const item of col.items) {
+      if (item.running && !seen.has(item.id)) {
+        seen.add(item.id);
+        result.push({ item, parentEpic: null });
+      }
+      for (const child of (item.children || [])) {
+        if (child.running && !seen.has(child.id)) {
+          seen.add(child.id);
+          result.push({ item: child, parentEpic: item });
+        }
+      }
+    }
+  }
+  return result;
+}
+
+function renderRunningStrip(data) {
+  const el = document.getElementById('running-strip');
+  if (!el) return;
+  const running = collectRunningTasks(data);
+  if (!running.length) {
+    el.innerHTML = '<span class="running-strip-empty">🟡 進行中のタスクはなし</span>';
+    return;
+  }
+  el.innerHTML = running.map(({ item }, idx) => `
+    <span class="running-chip" data-idx="${idx}" title="${escapeHtml(item.title)}">
+      <span class="running-spinner"></span>
+      <span class="running-chip-id">${escapeHtml(item.id)}</span>
+      <span class="running-chip-title">${escapeHtml(item.title)}</span>
+    </span>
+  `).join('');
+  el.querySelectorAll('.running-chip').forEach((chipEl) => {
+    const idx = parseInt(chipEl.dataset.idx, 10);
+    chipEl.addEventListener('click', () => {
+      const { item, parentEpic } = running[idx];
+      openCardDetail(item, parentEpic);
+    });
+  });
+}
+
 // --- Render: Board ---
 let lastBoardData = null;
 function renderBoard(data) {
   lastBoardData = data;
   boardEl.innerHTML = '';
+  renderRunningStrip(data);
 
   // プロジェクト別残タスクバッジ表示（クリックでフィルタ連携）
   const badgesEl = document.getElementById('project-badges');
@@ -2304,6 +2351,10 @@ function getOrCreateAddForm() {
         <input type="text" id="add-task-title" placeholder="やりたいことを一言で">
       </div>
       <div class="settings-group">
+        <label>説明（任意）</label>
+        <textarea id="add-task-description" rows="4" placeholder="補足があれば"></textarea>
+      </div>
+      <div class="settings-group">
         <label>ワークスペース</label>
         <select id="add-task-project">
           <option value="inbox">未ワークスペース (Inbox)</option>
@@ -2375,9 +2426,10 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId) {
     form.querySelector('#add-task-status').value = defaultStatus;
   }
 
-  // タイトルをクリア＆フォーカス
+  // タイトル・説明をクリア＆フォーカス
   const titleInput = form.querySelector('#add-task-title');
   titleInput.value = '';
+  form.querySelector('#add-task-description').value = '';
 
   form.classList.add('modal-visible');
   setTimeout(() => titleInput.focus(), 100);
@@ -2390,6 +2442,7 @@ function closeAddForm() {
 async function submitAddTask() {
   const form = getOrCreateAddForm();
   const title = form.querySelector('#add-task-title').value.trim();
+  const description = form.querySelector('#add-task-description').value.trim();
   const project = form.querySelector('#add-task-project').value;
   const status = form.querySelector('#add-task-status').value;
   const parentId = form.dataset.parentId || '';
@@ -2401,6 +2454,7 @@ async function submitAddTask() {
 
   try {
     const body = { title, project, status, origin: 'user' };
+    if (description) body.description = description;
     if (parentId) body.parentId = parentId;
 
     const resp = await fetch('/api/add-task', {
