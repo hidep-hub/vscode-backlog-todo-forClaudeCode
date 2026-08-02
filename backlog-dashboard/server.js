@@ -5,9 +5,11 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { WebSocketServer } = require('ws');
+const { spawn } = require('child_process');
 
 // --- Config ---
-const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+const CONFIG_PATH = path.join(__dirname, 'config.json');
+const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
 const PORT = config.port || 3333;
 const BACKLOG_DIR = config.backlogDir.replace(/^~/, os.homedir());
 const COUNTER_FILE = path.join(BACKLOG_DIR, '_counter.md');
@@ -30,7 +32,8 @@ function getAllPrefixes() {
 // config.json の columns[].match に定義された値だけを「正当なステータス」として扱う。
 // PowerShellのInvoke-RestMethod等でリクエストボディの日本語が文字化けし「???」等の
 // 不正な値がmdファイルに書き込まれる事故を防ぐためのガード（KT-052）。
-const VALID_STATUSES = new Set(
+// reloadConfig() で config.columns が変わるたびに作り直すため let にしている。
+let VALID_STATUSES = new Set(
   (config.columns || []).flatMap(col => col.match || [])
 );
 
@@ -42,6 +45,51 @@ const VALID_STATUSES = new Set(
  */
 function isValidStatus(status) {
   return typeof status === 'string' && VALID_STATUSES.has(status);
+}
+
+// ============================================================
+// Config Hot Reload (BT-050)
+// ============================================================
+// projects[] への追記（新規ワークスペース登録）をサーバー再起動なしで反映するため、
+// config.json をファイル監視し、変更検知時に既存の config オブジェクトへ in-place で
+// 上書きする（config は複数モジュールスコープの関数から同じ参照を見ているため、
+// プロパティを差し替えるだけで全箇所に伝播する）。
+// PORT / BACKLOG_DIR はリッスンポートやデータ格納場所という起動時にしか
+// 意味を成さない値なので、意図的にリロード対象から外している。
+let configReloadTimer = null;
+
+function reloadConfig() {
+  let newConfig;
+  try {
+    newConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  } catch (e) {
+    console.error('[config] Reload failed, keeping previous config:', e.message);
+    return;
+  }
+
+  for (const key of Object.keys(config)) delete config[key];
+  Object.assign(config, newConfig);
+
+  VALID_STATUSES = new Set(
+    (config.columns || []).flatMap(col => col.match || [])
+  );
+
+  console.log('[config] Reloaded config.json (projects:', (config.projects || []).map(p => p.file).join(', '), ')');
+}
+
+try {
+  // config.json を直接 fs.watch すると、エディタのアトミック保存（rename経由の
+  // 置き換え）で 'change' イベントが飛ばず検知漏れすることがあるため、
+  // ディレクトリを監視してファイル名でフィルタする（BACKLOG_DIR監視と同じ方式）。
+  // eventType は 'change' 'rename' のどちらでも変更ありとみなす。
+  fs.watch(__dirname, { persistent: true }, (eventType, filename) => {
+    if (filename !== 'config.json') return;
+    // 保存時に短時間で複数イベントが発火することがあるためデバウンス
+    if (configReloadTimer) clearTimeout(configReloadTimer);
+    configReloadTimer = setTimeout(reloadConfig, 300);
+  });
+} catch (e) {
+  console.error('[config] Failed to watch config.json:', e.message);
 }
 
 // ============================================================
@@ -160,6 +208,156 @@ function allocateId(prefix) {
 function prefixForFile(fileName) {
   const proj = (config.projects || []).find(p => p.file === fileName || p.file.toLowerCase() === fileName.toLowerCase());
   return proj ? proj.prefix : null;
+}
+
+// ============================================================
+// Workspace API (BT-049)
+// ============================================================
+
+/**
+ * タスクIDが属するbacklogファイルを特定し、対応する config.projects[] エントリを返す
+ * @param {string} taskId
+ * @returns {object|null} - config.projects[] の要素、見つからなければ null
+ */
+function findProjectEntryForTask(taskId) {
+  const files = fs.readdirSync(BACKLOG_DIR)
+    .filter(f => f.endsWith('.backlog.md'));
+
+  const h3Regex = new RegExp(`^###\\s+\\[${escapeRegex(taskId)}\\]`, 'm');
+  const h4Regex = new RegExp(`^####\\s+\\[${escapeRegex(taskId)}\\]`, 'm');
+
+  for (const file of files) {
+    const content = fs.readFileSync(path.join(BACKLOG_DIR, file), 'utf8');
+    if (h3Regex.test(content) || h4Regex.test(content)) {
+      const baseName = path.basename(file, '.backlog.md');
+      return (config.projects || []).find(p => p.file === baseName || p.file.toLowerCase() === baseName.toLowerCase()) || null;
+    }
+  }
+  return null;
+}
+
+/**
+ * タスクが属するプロジェクトのワークスペースをVS Codeで開く
+ * @param {string} taskId
+ * @returns {{ success: boolean, workspace?: string, error?: string }}
+ */
+// Windowsの`code`はPATH上の.cmdシムのため shell:true でしか解決できない。
+// shell:true は引数をエスケープせず連結するため、config.json由来とはいえ
+// シェルメタ文字を含むパスは事前に弾いておく（多層防御）。
+const SAFE_WORKSPACE_PATH = /^[A-Za-z0-9 _.:/\\-]+$/;
+
+function spawnVSCode(workspacePath) {
+  try {
+    const child = spawn('code', [workspacePath], { detached: true, shell: true, stdio: 'ignore' });
+    child.unref();
+    return true;
+  } catch (e) {
+    console.error(`[workspace] Failed to spawn code for ${workspacePath}:`, e.message);
+    return false;
+  }
+}
+
+function openWorkspace(taskId) {
+  const project = findProjectEntryForTask(taskId);
+  if (!project) {
+    return { success: false, error: `Task ${taskId} not found` };
+  }
+  if (!project.workspace) {
+    return { success: false, error: `Project "${project.name}" has no workspace path configured` };
+  }
+  if (!SAFE_WORKSPACE_PATH.test(project.workspace)) {
+    return { success: false, error: `Workspace path contains unsupported characters: ${project.workspace}` };
+  }
+  if (!fs.existsSync(project.workspace)) {
+    return { success: false, error: `Workspace path does not exist: ${project.workspace}` };
+  }
+
+  spawnVSCode(project.workspace);
+  return { success: true, workspace: project.workspace };
+}
+
+// ============================================================
+// Workspace Creation API (BT-051)
+// ============================================================
+
+const FILE_NAME_RE = /^[A-Za-z0-9_-]+$/;
+const PREFIX_RE = /^[A-Z]{2}$/;
+
+function projectTemplate(name) {
+  return `# ${name} バックログ
+
+## 🔥 次やる
+
+## 💡 アイデア／保留
+
+## ✅ 完了（アーカイブ）
+
+| 完了日 | 親 | ID | 件名 |
+|---|---|---|---|
+`;
+}
+
+/**
+ * 新規プロジェクト（ワークスペース）を作成する
+ * - workspaceフォルダが存在しなければ作成（「作って開く」の"作って"部分）
+ * - <file>.backlog.md を雛形で新規作成
+ * - config.projects[] に追記して永続化
+ *   （fs.watchによるホットリロード(BT-050)でも自動反映されるが、直後のリクエストが
+ *   古いconfigを見ないよう in-memory も同時に更新する）
+ * @param {{file:string, prefix:string, name?:string, workspace?:string}} params
+ * @returns {{ success: boolean, file?: string, prefix?: string, name?: string, workspace?: string, error?: string }}
+ */
+function createWorkspaceProject({ file, prefix, name, workspace }) {
+  if (!file || !FILE_NAME_RE.test(file)) {
+    return { success: false, error: 'file must match /^[A-Za-z0-9_-]+$/' };
+  }
+  if (!prefix || !PREFIX_RE.test(prefix)) {
+    return { success: false, error: 'prefix must be 2 uppercase letters (A-Z)' };
+  }
+
+  const existingByFile = (config.projects || []).find(p => p.file.toLowerCase() === file.toLowerCase());
+  if (existingByFile) {
+    return { success: false, error: `Project file "${file}" is already registered` };
+  }
+  const existingByPrefix = (config.projects || []).find(p => p.prefix === prefix);
+  if (existingByPrefix) {
+    return { success: false, error: `Prefix "${prefix}" is already used by project "${existingByPrefix.file}"` };
+  }
+  const counter = readCounter();
+  if (counter && counter[prefix]) {
+    return { success: false, error: `Prefix "${prefix}" already exists in _counter.md (past project residue)` };
+  }
+
+  const mdPath = path.join(BACKLOG_DIR, `${file}.backlog.md`);
+  if (fs.existsSync(mdPath)) {
+    return { success: false, error: `${file}.backlog.md already exists` };
+  }
+
+  if (workspace) {
+    if (!SAFE_WORKSPACE_PATH.test(workspace)) {
+      return { success: false, error: `Workspace path contains unsupported characters: ${workspace}` };
+    }
+    if (!fs.existsSync(workspace)) {
+      fs.mkdirSync(workspace, { recursive: true });
+      console.log(`[api] Created workspace directory: ${workspace}`);
+    }
+  }
+
+  const displayName = name || file;
+  fs.writeFileSync(mdPath, projectTemplate(displayName), 'utf8');
+  console.log(`[api] Created ${file}.backlog.md`);
+
+  const newEntry = { file, prefix, name: displayName, workspace: workspace || '' };
+  config.projects = [...(config.projects || []), newEntry];
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  console.log(`[api] Registered project "${file}" (prefix: ${prefix}) in config.json`);
+
+  // 「作って開く」（BT-033の課題1節）を1APIで完結させるため、作成直後にVS Codeを起動する
+  if (workspace) {
+    spawnVSCode(workspace);
+  }
+
+  return { success: true, file, prefix, name: displayName, workspace: workspace || '' };
 }
 
 // --- MIME Types ---
@@ -561,8 +759,11 @@ function buildBoard() {
     };
   });
 
-  // プロジェクト一覧を抽出
-  const projects = [...new Set(allTasks.map(t => t.project).filter(Boolean))].sort();
+  // プロジェクト一覧を抽出（タスクが1件も無い新規作成直後のワークスペースもフィルタに
+  // 出したいため、config.projects[]の全件とタスク由来のproject名の和集合にする）
+  const projectsFromConfig = (config.projects || []).map(p => p.name).filter(Boolean);
+  const projectsFromTasks = allTasks.map(t => t.project).filter(Boolean);
+  const projects = [...new Set([...projectsFromConfig, ...projectsFromTasks])].sort();
 
   // プロジェクト別残タスク数（完了以外のh3タスク）
   const remainingByProject = {};
@@ -571,7 +772,7 @@ function buildBoard() {
     remainingByProject[t.project] = (remainingByProject[t.project] || 0) + 1;
   }
 
-  return { columns, projects, remainingByProject, updatedAt: new Date().toISOString(), workspaceMap: getWorkspaceMap(), workspaceFilterMap: getWorkspaceFilterMap() };
+  return { columns, projects, remainingByProject, updatedAt: new Date().toISOString(), workspaceMap: getWorkspaceMap(), workspaceFilterMap: getWorkspaceFilterMap(), defaultWorkspaceParent: config.defaultWorkspaceParent || '' };
 }
 
 // プロジェクト表示名 → ワークスペースパスのマッピングを返す
@@ -1916,6 +2117,54 @@ function serveStatic(req, res) {
         broadcast(board);
       } else {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: result.error }));
+      }
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: POST /api/open-workspace
+  if (req.url === '/api/open-workspace' && req.method === 'POST') {
+    readRequestBody(req).then(({ taskId }) => {
+      if (!taskId) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'taskId is required' }));
+        return;
+      }
+      const result = openWorkspace(taskId);
+      if (result.success) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, workspace: result.workspace }));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: result.error }));
+      }
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: POST /api/create-workspace
+  if (req.url === '/api/create-workspace' && req.method === 'POST') {
+    readRequestBody(req).then(({ file, prefix, name, workspace }) => {
+      if (!file || !prefix) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'file and prefix are required' }));
+        return;
+      }
+      const result = createWorkspaceProject({ file, prefix, name, workspace });
+      if (result.success) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, file: result.file, prefix: result.prefix, name: result.name, workspace: result.workspace }));
+        const board = buildBoard();
+        broadcast(board);
+      } else {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: result.error }));
       }
     }).catch(e => {

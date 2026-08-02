@@ -187,6 +187,127 @@ body {
   border-color: var(--accent);
 }
 
+.search-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.search-btn:hover {
+  background: var(--card);
+  color: var(--text);
+}
+
+/* --- Search Modal --- */
+.search-modal-content {
+  width: 100%;
+  max-width: 560px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.search-modal-input {
+  font-size: 0.95rem;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+}
+
+.search-modal-input:focus {
+  border-color: var(--accent);
+}
+
+.search-result-list {
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.search-group-header {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 6px 4px 2px;
+}
+
+.search-group-header:not(:first-child) {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.search-result-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+}
+
+.search-result-item:hover {
+  border-color: var(--accent);
+}
+
+.search-result-item.search-result-selected {
+  border-color: var(--accent);
+  background: var(--badge-done-bg, var(--card));
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.search-indent-1 {
+  margin-left: 14px;
+}
+
+.search-indent-2 {
+  margin-left: 32px;
+}
+
+.search-result-id {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.search-result-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result-status {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.search-result-empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 24px 0;
+  font-size: 0.85rem;
+}
+
 .settings-btn {
   background: none;
   border: 1px solid var(--border);
@@ -941,6 +1062,13 @@ body {
   font-size: 0.85rem;
 }
 
+.workspace-form-path-preview {
+  margin: 6px 2px 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
 .settings-close {
   position: absolute;
   top: 12px;
@@ -1114,6 +1242,93 @@ body {
   color: #fff;
 }
 
+/* --- Edit / Delete (BT-036 / BT-031) --- */
+.detail-actions {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
+.detail-action-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px dashed var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.detail-action-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.detail-action-btn.danger {
+  border-color: #e53e3e;
+  color: #e53e3e;
+}
+
+.detail-action-btn.danger:hover {
+  background: #e53e3e;
+  color: #fff;
+}
+
+.settings-group textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.archived-note {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-style: italic;
+}
+
+.edit-task-error,
+.delete-confirm-error {
+  color: #e53e3e;
+  font-size: 0.8rem;
+  margin: 4px 0 8px;
+}
+
+.edit-form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.edit-form-actions .add-task-submit {
+  flex: 1;
+}
+
+.edit-form-actions .add-child-btn {
+  flex-shrink: 0;
+}
+
+.add-task-submit.danger {
+  background: #e53e3e;
+}
+
+.delete-confirm-modal {
+  max-width: 420px;
+}
+
+.delete-confirm-text {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 8px 0 16px;
+}
+
 
 /* --- Today Flag (📌 ピン) --- */
 :root,
@@ -1199,6 +1414,52 @@ body {
   font-size: 0.55rem;
   top: 2px;
   right: 2px;
+  padding: 1px;
+}
+
+/* --- Card direct edit/delete buttons (BT-041) --- */
+.card-actions {
+  position: absolute;
+  top: 6px;
+  right: 24px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+
+.card:hover .card-actions {
+  opacity: 0.3;
+}
+
+.card .card-action-btn:hover {
+  opacity: 1;
+}
+
+.card-action-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 2px;
+  border-radius: 3px;
+}
+
+.card-action-btn.danger:hover {
+  color: #e53e3e;
+}
+
+.mini-col-body .card-child .card-actions {
+  font-size: 0.55rem;
+  top: 2px;
+  right: 18px;
+  gap: 1px;
+}
+
+.mini-col-body .card-child .card-action-btn {
+  font-size: 0.55rem;
   padding: 1px;
 }
 
@@ -1385,4 +1646,221 @@ body {
 
 .done-today-empty-mini .done-today-empty-emoji {
   font-size: 1.1rem;
+}
+
+/* --- Selection Mode (BT-034: 複数選択→親付け) --- */
+.select-mode-btn {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.select-mode-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.select-mode-btn.filter-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.card-select-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: grayscale(0.6);
+}
+
+.card-select-disabled:hover {
+  outline: none;
+}
+
+.card-selected {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: -2px;
+  background: var(--card-hover);
+}
+
+/* --- Selection Bar (フローティング、下部固定) --- */
+.selection-bar {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 900;
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.selection-bar.selection-bar-visible {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.selection-bar-count {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.selection-bar-btn {
+  font-size: 0.78rem;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+
+.selection-bar-parent {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.selection-bar-parent:hover {
+  opacity: 0.88;
+}
+
+.selection-bar-cancel {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.selection-bar-cancel:hover {
+  color: var(--text);
+}
+
+.selection-bar-btn.danger {
+  background: transparent;
+  color: #e53e3e;
+  border-color: #e53e3e;
+}
+
+.selection-bar-btn.danger:hover {
+  background: #e53e3e;
+  color: #fff;
+}
+
+/* --- Parent Picker Modal --- */
+.parent-picker-modal {
+  max-width: 420px;
+}
+
+.parent-picker-new-btn {
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border-radius: 6px;
+  border: 1px dashed var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.parent-picker-new-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.parent-picker-search {
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.82rem;
+  outline: none;
+}
+
+.parent-picker-search:focus {
+  border-color: var(--accent);
+}
+
+.parent-picker-list {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.parent-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--card);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.parent-picker-item:hover {
+  background: var(--card-hover);
+}
+
+.parent-picker-item-id {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.parent-picker-item-title {
+  font-size: 0.8rem;
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.parent-picker-empty {
+  padding: 20px 10px;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.parent-picker-new-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* --- 親から外すボタン(BT-034: attachの逆操作) --- */
+.detach-btn {
+  border-color: var(--today-accent);
+  color: var(--today-accent);
+}
+
+.detach-btn:hover {
+  background: var(--today-accent);
+  color: #fff;
 }

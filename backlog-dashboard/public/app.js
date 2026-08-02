@@ -568,6 +568,52 @@ function buildArtifactsHtml(item) {
   return `<div class="detail-section"><h4>成果物</h4><ul class="detail-artifacts">${artifactItems}</ul></div>`;
 }
 
+// ワークスペース導線ボタンのHTMLを生成する（BT-053）
+// プロジェクトにworkspaceパスが設定済みなら「開く」、未設定なら「作る」を出し分ける
+function buildWorkspaceActionHtml(item) {
+  if (!item.id || item.id === '-') return '';
+  const workspaceMap = currentBoardData && currentBoardData.workspaceMap || {};
+  const wsPath = workspaceMap[item.project] || '';
+  if (wsPath) {
+    return `<div class="detail-add-child"><button class="add-child-btn" id="modal-open-workspace-btn">📂 ワークスペースを開く</button></div>`;
+  }
+  return `<div class="detail-add-child"><button class="add-child-btn" id="modal-create-workspace-btn">🛠 ワークスペースを作る</button></div>`;
+}
+
+function setupWorkspaceActionButtons(body, item) {
+  const openBtn = body.querySelector('#modal-open-workspace-btn');
+  if (openBtn) {
+    openBtn.addEventListener('click', () => openTaskWorkspace(item.id, openBtn));
+  }
+  const createBtn = body.querySelector('#modal-create-workspace-btn');
+  if (createBtn) {
+    createBtn.addEventListener('click', () => openWorkspaceCreateForm());
+  }
+}
+
+async function openTaskWorkspace(taskId, btnEl) {
+  const originalText = btnEl.textContent;
+  btnEl.disabled = true;
+  btnEl.textContent = '開いてるよ...';
+  try {
+    const resp = await fetch('/api/open-workspace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      alert(`ワークスペースを開けなかったよ: ${data.error || ''}`);
+    }
+  } catch (e) {
+    console.error('[open-workspace] Network error:', e);
+    alert('ネットワークエラーが発生したよ');
+  } finally {
+    btnEl.disabled = false;
+    btnEl.textContent = originalText;
+  }
+}
+
 function setupArtifactCopyButtons(container) {
   container.querySelectorAll('.artifact-copy-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -1121,6 +1167,9 @@ function openChildModal(item) {
       </div>`
     : '';
 
+  // ワークスペース導線ボタン（BT-053）
+  const workspaceActionHtml = buildWorkspaceActionHtml(item);
+
   body.innerHTML = `
     <div class="detail-header">
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
@@ -1132,6 +1181,7 @@ function openChildModal(item) {
     ${artifactsHtml}
     ${metaHtml}
     ${editDeleteBtn}
+    ${workspaceActionHtml}
     ${detachBtn}
   `;
 
@@ -1159,6 +1209,9 @@ function openChildModal(item) {
 
   // 成果物コピーボタンのイベント
   setupArtifactCopyButtons(body);
+
+  // ワークスペース導線ボタンのイベント（BT-053）
+  setupWorkspaceActionButtons(body, item);
 
   modal.classList.add('modal-visible');
 }
@@ -1388,6 +1441,9 @@ function renderModalContent(item) {
       </div>`
     : '';
 
+  // ワークスペース導線ボタン（BT-053）
+  const workspaceActionHtml = buildWorkspaceActionHtml(item);
+
   body.innerHTML = `
     <div class="detail-header">
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
@@ -1402,6 +1458,7 @@ function renderModalContent(item) {
     ${editDeleteBtn}
     ${addChildBtn}
     ${setParentBtn}
+    ${workspaceActionHtml}
     ${miniBoard}
   `;
 
@@ -1452,6 +1509,9 @@ function renderModalContent(item) {
 
   // 成果物コピーボタンのイベント
   setupArtifactCopyButtons(body);
+
+  // ワークスペース導線ボタンのイベント（BT-053）
+  setupWorkspaceActionButtons(body, item);
 
   if (isEpic) buildMiniBoard(item);
 }
@@ -1979,6 +2039,111 @@ async function confirmAttach(parentId) {
     renderBoard(lastBoardData);
   } catch (e) {
     console.error('[attach] Network error:', e);
+  }
+}
+
+// --- Workspace Create Form (BT-053) ---
+let workspaceFormEl = null;
+
+function getOrCreateWorkspaceCreateForm() {
+  if (workspaceFormEl) return workspaceFormEl;
+  workspaceFormEl = document.createElement('div');
+  workspaceFormEl.className = 'modal-overlay';
+  workspaceFormEl.innerHTML = `
+    <div class="modal-content add-task-modal">
+      <button class="modal-close" id="workspace-form-close">&times;</button>
+      <h3 class="add-form-title">ワークスペースを作る</h3>
+      <div class="settings-group">
+        <label>フォルダ名（英数字・_-のみ）</label>
+        <input type="text" id="workspace-form-file" placeholder="my-project">
+        <p class="workspace-form-path-preview" id="workspace-form-path-preview"></p>
+      </div>
+      <div class="settings-group">
+        <label>プレフィクス（英大文字2文字・タスクIDの接頭辞）</label>
+        <input type="text" id="workspace-form-prefix" maxlength="2" placeholder="MP">
+      </div>
+      <p class="edit-task-error" id="workspace-form-error" style="display:none;"></p>
+      <button class="add-task-submit" id="workspace-form-submit">作って開く</button>
+    </div>
+  `;
+  document.body.appendChild(workspaceFormEl);
+
+  workspaceFormEl.addEventListener('click', (e) => {
+    if (e.target === workspaceFormEl) closeWorkspaceCreateForm();
+  });
+  workspaceFormEl.querySelector('#workspace-form-close').addEventListener('click', closeWorkspaceCreateForm);
+
+  const fileInput = workspaceFormEl.querySelector('#workspace-form-file');
+  const pathPreview = workspaceFormEl.querySelector('#workspace-form-path-preview');
+  fileInput.addEventListener('input', () => updateWorkspacePathPreview(fileInput, pathPreview));
+
+  workspaceFormEl.querySelector('#workspace-form-submit').addEventListener('click', submitCreateWorkspace);
+
+  return workspaceFormEl;
+}
+
+function updateWorkspacePathPreview(fileInput, pathPreview) {
+  const parent = (currentBoardData && currentBoardData.defaultWorkspaceParent) || '';
+  pathPreview.textContent = fileInput.value ? `${parent}/${fileInput.value}` : parent;
+}
+
+function openWorkspaceCreateForm() {
+  const form = getOrCreateWorkspaceCreateForm();
+  const fileInput = form.querySelector('#workspace-form-file');
+  const prefixInput = form.querySelector('#workspace-form-prefix');
+  const pathPreview = form.querySelector('#workspace-form-path-preview');
+  const errorEl = form.querySelector('#workspace-form-error');
+
+  fileInput.value = '';
+  prefixInput.value = '';
+  errorEl.style.display = 'none';
+  updateWorkspacePathPreview(fileInput, pathPreview);
+
+  form.classList.add('modal-visible');
+  setTimeout(() => fileInput.focus(), 100);
+}
+
+function closeWorkspaceCreateForm() {
+  if (workspaceFormEl) workspaceFormEl.classList.remove('modal-visible');
+}
+
+async function submitCreateWorkspace() {
+  const form = getOrCreateWorkspaceCreateForm();
+  const file = form.querySelector('#workspace-form-file').value.trim();
+  const prefix = form.querySelector('#workspace-form-prefix').value.trim().toUpperCase();
+  const errorEl = form.querySelector('#workspace-form-error');
+  const parent = (currentBoardData && currentBoardData.defaultWorkspaceParent) || '';
+
+  if (!file || !/^[A-Za-z0-9_-]+$/.test(file)) {
+    errorEl.textContent = 'フォルダ名は英数字・_-のみで入力してね';
+    errorEl.style.display = 'block';
+    return;
+  }
+  if (!prefix || !/^[A-Z]{2}$/.test(prefix)) {
+    errorEl.textContent = 'プレフィクスは英大文字2文字で入力してね';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  const workspace = parent ? `${parent}/${file}` : file;
+
+  try {
+    const resp = await fetch('/api/create-workspace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file, prefix, workspace }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      errorEl.textContent = `作成に失敗したよ: ${data.error || ''}`;
+      errorEl.style.display = 'block';
+      return;
+    }
+    closeWorkspaceCreateForm();
+  } catch (e) {
+    console.error('[create-workspace] Network error:', e);
+    errorEl.textContent = 'ネットワークエラーが発生したよ';
+    errorEl.style.display = 'block';
   }
 }
 
