@@ -88,9 +88,41 @@ backlog-dashboardは複数のワークスペース（プロジェクト）を横
 3. `backlog-dashboard/` 一式を設置し、`npm install` → `node server.js` で起動
 4. バックログmdの雛形を1本作成
 5. 運用ルール（`backlog-hub-rules.md`）をグローバル設定へ配置し、`CLAUDE.md` からインポート
+6. 「PC起動時に自動で立ち上げておく？」と聞かれる（任意）。**Yesと答えるだけでよい** —— VSCodeを開かなくても、PC起動直後からWEB-UIだけで思いついたことをメモできるようになる（詳しくは後述）
 
 ### 気をつけること
 
 - `backlog-dashboard/config.json` は `backlogDir`・`projects[]`・`port` といった**個人の環境に依存する値**を含むため、リポジトリには含めない（`.gitignore` 対象）。`config.json.example` をコピーして使う
 - 複数のワークスペースを1つのダッシュボードにまとめる場合、`config.json` の `projects[]` に追記するだけでは反映されない。`config.json` は**サーバー起動時に1度だけ**読み込まれるため、追記後は必ずサーバーを再起動すること
 - 稼働確認は `GET /api/health` が `{"status":"ok"}` を返すかどうかで行う
+
+## Windows起動時の自動起動について
+
+VSCodeのワークスペースを開かなくても、PC起動直後からWEB-UIだけで思いついたTODOを追加・整理できるようになる機能。**インストール手順の中でAIから聞かれるので、「うん」と答えるだけで設定が完了する**（管理者権限が必要な操作もAIが代行する）。コマンドを自分で叩く必要はない。
+
+<details>
+<summary>仕組み・自分の手でセットアップしたい場合（クリックで展開）</summary>
+
+Windowsタスクスケジューラに「ログオン時に非表示で起動する」タスクを登録する仕組み。
+
+- `scripts/start-hidden.ps1` がポート `3333` のLISTEN状態を確認し、既に起動中なら何もしない（二重起動防止）。未起動ならコンソール窓を出さずに `node server.js` を起動する
+- 実行ログは `backlog-dashboard/logs/startup.log` に記録される
+
+### 自分でコマンドを実行する場合
+
+1. PowerShellを**管理者として実行**で開く（`Register-ScheduledTask` はタスクスケジューラのルートフォルダへの書き込みが必要なため、管理者権限必須）
+2. 以下を実行
+
+   ```powershell
+   backlog-dashboard\scripts\register-startup-task.ps1
+   ```
+
+3. タスク `BacklogDashboardAutoStart` が登録される。すぐに動作確認したい場合は `Start-ScheduledTask -TaskName "BacklogDashboardAutoStart"` で手動実行できる
+
+### 解除方法
+
+```powershell
+backlog-dashboard\scripts\unregister-startup-task.ps1
+```
+
+</details>

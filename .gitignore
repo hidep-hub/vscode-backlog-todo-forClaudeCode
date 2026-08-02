@@ -22,3 +22,6 @@ archive/
 
 # Playwright MCPの動作確認スナップショット（一時的なテスト出力）
 .playwright-mcp/
+
+# 自動起動スクリプトの実行ログ（個人環境のローカル状態）
+backlog-dashboard/logs/
