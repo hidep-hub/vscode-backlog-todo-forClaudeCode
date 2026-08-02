@@ -1062,6 +1062,13 @@ body {
   font-size: 0.85rem;
 }
 
+.workspace-form-path-preview {
+  margin: 6px 2px 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
 .settings-close {
   position: absolute;
   top: 12px;
