@@ -65,6 +65,7 @@ body {
   color: var(--text);
   min-height: 100vh;
   overflow-x: auto;
+  padding-bottom: 34px; /* 画面下端固定の.running-strip分の余白（BT-059） */
   transition: background 0.3s, color 0.3s;
 }
 
@@ -149,6 +150,51 @@ body {
   align-items: center;
   gap: 10px;
   margin-left: auto;
+}
+
+.running-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 6px 20px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9;
+}
+
+.running-strip-empty {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.running-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px 10px 3px 8px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: border-color 0.15s ease;
+}
+
+.running-chip:hover {
+  border-color: var(--accent, #6366f1);
+}
+
+.running-chip-id {
+  color: var(--text-muted);
 }
 
 .status {
