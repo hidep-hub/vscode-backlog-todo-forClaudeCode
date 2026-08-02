@@ -1220,47 +1220,35 @@ body {
 }
 
 
-/* --- Add Child Task Button (in modal) --- */
-.detail-add-child {
-  margin: 12px 0 4px;
-}
-
-.add-child-btn {
-  padding: 6px 14px;
-  border-radius: 6px;
-  border: 1px dashed var(--accent);
-  background: transparent;
-  color: var(--accent);
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.add-child-btn:hover {
-  background: var(--accent);
-  color: #fff;
-}
-
-/* --- Edit / Delete (BT-036 / BT-031) --- */
-.detail-actions {
+/* --- Detail Modal Action Buttons (BT-036 / BT-031 / BT-034 / BT-053 / BT-063) --- */
+/* 編集/削除、子タスク追加/親設定、ワークスペース開く/移管 のように意味のあるペアを
+   1行に横並びさせる。片方しかないボタンは flex: 1 で全幅表示になる */
+.detail-actions-row {
   display: flex;
-  gap: 8px;
-  margin: 12px 0 4px;
+  gap: 6px;
+  margin: 6px 0;
 }
 
+.detail-actions-row .add-child-btn,
+.detail-actions-row .detail-action-btn {
+  flex: 1;
+}
+
+.add-child-btn,
 .detail-action-btn {
-  padding: 6px 14px;
+  padding: 5px 10px;
   border-radius: 6px;
   border: 1px dashed var(--accent);
   background: transparent;
   color: var(--accent);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
+  text-align: center;
   transition: background 0.15s, color 0.15s;
 }
 
+.add-child-btn:hover,
 .detail-action-btn:hover {
   background: var(--accent);
   color: #fff;
@@ -1740,6 +1728,17 @@ body {
 
 .selection-bar-parent:hover {
   opacity: 0.88;
+}
+
+.selection-bar-move {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.selection-bar-move:hover {
+  background: var(--accent);
+  color: #fff;
 }
 
 .selection-bar-cancel {
