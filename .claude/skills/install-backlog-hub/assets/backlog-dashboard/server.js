@@ -759,8 +759,11 @@ function buildBoard() {
     };
   });
 
-  // プロジェクト一覧を抽出
-  const projects = [...new Set(allTasks.map(t => t.project).filter(Boolean))].sort();
+  // プロジェクト一覧を抽出（タスクが1件も無い新規作成直後のワークスペースもフィルタに
+  // 出したいため、config.projects[]の全件とタスク由来のproject名の和集合にする）
+  const projectsFromConfig = (config.projects || []).map(p => p.name).filter(Boolean);
+  const projectsFromTasks = allTasks.map(t => t.project).filter(Boolean);
+  const projects = [...new Set([...projectsFromConfig, ...projectsFromTasks])].sort();
 
   // プロジェクト別残タスク数（完了以外のh3タスク）
   const remainingByProject = {};
