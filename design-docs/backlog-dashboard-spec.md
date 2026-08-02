@@ -548,6 +548,49 @@ flowchart TB
 
 ---
 
+## 7. Windows起動時の自動起動（任意機能）
+
+VSCodeのワークスペースを開かなくても、PC起動直後からWEB-UIだけで思いついたTODOを追加・整理できるようにするための仕組み。VSCode連動（ワークスペースを開いたときだけ起動する方式）ではなく、**Windowsのログオンに紐づく常時起動**を採用している。理由は、この仕組みの価値が「開発中だけ」ではなく「AIと繋がっていない移動中や会議中でも、思いついたことをその場で書き留められる」点にあるため。
+
+### 7.1 構成
+
+```
+backlog-dashboard/
+├── scripts/
+│   ├── start-hidden.ps1              ← 二重起動防止つきの非表示起動ラッパー
+│   ├── register-startup-task.ps1     ← タスクスケジューラへの登録（要管理者権限）
+│   └── unregister-startup-task.ps1   ← タスクスケジューラからの解除
+└── logs/
+    └── startup.log                    ← 起動/スキップの実行ログ
+```
+
+### 7.2 二重起動防止
+
+`server.js` 自体には `EADDRINUSE`（ポート使用中）のハンドリングが無く、既に起動中の状態で `node server.js` を実行すると素朴にクラッシュする。これを踏まえ、二重起動防止はサーバー本体ではなく**起動側（`start-hidden.ps1`）の責務**とした。
+
+- `Get-NetTCPConnection -LocalPort <port> -State Listen` でLISTEN状態を確認
+- 使用中なら何もせず終了（ログに記録するのみ）
+- 未使用なら `node.exe` のパスを解決し、`Start-Process -WindowStyle Hidden` でコンソール窓を出さずに起動
+
+### 7.3 タスクスケジューラ登録
+
+```mermaid
+flowchart LR
+    LOGON["Windowsログオン"] -->|AtLogOnトリガー| TASK["BacklogDashboardAutoStart"]
+    TASK --> HIDDEN["start-hidden.ps1"]
+    HIDDEN -->|ポート使用中| SKIP["何もしない"]
+    HIDDEN -->|ポート未使用| START["node server.js を非表示起動"]
+```
+
+- `register-startup-task.ps1` が `New-ScheduledTaskTrigger -AtLogOn` でログオントリガーのタスクを登録する。
+- **`Register-ScheduledTask` はタスクスケジューラのルートフォルダへの書き込みを伴うため管理者権限が必須**。通常権限のPowerShellで実行すると `Access is denied` で失敗する（この失敗はエラー終了ではなく非終端エラーのため、後続の `Write-Host` は実行されてしまい、一見成功したように見える点に注意。`Get-ScheduledTask` で実際の登録有無を必ず確認すること）。
+- 管理者権限が無い環境では `Start-Process powershell -Verb RunAs -ArgumentList "... -File <register-startup-task.ps1>" -Wait` でUAC昇格して実行する。
+- 解除は `unregister-startup-task.ps1`（`Unregister-ScheduledTask`）。
+
+### 7.4 install-backlog-hub skillとの連携
+
+新規インストール時、`scripts/` 一式は同梱物としてそのままコピーされ、自動起動を希望するかどうかをユーザーに確認した上で `register-startup-task.ps1` を案内する（`.claude/skills/install-backlog-hub/SKILL.md` 2章参照）。既存ダッシュボードへのワークスペース追加登録時は、サーバープロセス自体は変わらないため対象外。
+
 ## 付録A: 用語
 
 | 用語 | 意味 |

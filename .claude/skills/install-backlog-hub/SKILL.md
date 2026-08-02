@@ -21,6 +21,10 @@ assets/
       index.html
       style.css
       app.js
+    scripts/             ← Windows自動起動用(任意・無改変でコピー)
+      start-hidden.ps1              ← 二重起動防止つきの非表示起動ラッパー
+      register-startup-task.ps1     ← タスクスケジューラへの登録(要管理者権限)
+      unregister-startup-task.ps1   ← タスクスケジューラからの解除
   backlog-hub-rules.md  ← 運用ルール実体(無改変でコピー)
 ```
 
@@ -73,6 +77,12 @@ assets/
 5. `cd <設置場所> && npm install` を実行する(`ws` 1個のみ)。
 6. `node server.js` をバックグラウンド起動する。
 7. `curl -s http://localhost:<port>/api/health` を叩き、`{"status":"ok",...}` を確認する。
+8. **Windows起動時の自動起動を設定するか確認する(任意)**。VSCodeを開かなくてもPC起動直後からWEB-UIだけで思いついたTODOを追加・整理できる、という利点を伝えた上でユーザーに聞く。希望する場合:
+   - `scripts/register-startup-task.ps1` を実行し、タスクスケジューラにログオントリガーで起動するタスク(`BacklogDashboardAutoStart`)を登録する。
+   - `Register-ScheduledTask` はタスクスケジューラのルートフォルダへの書き込みが必要なため**管理者権限必須**。通常権限で実行すると `Access is denied` になるので、`Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"<register-startup-task.ps1の絶対パス>`""  -Wait` でUAC昇格して実行する(ユーザーにUACダイアログの承認を促す)。
+   - `Get-ScheduledTask -TaskName "BacklogDashboardAutoStart"` で登録を確認する。
+   - 二重起動防止(ポート使用中ならスキップ)の仕組みは `scripts/start-hidden.ps1` が担う。実行ログは `<設置場所>/logs/startup.log` に残る。
+   - 解除したい場合は `scripts/unregister-startup-task.ps1` を実行する。
 
 ## 3. 既存ダッシュボードへのワークスペース追加登録の場合
 
@@ -99,5 +109,6 @@ assets/
 - [ ] UIからタスクを追加 → mdに追記され、`prefix-連番`で採番される
 - [ ] `curl` で `update-status` / `toggle-running` が通る
 - [ ] ルール実体が配置され、`CLAUDE.md`(または相当ファイル)からimportされている
+- [ ] (自動起動を希望した場合) `Get-ScheduledTask -TaskName "BacklogDashboardAutoStart"` でタスクが登録されている
 
 すべて確認できたら、何をどこに設置したか(パス一覧)をユーザーに報告する。
