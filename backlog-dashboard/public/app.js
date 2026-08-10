@@ -5,11 +5,18 @@ const statusEl = document.getElementById('status');
 const projectFilterEl = document.getElementById('project-filter');
 const searchBtn = document.getElementById('search-btn');
 const themeSelectEl = document.getElementById('theme-select');
+const githubImportBtn = document.getElementById('github-import-btn');
 const settingsBtn = document.getElementById('settings-btn');
 const settingsOverlay = document.getElementById('settings-overlay');
 const settingsClose = document.getElementById('settings-close');
 const settingsThemeEl = document.getElementById('settings-theme');
 const settingsAccentEl = document.getElementById('settings-accent');
+const settingsGithubProjectEl = document.getElementById('settings-github-project');
+const settingsGithubRepoUrlEl = document.getElementById('settings-github-repo-url');
+const settingsGithubTokenEl = document.getElementById('settings-github-token');
+const settingsGithubStatusEl = document.getElementById('settings-github-status');
+const settingsGithubSaveEl = document.getElementById('settings-github-save');
+const settingsGithubHintEl = document.getElementById('settings-github-hint');
 
 // --- State ---
 let currentBoardData = null;
@@ -103,6 +110,8 @@ themeSelectEl.addEventListener('change', () => {
 
 settingsBtn.addEventListener('click', () => {
   settingsOverlay.classList.add('settings-visible');
+  populateGithubProjectSelect();
+  loadGithubSettingsForSelectedProject();
 });
 
 settingsClose.addEventListener('click', () => {
@@ -126,6 +135,273 @@ settingsAccentEl.addEventListener('input', () => {
   saveSettings(settings);
   applySettings();
 });
+
+// --- GitHub連携設定 (BT-077) ---
+// Inbox等、実ワークスペース(workspace)を持たない架空プロジェクトはGitHub連携の対象外
+function populateGithubProjectSelect() {
+  const prefixMap = (currentBoardData && currentBoardData.projectPrefixMap) || {};
+  const workspaceMap = (currentBoardData && currentBoardData.workspaceMap) || {};
+  const names = Object.keys(prefixMap).filter(name => workspaceMap[name]).sort();
+  const prevValue = settingsGithubProjectEl.value;
+  settingsGithubProjectEl.innerHTML = names.map(name => `<option value="${prefixMap[name]}">${name} (${prefixMap[name]})</option>`).join('');
+  if (names.some(name => prefixMap[name] === prevValue)) settingsGithubProjectEl.value = prevValue;
+}
+
+async function loadGithubSettingsForSelectedProject() {
+  const prefix = settingsGithubProjectEl.value;
+  settingsGithubTokenEl.value = '';
+  if (!prefix) {
+    settingsGithubRepoUrlEl.value = '';
+    settingsGithubStatusEl.textContent = '';
+    settingsGithubTokenEl.placeholder = 'トークンを入力（未入力なら既存を保持）';
+    settingsGithubHintEl.style.display = 'none';
+    return;
+  }
+  try {
+    const res = await fetch(`/api/github-settings?prefix=${encodeURIComponent(prefix)}`);
+    const data = await res.json();
+    settingsGithubRepoUrlEl.value = data.repoUrl || '';
+    settingsGithubStatusEl.textContent = data.hasToken ? '✅ トークン設定済み' : '未設定';
+    // トークン自体の値は表示せず、設定済みかどうかをplaceholderのマスク表示で示す
+    settingsGithubTokenEl.placeholder = data.hasToken
+      ? '●●●●●●●●●●●●（設定済み・変更する場合のみ入力）'
+      : 'トークンを入力（未入力なら既存を保持）';
+    settingsGithubHintEl.style.display = data.hasToken ? 'none' : 'block';
+  } catch (e) {
+    settingsGithubStatusEl.textContent = '取得エラー';
+  }
+}
+
+settingsGithubProjectEl.addEventListener('change', loadGithubSettingsForSelectedProject);
+
+settingsGithubSaveEl.addEventListener('click', async () => {
+  const prefix = settingsGithubProjectEl.value;
+  if (!prefix) return;
+  const body = { prefix, repoUrl: settingsGithubRepoUrlEl.value.trim() };
+  if (settingsGithubTokenEl.value) body.token = settingsGithubTokenEl.value;
+  settingsGithubStatusEl.textContent = '保存中...';
+  try {
+    const res = await fetch('/api/github-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '保存に失敗しました');
+    await loadGithubSettingsForSelectedProject();
+    settingsOverlay.classList.remove('settings-visible');
+  } catch (e) {
+    settingsGithubStatusEl.textContent = `エラー: ${e.message}`;
+  }
+});
+
+// --- GitHub Issues取り込みダイアログ (BT-106) ---
+function populateGithubImportProjectSelect(selectEl) {
+  const prefixMap = (currentBoardData && currentBoardData.projectPrefixMap) || {};
+  const workspaceMap = (currentBoardData && currentBoardData.workspaceMap) || {};
+  const names = Object.keys(prefixMap).filter(name => workspaceMap[name]).sort();
+  const prevValue = selectEl.value;
+  selectEl.innerHTML = `<option value="">プロジェクトを選択...</option>` +
+    names.map(name => `<option value="${prefixMap[name]}">${name} (${prefixMap[name]})</option>`).join('');
+  if (names.some(name => prefixMap[name] === prevValue)) selectEl.value = prevValue;
+}
+
+let githubImportEl = null;
+let githubImportSelectedNumbers = new Set(); // BT-109: 選択中のissue番号(文字列)
+
+function getOrCreateGithubImportModal() {
+  if (githubImportEl) return githubImportEl;
+  githubImportEl = document.createElement('div');
+  githubImportEl.id = 'github-import-overlay';
+  githubImportEl.className = 'modal-overlay';
+  githubImportEl.innerHTML = `
+    <div class="modal-content modal-wide github-import-modal">
+      <button class="modal-close" id="github-import-close">&times;</button>
+      <h3>🔗 GitHub Issues取り込み</h3>
+      <div class="github-import-toolbar">
+        <select id="github-import-project"></select>
+        <button id="github-import-settings-btn" title="GitHub連携設定">⚙️ GitHub設定</button>
+      </div>
+      <div class="github-import-body" id="github-import-body">
+        <p class="github-import-placeholder">プロジェクトを選択してください。</p>
+      </div>
+      <div class="github-import-footer">
+        <span id="github-import-selected-count">0件選択中</span>
+        <button id="github-import-execute-btn" disabled>選択した0件を取り込む</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(githubImportEl);
+  githubImportEl.addEventListener('click', (e) => {
+    if (e.target === githubImportEl) closeGithubImportModal();
+  });
+  githubImportEl.querySelector('#github-import-close').addEventListener('click', closeGithubImportModal);
+  githubImportEl.querySelector('#github-import-settings-btn').addEventListener('click', () => {
+    settingsOverlay.classList.add('settings-visible');
+    populateGithubProjectSelect();
+    loadGithubSettingsForSelectedProject();
+  });
+  githubImportEl.querySelector('#github-import-project').addEventListener('change', loadGithubImportPreview);
+  githubImportEl.querySelector('#github-import-body').addEventListener('change', (e) => {
+    if (e.target.classList.contains('github-issue-checkbox')) updateGithubImportSelection();
+  });
+  githubImportEl.querySelector('#github-import-execute-btn').addEventListener('click', executeGithubImport);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && githubImportEl.classList.contains('modal-visible')) closeGithubImportModal();
+  });
+  return githubImportEl;
+}
+
+function closeGithubImportModal() {
+  if (githubImportEl) githubImportEl.classList.remove('modal-visible');
+}
+
+// BT-107: プロジェクト選択に応じてGitHub Issue一覧(プレビュー、md書き込みなし)を取得・表示
+async function loadGithubImportPreview() {
+  const el = githubImportEl;
+  const prefix = el.querySelector('#github-import-project').value;
+  const bodyEl = el.querySelector('#github-import-body');
+  resetGithubImportSelectionUi();
+  if (!prefix) {
+    bodyEl.innerHTML = `<p class="github-import-placeholder">プロジェクトを選択してください。</p>`;
+    return;
+  }
+  bodyEl.innerHTML = `<p class="github-import-placeholder">読み込み中...</p>`;
+  try {
+    const res = await fetch(`/api/github-preview-issues?prefix=${encodeURIComponent(prefix)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '取得に失敗しました');
+    if (data.issues.length === 0) {
+      bodyEl.innerHTML = `<p class="github-import-placeholder">Issueが見つかりませんでした。</p>`;
+      return;
+    }
+    // BT-108: 他issueのtask listに子として現れるissueはトップレベル一覧から除外し、親の下に入れ子表示する
+    const issueByNumber = new Map(data.issues.map((i) => [i.number, i]));
+    const allChildNumbers = new Set();
+    for (const i of data.issues) {
+      for (const childNum of (i.childIssueNumbers || [])) allChildNumbers.add(childNum);
+    }
+    const topLevelIssues = data.issues.filter((i) => !allChildNumbers.has(i.number));
+    bodyEl.innerHTML = topLevelIssues.map((issue) => renderGithubImportIssueCard(issue, issueByNumber)).join('');
+  } catch (e) {
+    bodyEl.innerHTML = `<p class="github-import-placeholder">エラー: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+// BT-109: 選択状態をSet・フッター表示ともに0件へ戻す(DOMの再読み込みに依存しない)
+function resetGithubImportSelectionUi() {
+  githubImportSelectedNumbers.clear();
+  const el = githubImportEl;
+  el.querySelector('#github-import-selected-count').textContent = '0件選択中';
+  const btnEl = el.querySelector('#github-import-execute-btn');
+  btnEl.textContent = '選択した0件を取り込む';
+  btnEl.disabled = true;
+}
+
+// BT-109: チェックボックスの選択状態を集計し、フッターの件数・実行ボタンに反映
+function updateGithubImportSelection() {
+  const el = githubImportEl;
+  const countEl = el.querySelector('#github-import-selected-count');
+  const btnEl = el.querySelector('#github-import-execute-btn');
+  const checked = el.querySelectorAll('.github-issue-checkbox:checked');
+  githubImportSelectedNumbers = new Set(Array.from(checked).map(cb => cb.dataset.issueNumber));
+  const count = githubImportSelectedNumbers.size;
+  countEl.textContent = `${count}件選択中`;
+  btnEl.textContent = `選択した${count}件を取り込む`;
+  btnEl.disabled = count === 0;
+}
+
+// BT-109: 選択したissueだけをmdへ取り込む(既存fetch APIをissueNumbers指定で選択実行)
+async function executeGithubImport() {
+  const el = githubImportEl;
+  const prefix = el.querySelector('#github-import-project').value;
+  const btnEl = el.querySelector('#github-import-execute-btn');
+  const issueNumbers = Array.from(githubImportSelectedNumbers);
+  if (!prefix || issueNumbers.length === 0) return;
+  btnEl.disabled = true;
+  btnEl.textContent = '取り込み中...';
+  try {
+    const res = await fetch('/api/github-fetch-issues', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefix, issueNumbers }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '取り込みに失敗しました');
+    await loadGithubImportPreview();
+  } catch (e) {
+    const countEl = el.querySelector('#github-import-selected-count');
+    countEl.textContent = `エラー: ${e.message}`;
+    updateGithubImportSelection();
+  }
+}
+
+// Octicons "mark-github"（GitHub公式アイコンライブラリ、MITライセンス）
+const GITHUB_MARK_SVG = '<svg class="github-mark-icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.1-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.47-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path></svg>';
+
+// BT-110: 取り込み済みタスクカードにGitHubアイコン+Issue番号を表示(クリックでIssueページを新規タブで開く)
+function renderGithubIssueBadge(issueNumber, issueUrl) {
+  const href = issueUrl ? escapeHtml(issueUrl) : '#';
+  return `<a class="card-tag github-issue-badge" href="${href}" target="_blank" rel="noopener noreferrer" title="GitHub Issue #${escapeHtml(String(issueNumber))}">${GITHUB_MARK_SVG}#${escapeHtml(String(issueNumber))}</a>`;
+}
+
+// BT-108: task listで子issueを持つ親(Epic)は、選択チェックボックス+配下の子issueを入れ子表示する。
+// 子issueは単独で選択できない(親を取り込むと一括で追従する、[[project_bt071_github_issue_sync_design]]の方針)
+function renderGithubImportIssueCard(issue, issueByNumber) {
+  const stateTag = issue.state === 'closed' ? '<span class="card-tag github-issue-closed">closed</span>' : '';
+  const importedTag = issue.alreadyImported ? '<span class="card-tag github-issue-imported">取込済み</span>' : '';
+  const checkboxHtml = issue.alreadyImported
+    ? `<input type="checkbox" class="github-issue-checkbox" disabled title="取込済み">`
+    : `<input type="checkbox" class="github-issue-checkbox" data-issue-number="${issue.number}">`;
+
+  const children = (issue.childIssueNumbers || [])
+    .map((num) => issueByNumber && issueByNumber.get(num))
+    .filter(Boolean);
+  const badgeHtml = children.length > 0
+    ? (() => {
+        const closedCount = children.filter((c) => c.state === 'closed').length;
+        const allDone = closedCount === children.length;
+        return `<span class="card-badge${allDone ? ' badge-done' : ''}"><span class="badge-num">${closedCount}</span><span class="badge-den">/${children.length}</span></span>`;
+      })()
+    : '';
+  const childrenHtml = children.length > 0
+    ? `<div class="github-issue-children">${children.map(renderGithubImportChildCard).join('')}</div>`
+    : '';
+
+  return `
+    <div class="card github-issue-card${children.length > 0 ? ' github-issue-epic' : ''}">
+      ${checkboxHtml}
+      <div class="github-issue-card-body">
+        <div class="card-id"><span>#${issue.number}</span>${badgeHtml}</div>
+        <div class="card-title">${GITHUB_MARK_SVG}${escapeHtml(issue.title)}</div>
+        <div class="card-meta">${stateTag}${importedTag}</div>
+      </div>
+    </div>
+    ${childrenHtml}
+  `;
+}
+
+function renderGithubImportChildCard(issue) {
+  const stateTag = issue.state === 'closed' ? '<span class="card-tag github-issue-closed">closed</span>' : '';
+  const importedTag = issue.alreadyImported ? '<span class="card-tag github-issue-imported">取込済み</span>' : '';
+  return `
+    <div class="card github-issue-card github-issue-child-card">
+      <div class="github-issue-card-body">
+        <div class="card-id"><span>#${issue.number}</span></div>
+        <div class="card-title">${GITHUB_MARK_SVG}${escapeHtml(issue.title)}</div>
+        <div class="card-meta">${stateTag}${importedTag}</div>
+      </div>
+    </div>
+  `;
+}
+
+function openGithubImportModal() {
+  const el = getOrCreateGithubImportModal();
+  populateGithubImportProjectSelect(el.querySelector('#github-import-project'));
+  el.classList.add('modal-visible');
+}
+
+githubImportBtn.addEventListener('click', openGithubImportModal);
 
 // --- Project Filter ---
 projectFilterEl.addEventListener('change', () => {
@@ -448,7 +724,8 @@ function renderBoard(data) {
       const titleHtml = showField('title') ? `<div class="card-title">${escapeHtml(item.title)}</div>` : '';
       const projectTag = showField('project') ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
       const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり">📎</span>' : '';
-      const metaParts = [projectTag, category, artifactIndicator, completedDate].filter(Boolean);
+      const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
+      const metaParts = [projectTag, category, artifactIndicator, githubBadge, completedDate].filter(Boolean);
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
 
       // 📌 ピンボタン（完了カラムには不要）
@@ -573,6 +850,11 @@ function renderBoard(data) {
       const item = findItemById(btn.dataset.taskId);
       if (item) openDeleteConfirm(item, false);
     });
+  });
+
+  // 🔗 GitHub Issueバッジ: クリックしてもカード詳細を開かず、リンク遷移のみ行う（BT-110）
+  boardEl.querySelectorAll('.github-issue-badge').forEach(link => {
+    link.addEventListener('click', (e) => e.stopPropagation());
   });
 
   updateSelectionBar();
@@ -1700,6 +1982,9 @@ function buildMiniBoard(epic) {
       if (child.artifacts && child.artifacts.length > 0) {
         mParts.push('<span class="card-tag artifact-indicator" title="成果物あり">📎</span>');
       }
+      if (child.githubIssueNumber) {
+        mParts.push(renderGithubIssueBadge(child.githubIssueNumber, child.githubIssueUrl));
+      }
       if (child.completedDate) {
         mParts.push(`<span class="card-tag completed-date" title="完了日">${escapeHtml(child.completedDate)}</span>`);
       }
@@ -1747,6 +2032,11 @@ function buildMiniBoard(epic) {
           const childWithProject = { ...child, project: epic.project };
           openDeleteConfirm(childWithProject, true);
         });
+      }
+
+      const childGithubBadgeEl = card.querySelector('.github-issue-badge');
+      if (childGithubBadgeEl) {
+        childGithubBadgeEl.addEventListener('click', (e) => e.stopPropagation());
       }
 
       body.appendChild(card);
