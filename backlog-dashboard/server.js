@@ -6,6 +6,7 @@ const path = require('path');
 const os = require('os');
 const { WebSocketServer } = require('ws');
 const { spawn } = require('child_process');
+const githubClient = require('./github-client');
 
 // --- Config ---
 const CONFIG_PATH = path.join(__dirname, 'config.json');
@@ -13,6 +14,7 @@ const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
 const PORT = config.port || 3333;
 const BACKLOG_DIR = config.backlogDir.replace(/^~/, os.homedir());
 const COUNTER_FILE = path.join(BACKLOG_DIR, '_counter.md');
+const GITHUB_CREDENTIALS_PATH = path.join(__dirname, 'github-credentials.json');
 
 // --- Projects / Prefix helper ---
 function getPrefixMap() {
@@ -565,6 +567,12 @@ function parseBacklogFile(filePath) {
         case '完了日':
           target.completedDate = value;
           break;
+        case 'github_issue_number':
+          target.githubIssueNumber = value;
+          break;
+        case 'github_issue_url':
+          target.githubIssueUrl = value;
+          break;
         case '今日やる':
           if (value === 'true') target.todayFlag = true;
           break;
@@ -780,7 +788,7 @@ function buildBoard() {
     remainingByProject[t.project] = (remainingByProject[t.project] || 0) + 1;
   }
 
-  return { columns, projects, remainingByProject, updatedAt: new Date().toISOString(), workspaceMap: getWorkspaceMap(), workspaceFilterMap: getWorkspaceFilterMap(), projectFileMap: getProjectFileMap(), defaultWorkspaceParent: config.defaultWorkspaceParent || '' };
+  return { columns, projects, remainingByProject, updatedAt: new Date().toISOString(), workspaceMap: getWorkspaceMap(), workspaceFilterMap: getWorkspaceFilterMap(), projectFileMap: getProjectFileMap(), projectPrefixMap: getProjectPrefixMap(), defaultWorkspaceParent: config.defaultWorkspaceParent || '' };
 }
 
 // プロジェクト表示名 → ワークスペースパスのマッピングを返す
@@ -818,6 +826,16 @@ function getProjectFileMap() {
   const map = {};
   for (const p of config.projects) {
     if (p.name && p.file) map[p.name] = p.file;
+  }
+  return map;
+}
+
+// プロジェクト表示名 → prefix のマッピングを返す(BT-077: GitHub連携設定UIが
+// プロジェクト選択からprefixを解決するために使う)
+function getProjectPrefixMap() {
+  const map = {};
+  for (const p of config.projects) {
+    if (p.name && p.prefix) map[p.name] = p.prefix;
   }
   return map;
 }
@@ -1379,6 +1397,58 @@ function readRequestBody(req) {
 }
 
 // ============================================================
+// GitHub Credentials Management (BT-074)
+// ============================================================
+// config.json とは別ファイルで管理する。config.json は fs.watch でホット
+// リロードされる仕組みがあり、そこにトークンを混在させたくないため分離した。
+
+function readGithubCredentials() {
+  if (!fs.existsSync(GITHUB_CREDENTIALS_PATH)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(GITHUB_CREDENTIALS_PATH, 'utf8'));
+  } catch (e) {
+    console.error('[github-credentials] Failed to read:', e.message);
+    return {};
+  }
+}
+
+function writeGithubCredentials(creds) {
+  fs.writeFileSync(GITHUB_CREDENTIALS_PATH, JSON.stringify(creds, null, 2) + '\n', 'utf8');
+}
+
+/**
+ * prefix に対応する GitHub 連携設定を保存する。
+ * token が省略された場合は既存トークンを保持し、空文字が渡された場合は削除する。
+ * @returns {{success: boolean, error?: string}}
+ */
+function saveGithubSettings(prefix, repoUrl, token) {
+  if (!getAllPrefixes().includes(prefix)) {
+    return { success: false, error: `Unknown prefix: "${prefix}"` };
+  }
+  const creds = readGithubCredentials();
+  const existing = creds[prefix] || {};
+  const entry = { repoUrl: repoUrl || existing.repoUrl || '' };
+  if (token === undefined) {
+    if (existing.token) entry.token = existing.token;
+  } else if (token !== '') {
+    entry.token = token;
+  }
+  creds[prefix] = entry;
+  writeGithubCredentials(creds);
+  return { success: true };
+}
+
+/**
+ * prefix に対応する GitHub 連携設定を取得する。トークンの値自体は返さず、
+ * 設定済みかどうかのフラグ(hasToken)のみ返す。
+ */
+function getGithubSettings(prefix) {
+  const creds = readGithubCredentials();
+  const entry = creds[prefix] || {};
+  return { prefix, repoUrl: entry.repoUrl || '', hasToken: !!entry.token };
+}
+
+// ============================================================
 // Task Add API
 // ============================================================
 
@@ -1413,9 +1483,11 @@ function ensureInbox() {
  * @param {string} project - プロジェクト名（ファイル名に対応）or 'inbox'
  * @param {string} status - 状態 (デフォルト: 未着手)
  * @param {string} origin - 起源 (user / claude)
+ * @param {string} description - 説明
+ * @param {{githubIssueNumber?: string, githubIssueUrl?: string}} extraFields - 追加フィールド(BT-078: GitHub Issue取り込み時の紐付け用)
  * @returns {{ success: boolean, id?: string, error?: string }}
  */
-function addTask(title, project, status = '未着手', origin = 'user', description = '') {
+function addTask(title, project, status = '未着手', origin = 'user', description = '', extraFields = {}) {
   // ファイル特定
   let filePath;
   if (project === 'inbox' || !project) {
@@ -1475,6 +1547,8 @@ function addTask(title, project, status = '未着手', origin = 'user', descript
     `- 状態: ${status}`,
     ...(descLines.length > 0 ? [`- 説明: ${descLines[0]}`, ...descLines.slice(1)] : []),
     `- 起源: ${origin}`,
+    ...(extraFields.githubIssueNumber ? [`- github_issue_number: ${extraFields.githubIssueNumber}`] : []),
+    ...(extraFields.githubIssueUrl ? [`- github_issue_url: ${extraFields.githubIssueUrl}`] : []),
     '',
   ];
 
@@ -1498,7 +1572,7 @@ function addTask(title, project, status = '未着手', origin = 'user', descript
  * @param {string} origin - 起源
  * @returns {{ success: boolean, error?: string }}
  */
-function addChildTask(title, parentId, status = '未着手', origin = 'user', description = '') {
+function addChildTask(title, parentId, status = '未着手', origin = 'user', description = '', extraFields = {}) {
   const files = fs.readdirSync(BACKLOG_DIR)
     .filter(f => f.endsWith('.backlog.md'));
 
@@ -1533,6 +1607,8 @@ function addChildTask(title, parentId, status = '未着手', origin = 'user', de
       `- 状態: ${status}`,
       ...(descLines.length > 0 ? [`- 説明: ${descLines[0]}`, ...descLines.slice(1)] : []),
       `- 起源: ${origin}`,
+      ...(extraFields.githubIssueNumber ? [`- github_issue_number: ${extraFields.githubIssueNumber}`] : []),
+      ...(extraFields.githubIssueUrl ? [`- github_issue_url: ${extraFields.githubIssueUrl}`] : []),
       '',
     ];
 
@@ -2016,6 +2092,64 @@ function updateTaskDescription(taskId, newDescription, isChild = false) {
   return { success: true };
 }
 
+/**
+ * 全バックログからIDでタスク(親 or 子)を検索する
+ */
+function findTaskInAll(taskId) {
+  const all = parseAllBacklogs();
+  for (const t of all) {
+    if (t.id === taskId) return t;
+    if (t.children) {
+      const c = t.children.find(ch => ch.id === taskId);
+      if (c) return c;
+    }
+  }
+  return null;
+}
+
+/**
+ * タスクのmdブロックに github_issue_number / github_issue_url フィールドを追加・更新する(BT-079)
+ * @returns {{ success: boolean, error?: string }}
+ */
+function setGithubIssueLink(taskId, isChild, issueNumber, issueUrl) {
+  const block = findTaskBlock(taskId, isChild);
+  if (!block) {
+    return { success: false, error: `Task ${taskId} not found` };
+  }
+  const { lines, filePath, headerIdx } = block;
+  let blockEnd = block.blockEnd;
+
+  // 挿入基準点(起源行、無ければヘッダー行)。フィールドを1つ挿入するたびに
+  // その挿入位置へ更新し、次のフィールドが直後に続くようにする。
+  let insertAfter = headerIdx;
+  for (let i = headerIdx + 1; i < blockEnd; i++) {
+    if (/^\s*-\s+起源[:：]/.test(lines[i])) { insertAfter = i; }
+  }
+
+  function upsertField(key, value) {
+    let fieldIdx = -1;
+    const fieldRegex = new RegExp(`^\\s*-\\s+${key}[:：]`);
+    for (let i = headerIdx + 1; i < blockEnd; i++) {
+      if (fieldRegex.test(lines[i])) { fieldIdx = i; break; }
+    }
+    if (fieldIdx !== -1) {
+      lines[fieldIdx] = `- ${key}: ${value}`;
+      insertAfter = fieldIdx;
+      return;
+    }
+    lines.splice(insertAfter + 1, 0, `- ${key}: ${value}`);
+    insertAfter++;
+    blockEnd++;
+  }
+
+  upsertField('github_issue_number', issueNumber);
+  upsertField('github_issue_url', issueUrl);
+
+  fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+  console.log(`[api] Linked ${taskId} to GitHub issue #${issueNumber}`);
+  return { success: true };
+}
+
 // ============================================================
 // Task Delete API
 // ============================================================
@@ -2185,6 +2319,250 @@ function serveStatic(req, res) {
         res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: result.error }));
       }
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: GET /api/github-settings?prefix=BT
+  if (req.url && req.url.startsWith('/api/github-settings') && req.method === 'GET') {
+    const prefix = new URL(req.url, 'http://localhost').searchParams.get('prefix');
+    if (!prefix) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'prefix is required' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(getGithubSettings(prefix)));
+    return;
+  }
+
+  // API: POST /api/github-settings
+  if (req.url === '/api/github-settings' && req.method === 'POST') {
+    readRequestBody(req).then(({ prefix, repoUrl, token }) => {
+      if (!prefix) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'prefix is required' }));
+        return;
+      }
+      const result = saveGithubSettings(prefix, repoUrl, token);
+      if (result.success) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true }));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: result.error }));
+      }
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: POST /api/github-create-issue（BT-079: カード→GitHub Issue作成）
+  if (req.url === '/api/github-create-issue' && req.method === 'POST') {
+    readRequestBody(req).then(({ taskId, isChild }) => {
+      if (!taskId) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'taskId is required' }));
+        return;
+      }
+      const project = findProjectEntryForTask(taskId);
+      if (!project) {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `Task ${taskId} not found` }));
+        return;
+      }
+      const creds = readGithubCredentials()[project.prefix];
+      if (!creds || !creds.repoUrl || !creds.token) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `GitHub連携が未設定です (prefix: ${project.prefix})` }));
+        return;
+      }
+      const task = findTaskInAll(taskId);
+      if (!task) {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `Task ${taskId} not found` }));
+        return;
+      }
+      if (task.githubIssueNumber) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `Task ${taskId} is already linked to issue #${task.githubIssueNumber}` }));
+        return;
+      }
+      githubClient.issues.create(creds.repoUrl, creds.token, { title: task.title, body: task.description || '' })
+        .then((issue) => {
+          const result = setGithubIssueLink(taskId, !!isChild, String(issue.number), issue.html_url);
+          if (!result.success) {
+            res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ error: result.error }));
+            return;
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: true, issueNumber: issue.number, issueUrl: issue.html_url }));
+          broadcast(buildBoard());
+        })
+        .catch((e) => {
+          res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: `GitHub API error: ${e.message}` }));
+        });
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: GET /api/github-preview-issues?prefix=BT（BT-107: Issue一覧プレビュー、mdへの書き込みは行わない）
+  if (req.url && req.url.startsWith('/api/github-preview-issues') && req.method === 'GET') {
+    const prefix = new URL(req.url, 'http://localhost').searchParams.get('prefix');
+    if (!prefix) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'prefix is required' }));
+      return;
+    }
+    const project = (config.projects || []).find(p => p.prefix === prefix);
+    if (!project) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: `Unknown prefix: "${prefix}"` }));
+      return;
+    }
+    const creds = readGithubCredentials()[prefix];
+    if (!creds || !creds.repoUrl || !creds.token) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: `GitHub連携が未設定です (prefix: ${prefix})` }));
+      return;
+    }
+
+    // 既取り込み済みのissue番号集合(このプロジェクト内、親・子とも)
+    const existingNumbers = new Set();
+    for (const t of parseAllBacklogs()) {
+      if (t.project === project.file && t.githubIssueNumber) existingNumbers.add(String(t.githubIssueNumber));
+      if (t.children) {
+        for (const c of t.children) {
+          if (c.githubIssueNumber) existingNumbers.add(String(c.githubIssueNumber));
+        }
+      }
+    }
+
+    githubClient.issues.listForRepo(creds.repoUrl, creds.token, { state: 'all', perPage: 100 })
+      .then((issues) => {
+        // Issues APIはPull Requestも返すため除外する
+        const onlyIssues = (issues || []).filter((i) => !i.pull_request);
+        // BT-108: 本文の "- [ ] #123" 形式task listから子issue番号を抽出(Epic表現)
+        const parseTaskListChildren = (body) => {
+          const matches = (body || '').matchAll(/-\s*\[[ xX]\]\s*#(\d+)/g);
+          return Array.from(matches, (m) => Number(m[1]));
+        };
+        const preview = onlyIssues.map((issue) => ({
+          number: issue.number,
+          title: issue.title,
+          body: issue.body || '',
+          url: issue.html_url,
+          state: issue.state,
+          alreadyImported: existingNumbers.has(String(issue.number)),
+          childIssueNumbers: parseTaskListChildren(issue.body),
+        }));
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, issues: preview }));
+      })
+      .catch((e) => {
+        res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `GitHub API error: ${e.message}` }));
+      });
+    return;
+  }
+
+  // API: POST /api/github-fetch-issues（BT-078: GitHub Issue→カード取り込み）
+  if (req.url === '/api/github-fetch-issues' && req.method === 'POST') {
+    readRequestBody(req).then(({ prefix, issueNumbers }) => {
+      if (!prefix) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'prefix is required' }));
+        return;
+      }
+      // BT-109: issueNumbers指定時はその番号のみに絞り込む(選択的取り込み)。未指定なら従来通り全件対象
+      const selectedNumbers = Array.isArray(issueNumbers) ? new Set(issueNumbers.map(String)) : null;
+      const project = (config.projects || []).find(p => p.prefix === prefix);
+      if (!project) {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `Unknown prefix: "${prefix}"` }));
+        return;
+      }
+      const creds = readGithubCredentials()[prefix];
+      if (!creds || !creds.repoUrl || !creds.token) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `GitHub連携が未設定です (prefix: ${prefix})` }));
+        return;
+      }
+
+      // 既取り込み済みのissue番号集合(このプロジェクト内、親・子とも)
+      const existingNumbers = new Set();
+      for (const t of parseAllBacklogs()) {
+        if (t.project === project.file && t.githubIssueNumber) existingNumbers.add(String(t.githubIssueNumber));
+        if (t.children) {
+          for (const c of t.children) {
+            if (c.githubIssueNumber) existingNumbers.add(String(c.githubIssueNumber));
+          }
+        }
+      }
+
+      // BT-108: 本文の "- [ ] #123" 形式task listから子issue番号を抽出(Epic表現)
+      const parseTaskListChildren = (body) => Array.from((body || '').matchAll(/-\s*\[[ xX]\]\s*#(\d+)/g), (m) => Number(m[1]));
+      // task list行はmd側のフィールド書式(- キー: 値)と衝突するため、説明欄に取り込む前に取り除く
+      const stripTaskListLines = (body) => (body || '')
+        .split(/\r?\n/)
+        .filter((line) => !/^\s*-\s*\[[ xX]\]\s*#\d+/.test(line))
+        .join('\n')
+        .trim();
+
+      githubClient.issues.listForRepo(creds.repoUrl, creds.token, { state: 'all', perPage: 100 })
+        .then((issues) => {
+          // Issues APIはPull Requestも返すため除外する
+          const allIssues = (issues || []).filter((i) => !i.pull_request);
+          const issueByNumber = new Map(allIssues.map((i) => [i.number, i]));
+          // 他issueのtask listに子として現れる番号は、親経由でのみ取り込む(単独では取り込めない)
+          const allChildNumbers = new Set();
+          for (const i of allIssues) {
+            for (const childNum of parseTaskListChildren(i.body)) allChildNumbers.add(childNum);
+          }
+
+          let targetIssues = selectedNumbers ? allIssues.filter((i) => selectedNumbers.has(String(i.number))) : allIssues;
+          let added = 0;
+          let skipped = 0;
+          for (const issue of targetIssues) {
+            if (allChildNumbers.has(issue.number)) continue; // 子issueは親の取り込み時に一括で処理する
+            if (existingNumbers.has(String(issue.number))) { skipped++; continue; }
+            const result = addTask(issue.title, project.file, '未着手', 'user', stripTaskListLines(issue.body), {
+              githubIssueNumber: String(issue.number),
+              githubIssueUrl: issue.html_url,
+            });
+            if (!result.success) continue;
+            added++;
+
+            // task listで紐付いた子issueを親の直下に一括取り込み
+            for (const childNumber of parseTaskListChildren(issue.body)) {
+              if (existingNumbers.has(String(childNumber))) { skipped++; continue; }
+              const childIssue = issueByNumber.get(childNumber);
+              if (!childIssue) continue; // 別リポジトリ参照など一覧に無いものは無視
+              const childResult = addChildTask(childIssue.title, result.id, '未着手', 'user', stripTaskListLines(childIssue.body), {
+                githubIssueNumber: String(childIssue.number),
+                githubIssueUrl: childIssue.html_url,
+              });
+              if (childResult.success) added++;
+            }
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: true, added, skipped }));
+          if (added > 0) broadcast(buildBoard());
+        })
+        .catch((e) => {
+          res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: `GitHub API error: ${e.message}` }));
+        });
     }).catch(e => {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'Invalid JSON body' }));

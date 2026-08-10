@@ -7,6 +7,9 @@ docs/
 # 実際の運用設定（ワークスペースパス等の個人環境依存値を含むため非公開。config.json.exampleをコピーして使う）
 backlog-dashboard/config.json
 
+# GitHub連携用クレデンシャル（PAT等の機密情報を含むため非公開。github-credentials.json.exampleをコピーして使う）
+backlog-dashboard/github-credentials.json
+
 # バックアップファイル
 *.bak
 
