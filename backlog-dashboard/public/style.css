@@ -2056,6 +2056,17 @@ body {
   color: #fff;
 }
 
+.selection-bar-github {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.selection-bar-github:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
 .selection-bar-cancel {
   background: transparent;
   color: var(--text-muted);
