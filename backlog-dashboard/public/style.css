@@ -63,9 +63,11 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: var(--bg);
   color: var(--text);
-  min-height: 100vh;
+  height: 100vh;
   overflow-x: auto;
-  padding-bottom: 34px; /* 画面下端固定の.running-strip分の余白（BT-059） */
+  overflow-y: hidden;
+  display: flex;
+  flex-direction: column;
   transition: background 0.3s, color 0.3s;
 }
 
@@ -80,6 +82,7 @@ body {
   position: sticky;
   top: 0;
   z-index: 10;
+  flex-shrink: 0;
 }
 
 .header h1 {
@@ -160,11 +163,9 @@ body {
   padding: 6px 20px;
   background: var(--surface);
   border-top: 1px solid var(--border);
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  flex-shrink: 0;
   z-index: 9;
+  order: 2;
 }
 
 .running-strip-empty {
@@ -406,8 +407,10 @@ body {
   display: flex;
   gap: var(--col-gap);
   padding: 16px;
-  min-height: calc(100vh - 60px);
+  flex: 1;
+  min-height: 0;
   align-items: stretch;
+  order: 1;
 }
 
 /* --- Column --- */
