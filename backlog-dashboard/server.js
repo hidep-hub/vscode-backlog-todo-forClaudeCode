@@ -2523,6 +2523,11 @@ function serveStatic(req, res) {
       }
       const project = findProjectEntryForTask(taskId);
       if (!project) {
+        if (findArchiveTableRow(taskId)) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: `Task ${taskId} は完了済みのため、GitHub Issueとの紐づけには対応していません` }));
+          return;
+        }
         res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: `Task ${taskId} not found` }));
         return;
