@@ -2200,6 +2200,45 @@ function findTaskInAll(taskId) {
   return null;
 }
 
+// GitHub Issue⇔Backlogタスクの紐付けを示す固定ラベル(BT-143)
+const BACKLOG_LINK_LABEL = 'backlog-todo';
+const BACKLOG_FOOTER_SEPARATOR = '---';
+
+/**
+ * GitHub Issue側でBacklogタスクIDが一目で分かるよう件名にprefixを付与する(BT-143)
+ */
+function buildBacklogLinkedTitle(taskId, title) {
+  return `[${taskId}] ${title}`;
+}
+
+/**
+ * GitHub Issue本文の末尾にBacklogタスクIDを示すフッターを追記する(BT-143)
+ */
+function appendBacklogFooter(body, taskId) {
+  const base = (body || '').trim();
+  const footer = `${BACKLOG_FOOTER_SEPARATOR}\n🔖 Backlog: ${taskId}`;
+  return base ? `${base}\n\n${footer}` : footer;
+}
+
+/**
+ * 取り込んだGitHub Issue側に、確定したBacklogタスクIDを書き戻す(BT-143)。
+ * labelsはPATCHで渡すと既存ラベルが上書きされるため、既存ラベル名に合成してから渡す。
+ * 失敗してもタスク自体の取り込みは既に成功しているため、ログのみでスキップする。
+ */
+async function writeBacklogLinkToGithubIssue(creds, issue, taskId) {
+  const existingLabels = (issue.labels || []).map((l) => (typeof l === 'string' ? l : l.name)).filter(Boolean);
+  const labels = existingLabels.includes(BACKLOG_LINK_LABEL) ? existingLabels : [...existingLabels, BACKLOG_LINK_LABEL];
+  try {
+    await githubClient.issues.update(creds.repoUrl, creds.token, issue.number, {
+      title: buildBacklogLinkedTitle(taskId, issue.title),
+      body: appendBacklogFooter(issue.body, taskId),
+      labels,
+    });
+  } catch (e) {
+    console.error(`[github-fetch-issues] Failed to write backlog link back to issue #${issue.number}:`, e.message);
+  }
+}
+
 /**
  * タスクのmdブロックに github_issue_number / github_issue_url フィールドを追加・更新する(BT-079)
  * @returns {{ success: boolean, error?: string }}
@@ -2511,7 +2550,11 @@ function serveStatic(req, res) {
       // 個別作成し、Sub-issues機能で親に紐付ける(BT-134)
       const isEpic = !isChild && Array.isArray(task.children) && task.children.length > 0;
 
-      githubClient.issues.create(creds.repoUrl, creds.token, { title: task.title, body: task.description || '' })
+      githubClient.issues.create(creds.repoUrl, creds.token, {
+        title: buildBacklogLinkedTitle(taskId, task.title),
+        body: appendBacklogFooter(task.description, taskId),
+        labels: [BACKLOG_LINK_LABEL],
+      })
         .then(async (issue) => {
           const result = setGithubIssueLink(taskId, !!isChild, String(issue.number), issue.html_url);
           if (!result.success) {
@@ -2527,8 +2570,9 @@ function serveStatic(req, res) {
               if (child.githubIssueNumber) continue; // 既に紐付け済みの子はスキップ
               try {
                 const subIssue = await githubClient.issues.create(creds.repoUrl, creds.token, {
-                  title: child.title,
-                  body: child.description || '',
+                  title: buildBacklogLinkedTitle(child.id, child.title),
+                  body: appendBacklogFooter(child.description, child.id),
+                  labels: [BACKLOG_LINK_LABEL],
                 });
                 await githubClient.issues.addSubIssue(creds.repoUrl, creds.token, issue.number, subIssue.id);
                 setGithubIssueLink(child.id, true, String(subIssue.number), subIssue.html_url);
@@ -2743,7 +2787,7 @@ function serveStatic(req, res) {
         .trim();
 
       githubClient.issues.listForRepo(creds.repoUrl, creds.token, { state: 'all', perPage: 100 })
-        .then((issues) => {
+        .then(async (issues) => {
           // Issues APIはPull Requestも返すため除外する
           const allIssues = (issues || []).filter((i) => !i.pull_request);
           const issueByNumber = new Map(allIssues.map((i) => [i.number, i]));
@@ -2765,6 +2809,8 @@ function serveStatic(req, res) {
             });
             if (!result.success) continue;
             added++;
+            // 取り込んだGitHub Issue側にも確定したBacklog番号を書き戻す(BT-143)
+            await writeBacklogLinkToGithubIssue(creds, issue, result.id);
 
             // task listで紐付いた子issueを親の直下に一括取り込み
             for (const childNumber of parseTaskListChildren(issue.body)) {
@@ -2775,7 +2821,10 @@ function serveStatic(req, res) {
                 githubIssueNumber: String(childIssue.number),
                 githubIssueUrl: childIssue.html_url,
               });
-              if (childResult.success) added++;
+              if (childResult.success) {
+                added++;
+                await writeBacklogLinkToGithubIssue(creds, childIssue, childResult.id);
+              }
             }
           }
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
