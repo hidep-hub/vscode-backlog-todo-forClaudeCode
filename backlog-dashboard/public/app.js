@@ -1998,6 +1998,92 @@ function openGithubCreateConfirm(item, isChild) {
   el.classList.add('modal-visible');
 }
 
+/**
+ * 複数選択タスクをまとめてGitHub Issueとして新規作成する確認モーダルを開く（BT-146）
+ * 既存の単発作成API（/api/github-create-issue）を選択件数分呼び出すだけで、専用のバックエンドAPIは持たない
+ */
+function openBulkGithubCreateConfirm() {
+  const allIds = [...selectedIds];
+  if (allIds.length === 0) return;
+
+  const targets = [];
+  let alreadyLinkedCount = 0;
+  for (const id of allIds) {
+    const item = findItemById(id);
+    if (!item) continue;
+    if (item.githubIssueNumber) {
+      alreadyLinkedCount += 1;
+      continue;
+    }
+    targets.push(item);
+  }
+
+  const el = getOrCreateGithubCreateConfirm();
+  const content = el.querySelector('.modal-content');
+  const skipNote = alreadyLinkedCount > 0
+    ? `<p class="delete-confirm-text">連携済みの ${alreadyLinkedCount}件 は対象外にするよ。</p>`
+    : '';
+  content.innerHTML = `
+    <button class="modal-close" id="github-create-confirm-close">&times;</button>
+    <h3 class="add-form-title">📤 GitHub Issueを一括作成</h3>
+    <p class="delete-confirm-text">選択中のタスクから ${targets.length}件 のGitHub Issueを新規作成するよ。大丈夫?</p>
+    ${skipNote}
+    <p class="delete-confirm-error" style="display:none;"></p>
+    <div class="edit-form-actions">
+      <button class="add-task-submit" id="github-create-confirm-ok">作成する</button>
+      <button class="add-child-btn" id="github-create-confirm-cancel">キャンセル</button>
+    </div>
+  `;
+
+  content.querySelector('#github-create-confirm-close').addEventListener('click', closeGithubCreateConfirm);
+  content.querySelector('#github-create-confirm-cancel').addEventListener('click', closeGithubCreateConfirm);
+  content.querySelector('#github-create-confirm-ok').addEventListener('click', async () => {
+    if (targets.length === 0) {
+      closeGithubCreateConfirm();
+      return;
+    }
+    const errorEl = content.querySelector('.delete-confirm-error');
+    const okBtn = content.querySelector('#github-create-confirm-ok');
+    okBtn.disabled = true;
+
+    const succeeded = [];
+    const failed = [];
+    for (const item of targets) {
+      okBtn.textContent = `作成中... (${succeeded.length + failed.length + 1}/${targets.length})`;
+      try {
+        const resp = await fetch('/api/github-create-issue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskId: item.id, isChild: false }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          failed.push({ taskId: item.id, error: data.error || '不明なエラー' });
+          continue;
+        }
+        succeeded.push(item.id);
+      } catch (e) {
+        failed.push({ taskId: item.id, error: 'ネットワークエラー' });
+      }
+    }
+
+    closeGithubCreateConfirm();
+    let message = `${succeeded.length}件 GitHub Issueを作成したよ。`;
+    if (failed.length > 0) {
+      const reasons = failed.map(f => `${f.taskId}(${f.error})`).join(', ');
+      message += `\n${failed.length}件は失敗: ${reasons}`;
+    }
+    alert(message);
+
+    selectionMode = false;
+    selectedIds.clear();
+    document.getElementById('select-mode-btn').classList.remove('filter-active');
+    renderBoard(lastBoardData);
+  });
+
+  el.classList.add('modal-visible');
+}
+
 function renderModalContent(item) {
   const modal = getOrCreateModal();
   const body = modal.querySelector('.modal-body');
@@ -2463,12 +2549,14 @@ function getOrCreateSelectionBar() {
     <span class="selection-bar-count"></span>
     <button class="selection-bar-btn selection-bar-parent" id="selection-pick-parent">親を選ぶ</button>
     <button class="selection-bar-btn selection-bar-move" id="selection-pick-move">🚚 移動</button>
+    <button class="selection-bar-btn selection-bar-github" id="selection-github-create">📤 GitHub登録</button>
     <button class="selection-bar-btn selection-bar-delete danger" id="selection-delete">🗑 削除</button>
     <button class="selection-bar-btn selection-bar-cancel" id="selection-cancel">キャンセル</button>
   `;
   document.body.appendChild(selectionBarEl);
   selectionBarEl.querySelector('#selection-pick-parent').addEventListener('click', () => openParentPicker());
   selectionBarEl.querySelector('#selection-pick-move').addEventListener('click', () => openMovePicker(null, false));
+  selectionBarEl.querySelector('#selection-github-create').addEventListener('click', () => openBulkGithubCreateConfirm());
   selectionBarEl.querySelector('#selection-delete').addEventListener('click', () => openBulkDeleteConfirm());
   selectionBarEl.querySelector('#selection-cancel').addEventListener('click', () => {
     selectionMode = false;
