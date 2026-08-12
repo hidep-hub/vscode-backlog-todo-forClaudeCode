@@ -2610,13 +2610,13 @@ function serveStatic(req, res) {
       return;
     }
 
-    // 既取り込み済みのissue番号集合(このプロジェクト内、親・子とも)
-    const existingNumbers = new Set();
+    // 既取り込み済みのissue番号 → backlog内タスクID(このプロジェクト内、親・子とも)
+    const existingNumberToTaskId = new Map();
     for (const t of parseAllBacklogs()) {
-      if (t.project === project.file && t.githubIssueNumber) existingNumbers.add(String(t.githubIssueNumber));
+      if (t.project === project.file && t.githubIssueNumber) existingNumberToTaskId.set(String(t.githubIssueNumber), t.id);
       if (t.children) {
         for (const c of t.children) {
-          if (c.githubIssueNumber) existingNumbers.add(String(c.githubIssueNumber));
+          if (c.githubIssueNumber) existingNumberToTaskId.set(String(c.githubIssueNumber), c.id);
         }
       }
     }
@@ -2636,7 +2636,8 @@ function serveStatic(req, res) {
           body: issue.body || '',
           url: issue.html_url,
           state: issue.state,
-          alreadyImported: existingNumbers.has(String(issue.number)),
+          alreadyImported: existingNumberToTaskId.has(String(issue.number)),
+          importedTaskId: existingNumberToTaskId.get(String(issue.number)) || null,
           childIssueNumbers: parseTaskListChildren(issue.body),
         }));
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });

@@ -345,11 +345,17 @@ function renderGithubIssueBadge(issueNumber, issueUrl) {
   return `<a class="card-tag github-issue-badge" href="${href}" target="_blank" rel="noopener noreferrer" title="GitHub Issue #${escapeHtml(String(issueNumber))}">${GITHUB_MARK_SVG}#${escapeHtml(String(issueNumber))}</a>`;
 }
 
+// BT-127: 取込済みissueには、backlog内のタスクIDも併記する
+function renderGithubImportedTag(taskId) {
+  const idSuffix = taskId ? ` (${escapeHtml(taskId)})` : '';
+  return `<span class="card-tag github-issue-imported">取込済み${idSuffix}</span>`;
+}
+
 // BT-108: task listで子issueを持つ親(Epic)は、選択チェックボックス+配下の子issueを入れ子表示する。
 // 子issueは単独で選択できない(親を取り込むと一括で追従する、[[project_bt071_github_issue_sync_design]]の方針)
 function renderGithubImportIssueCard(issue, issueByNumber) {
   const stateTag = issue.state === 'closed' ? '<span class="card-tag github-issue-closed">closed</span>' : '';
-  const importedTag = issue.alreadyImported ? '<span class="card-tag github-issue-imported">取込済み</span>' : '';
+  const importedTag = issue.alreadyImported ? renderGithubImportedTag(issue.importedTaskId) : '';
   const checkboxHtml = issue.alreadyImported
     ? `<input type="checkbox" class="github-issue-checkbox" disabled title="取込済み">`
     : `<input type="checkbox" class="github-issue-checkbox" data-issue-number="${issue.number}">`;
@@ -383,7 +389,7 @@ function renderGithubImportIssueCard(issue, issueByNumber) {
 
 function renderGithubImportChildCard(issue) {
   const stateTag = issue.state === 'closed' ? '<span class="card-tag github-issue-closed">closed</span>' : '';
-  const importedTag = issue.alreadyImported ? '<span class="card-tag github-issue-imported">取込済み</span>' : '';
+  const importedTag = issue.alreadyImported ? renderGithubImportedTag(issue.importedTaskId) : '';
   return `
     <div class="card github-issue-card github-issue-child-card">
       <div class="github-issue-card-body">
