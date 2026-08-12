@@ -793,6 +793,7 @@ function renderBoard(data) {
         cardActionsHtml = `<div class="card-actions">
           <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集">✏️</button>
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueと紐づける">🔗</button>` : ''}
+          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成">📤</button>` : ''}
           ${!isEpic ? `<button class="card-action-btn card-delete-btn danger" data-task-id="${item.id}" title="削除">🗑</button>` : ''}
         </div>`;
       }
@@ -910,6 +911,16 @@ function renderBoard(data) {
       e.preventDefault();
       const item = findItemById(btn.dataset.taskId);
       if (item) openGithubLinkModal(item, btn.dataset.isChild === 'true');
+    });
+  });
+
+  // 📤 GitHub Issue新規作成ボタンのイベントリスナー（BT-134）
+  boardEl.querySelectorAll('.card-github-create-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const item = findItemById(btn.dataset.taskId);
+      if (item) openGithubCreateConfirm(item, btn.dataset.isChild === 'true');
     });
   });
 
@@ -1575,6 +1586,11 @@ function openChildModal(item) {
     ? `<button class="add-child-btn" id="modal-github-link-btn">🔗 GitHub Issueと紐づける</button>`
     : '';
 
+  // GitHub Issue新規作成ボタン（BT-134）
+  const githubCreateBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
+    ? `<button class="add-child-btn" id="modal-github-create-btn">📤 GitHub Issueを新規作成</button>`
+    : '';
+
   // ワークスペース導線ボタン（BT-053）
   const workspaceActionHtml = buildWorkspaceActionHtml(item);
 
@@ -1594,6 +1610,7 @@ function openChildModal(item) {
     ${actionsRow(editBtnHtml, deleteBtnHtml)}
     ${actionsRow(workspaceActionHtml, moveActionHtml)}
     ${actionsRow(detachBtn, githubLinkBtnHtml)}
+    ${actionsRow(githubCreateBtnHtml)}
   `;
 
   // 親から外すボタンのイベント
@@ -1606,6 +1623,12 @@ function openChildModal(item) {
   const githubLinkBtnEl = body.querySelector('#modal-github-link-btn');
   if (githubLinkBtnEl) {
     githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item, true));
+  }
+
+  // GitHub Issue新規作成ボタンのイベント（BT-134）
+  const githubCreateBtnEl = body.querySelector('#modal-github-create-btn');
+  if (githubCreateBtnEl) {
+    githubCreateBtnEl.addEventListener('click', () => openGithubCreateConfirm(item, true));
   }
 
   // 編集ボタンのイベント（BT-036: 子タスクは常に説明編集可）
@@ -1891,6 +1914,90 @@ function openGithubLinkModal(item, isChild) {
   el.classList.add('modal-visible');
 }
 
+// --- GitHub Issue新規作成確認ダイアログ (BT-134: backlogタスク→GitHub Issue新規作成、Epicはsub-issue化) ---
+function getOrCreateGithubCreateConfirm() {
+  let el = document.getElementById('github-create-confirm-overlay');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'github-create-confirm-overlay';
+  el.className = 'modal-overlay';
+  el.innerHTML = `<div class="modal-content delete-confirm-modal"></div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', (e) => {
+    if (e.target === el) closeGithubCreateConfirm();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && el.classList.contains('modal-visible')) closeGithubCreateConfirm();
+  });
+  return el;
+}
+
+function closeGithubCreateConfirm() {
+  const el = document.getElementById('github-create-confirm-overlay');
+  if (el) el.classList.remove('modal-visible');
+}
+
+/**
+ * GitHub Issue新規作成の確認モーダルを開く（BT-134）
+ * @param {object} item - 作成対象タスク（Epicの場合は子タスクもsub-issueとして作成される）
+ * @param {boolean} isChild - h4子タスクか
+ */
+function openGithubCreateConfirm(item, isChild) {
+  const el = getOrCreateGithubCreateConfirm();
+  const content = el.querySelector('.modal-content');
+  const isEpic = !isChild && Array.isArray(item.children) && item.children.length > 0;
+  const epicNote = isEpic
+    ? `<p class="delete-confirm-text">子タスク ${item.children.length}件 もGitHub Issueとして作成し、Sub-issueとして紐づけるよ。</p>`
+    : '';
+  content.innerHTML = `
+    <button class="modal-close" id="github-create-confirm-close">&times;</button>
+    <h3 class="add-form-title">📤 GitHub Issueを新規作成</h3>
+    <p class="delete-confirm-text">「${escapeHtml(item.title)}」(${escapeHtml(item.id)}) からGitHub Issueを新規作成するよ。大丈夫?</p>
+    ${epicNote}
+    <p class="delete-confirm-error" style="display:none;"></p>
+    <div class="edit-form-actions">
+      <button class="add-task-submit" id="github-create-confirm-ok">作成する</button>
+      <button class="add-child-btn" id="github-create-confirm-cancel">キャンセル</button>
+    </div>
+  `;
+
+  content.querySelector('#github-create-confirm-close').addEventListener('click', closeGithubCreateConfirm);
+  content.querySelector('#github-create-confirm-cancel').addEventListener('click', closeGithubCreateConfirm);
+  content.querySelector('#github-create-confirm-ok').addEventListener('click', async () => {
+    const errorEl = content.querySelector('.delete-confirm-error');
+    const okBtn = content.querySelector('#github-create-confirm-ok');
+    okBtn.disabled = true;
+    okBtn.textContent = '作成中...';
+    try {
+      const resp = await fetch('/api/github-create-issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: item.id, isChild }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        errorEl.textContent = data.error || '作成に失敗したよ';
+        errorEl.style.display = 'block';
+        okBtn.disabled = false;
+        okBtn.textContent = '作成する';
+        return;
+      }
+      closeGithubCreateConfirm();
+      if (data.failedChildIds && data.failedChildIds.length > 0) {
+        alert(`親Issueは作成できたけど、一部の子タスク(${data.failedChildIds.join(', ')})のIssue作成に失敗したよ。もう一度試してみてね`);
+      }
+    } catch (e) {
+      console.error('[github-create] Network error:', e);
+      errorEl.textContent = 'ネットワークエラーが発生したよ';
+      errorEl.style.display = 'block';
+      okBtn.disabled = false;
+      okBtn.textContent = '作成する';
+    }
+  });
+
+  el.classList.add('modal-visible');
+}
+
 function renderModalContent(item) {
   const modal = getOrCreateModal();
   const body = modal.querySelector('.modal-body');
@@ -1949,6 +2056,11 @@ function renderModalContent(item) {
     ? `<button class="add-child-btn" id="modal-github-link-btn">🔗 GitHub Issueと紐づける</button>`
     : '';
 
+  // GitHub Issue新規作成ボタン（BT-134: Epicの場合は子タスクもsub-issueとして一括作成）
+  const githubCreateBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
+    ? `<button class="add-child-btn" id="modal-github-create-btn">📤 GitHub Issueを新規作成</button>`
+    : '';
+
   // ワークスペース導線ボタン（BT-053）
   const workspaceActionHtml = buildWorkspaceActionHtml(item);
 
@@ -1969,7 +2081,7 @@ function renderModalContent(item) {
     ${actionsRow(editBtnHtml, deleteBtnHtml)}
     ${actionsRow(addChildBtn, setParentBtn)}
     ${actionsRow(workspaceActionHtml, moveActionHtml)}
-    ${actionsRow(githubLinkBtnHtml)}
+    ${actionsRow(githubLinkBtnHtml, githubCreateBtnHtml)}
     ${miniBoard}
   `;
 
@@ -2005,6 +2117,12 @@ function renderModalContent(item) {
   const githubLinkBtnEl = body.querySelector('#modal-github-link-btn');
   if (githubLinkBtnEl) {
     githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item, false));
+  }
+
+  // GitHub Issue新規作成ボタンのイベント（BT-134）
+  const githubCreateBtnEl = body.querySelector('#modal-github-create-btn');
+  if (githubCreateBtnEl) {
+    githubCreateBtnEl.addEventListener('click', () => openGithubCreateConfirm(item, false));
   }
 
   // 編集ボタンのイベント（BT-036: 完了済み単発タスクは説明編集不可）
@@ -2167,6 +2285,7 @@ function buildMiniBoard(epic) {
         ? `<div class="card-actions">
             <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集">✏️</button>
             ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける">🔗</button>` : ''}
+            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-create-btn" data-task-id="${child.id}" title="GitHub Issueを新規作成">📤</button>` : ''}
             <button class="card-action-btn card-child-delete-btn danger" data-task-id="${child.id}" title="削除">🗑</button>
           </div>`
         : '';
@@ -2215,6 +2334,17 @@ function buildMiniBoard(epic) {
           e.preventDefault();
           const childWithProject = { ...child, project: epic.project };
           openGithubLinkModal(childWithProject, true);
+        });
+      }
+
+      // GitHub Issue新規作成ボタンのイベント（BT-134）
+      const childGithubCreateBtnEl = card.querySelector('.card-child-github-create-btn');
+      if (childGithubCreateBtnEl) {
+        childGithubCreateBtnEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const childWithProject = { ...child, project: epic.project };
+          openGithubCreateConfirm(childWithProject, true);
         });
       }
 
