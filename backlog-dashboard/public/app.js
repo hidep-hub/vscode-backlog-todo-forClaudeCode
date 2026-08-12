@@ -1269,6 +1269,27 @@ function formatDescription(desc) {
   return html;
 }
 
+// 説明欄のHTML生成（BT-080: 長い説明は2行に折りたたみ、▼で展開できるようにする）
+function buildDescriptionSectionHtml(description) {
+  if (!description) return '';
+  return `<div class="detail-section"><h4>説明</h4><div class="description-collapsible"><p class="description-text">${formatDescription(description)}</p><button type="button" class="description-toggle-btn" hidden>▼ もっと見る</button></div></div>`;
+}
+
+// 説明欄の折りたたみトグルを初期化する（BT-080）。2行に収まる場合はボタンを出さない
+function setupDescriptionToggle(container) {
+  container.querySelectorAll('.description-collapsible').forEach((wrap) => {
+    const text = wrap.querySelector('.description-text');
+    const btn = wrap.querySelector('.description-toggle-btn');
+    if (!text || !btn) return;
+    if (text.scrollHeight <= text.clientHeight + 1) return;
+    btn.hidden = false;
+    btn.addEventListener('click', () => {
+      const expanded = wrap.classList.toggle('expanded');
+      btn.textContent = expanded ? '▲ 閉じる' : '▼ もっと見る';
+    });
+  });
+}
+
 // --- Drag & Drop ---
 let dragData = null;
 
@@ -1511,8 +1532,8 @@ function openCardDetail(item, parentEpic = null) {
     const modal = getOrCreateModal();
     currentModalItemId = item.id;
     modalParentEpic = null;
-    renderModalContent(item);
     modal.classList.add('modal-visible');
+    renderModalContent(item);
   }
 }
 
@@ -1558,7 +1579,7 @@ function openChildModal(item) {
   const project = item.project ? `<span class="detail-tag project">${escapeHtml(item.project)}</span>` : '';
   const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
 
-  const desc = item.description ? `<div class="detail-section"><h4>説明</h4><p>${formatDescription(item.description)}</p></div>` : '';
+  const desc = buildDescriptionSectionHtml(item.description);
 
   // 成果物セクション
   const artifactsHtml = buildArtifactsHtml(item);
@@ -1657,6 +1678,9 @@ function openChildModal(item) {
   setupMoveActionButton(body, item, true);
 
   modal.classList.add('modal-visible');
+
+  // 説明欄の折りたたみトグル初期化（BT-080: 表示後でないとscrollHeightが取れない）
+  setupDescriptionToggle(body);
 }
 
 async function detachTask(taskId) {
@@ -2104,7 +2128,7 @@ function renderModalContent(item) {
     badgeHtml = `<span class="card-badge ${badgeClass}"><span class="badge-num">${item.childrenDone}</span><span class="badge-den">/${item.childrenTotal}</span></span>`;
   }
 
-  const desc = item.description ? `<div class="detail-section"><h4>説明</h4><p>${formatDescription(item.description)}</p></div>` : '';
+  const desc = buildDescriptionSectionHtml(item.description);
 
   // 成果物セクション
   const artifactsHtml = buildArtifactsHtml(item);
@@ -2170,6 +2194,9 @@ function renderModalContent(item) {
     ${actionsRow(githubLinkBtnHtml, githubCreateBtnHtml)}
     ${miniBoard}
   `;
+
+  // 説明欄の折りたたみトグル初期化（BT-080）
+  setupDescriptionToggle(body);
 
   // 「戻る」ボタンのイベント
   const backBtn = body.querySelector('#modal-back-btn');
