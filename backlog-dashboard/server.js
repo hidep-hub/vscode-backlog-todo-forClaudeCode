@@ -721,6 +721,12 @@ function mergeArchiveDetails(allTasks) {
             case '担当':
               current.assignee = value;
               break;
+            case 'github_issue_number':
+              current.githubIssueNumber = value;
+              break;
+            case 'github_issue_url':
+              current.githubIssueUrl = value;
+              break;
           }
         }
       }
@@ -738,6 +744,9 @@ function mergeArchiveDetails(allTasks) {
       if (detail.artifacts) task.artifacts = detail.artifacts;
       if (detail.category && task.category === '-') task.category = detail.category;
       if (detail.assignee && !task.assignee) task.assignee = detail.assignee;
+      // BT-132: h3単発タスク完了時に失われるgithub_issue_number/urlをarchiveから復元(取込済み判定への反映用)
+      if (detail.githubIssueNumber && !task.githubIssueNumber) task.githubIssueNumber = detail.githubIssueNumber;
+      if (detail.githubIssueUrl && !task.githubIssueUrl) task.githubIssueUrl = detail.githubIssueUrl;
     }
   }
 }

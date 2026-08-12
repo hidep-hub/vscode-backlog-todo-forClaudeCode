@@ -76,8 +76,11 @@
   ## [ID] 件名
   - 説明: 改修の概要のみ（手順や経緯の詳細は書かない。1〜2文で何をやったか）
   - 成果物: 変更/追加したファイルパス（カンマ区切り）
+  - github_issue_number: 連携元Issue番号（GitHub連携済み(githubIssueNumberを持つ)タスクの場合のみ追記）
+  - github_issue_url: 連携元IssueのURL（同上）
   ```
   - タスク完了のたびに毎回チェックするのは面倒なので、「完了にする」＝「archiveにも書く」をワンセットの作法として扱う
+  - **【重要】GitHub連携済み(githubIssueNumberを持つ)h3単発タスクの場合、github_issue_number/urlも必ず書くこと（BT-132）**。完了時に本文ブロックごと消えるため書き忘れると、`mergeArchiveDetails`が復元できず、GitHub Issue取り込み画面の「取込済み」判定（BT-127）からそのIssueが漏れて再度一覧に出てきてしまう
 
 ## GitHub連携タスクの完了時自動反映（BT-119）
 - `github_issue_number`が設定されているタスクをupdate-statusで「完了」にすると、APIが自動で
@@ -93,6 +96,10 @@
   圧縮される）ため、`commit`フィールドの自動追記は行われない。従来通り「完了・アーカイブの
   作法」節の手動archive.md退避で成果物・コミット情報を残すこと。この手動運用のAPI統合は
   BT-123として保留中（未着手）
+  - **BT-132で判明**: archive.mdにgithub_issue_number/urlを書き忘れると、`mergeArchiveDetails`
+    が復元できずGitHub Issue取り込み画面の「取込済み」判定（BT-127）から漏れる実害が確認された
+    （実例: BT-118）。`mergeArchiveDetails`側は復元に対応済みなので、手動退避時に上記2項目を
+    書き忘れないことが唯一の防止策
 
 ## 知見の昇格ルール（MEMORY→backlog-hub-rules.md）
 - 開発ワークスペース(backlog-todo)のMEMORYに何かを書き込む/更新する直前、必ず自問する:
