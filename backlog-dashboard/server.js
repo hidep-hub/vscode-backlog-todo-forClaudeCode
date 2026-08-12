@@ -16,6 +16,12 @@ const BACKLOG_DIR = config.backlogDir.replace(/^~/, os.homedir());
 const COUNTER_FILE = path.join(BACKLOG_DIR, '_counter.md');
 const GITHUB_CREDENTIALS_PATH = path.join(__dirname, 'github-credentials.json');
 
+// フィールド行として認識する既知キー一覧（説明欄の継続行判定に使う。
+// 単純に「- で始まる行」を次フィールドとみなすと、説明文中の箇条書き「- xxx」が
+// 誤って次フィールドの開始と判定されてしまうため、既知キーに限定する。BT-149）
+const KNOWN_FIELD_KEYS = ['状態', '分類', '説明', '担当', '開始日', '期日', '起源', '成果物', '完了日', 'github_issue_number', 'github_issue_url', 'commit'];
+const FIELD_LINE_RE = new RegExp(`^\\s*-\\s+(?:${KNOWN_FIELD_KEYS.join('|')})[:：]`);
+
 // --- Projects / Prefix helper ---
 function getPrefixMap() {
   // { file: prefix } マッピングを返す
@@ -538,11 +544,11 @@ function parseBacklogFile(filePath) {
           break;
         case '説明':
           target.description = value;
-          // 次の行が継続行なら取り込む（- で始まらず # でも始まらない非空行）
+          // 次の行が継続行なら取り込む（既知フィールド行・ヘッダー・空行以外）
           while (i + 1 < lines.length) {
             const nextLine = lines[i + 1];
             if (!nextLine.trim()) break; // 空行で終了
-            if (/^\s*-\s+/.test(nextLine)) break; // 次のフィールド
+            if (FIELD_LINE_RE.test(nextLine)) break; // 次のフィールド
             if (/^#{1,4}\s/.test(nextLine)) break; // 次のヘッダー
             target.description += '\n' + nextLine.trim();
             i++;
@@ -706,7 +712,7 @@ function mergeArchiveDetails(allTasks) {
               while (i + 1 < lines.length) {
                 const nextLine = lines[i + 1];
                 if (!nextLine.trim()) break;
-                if (/^\s*-\s+/.test(nextLine)) break;
+                if (FIELD_LINE_RE.test(nextLine)) break;
                 if (/^#{1,4}\s/.test(nextLine)) break;
                 current.description += '\n' + nextLine.trim();
                 i++;
@@ -2157,7 +2163,7 @@ function updateTaskDescription(taskId, newDescription, isChild = false) {
       descStart = i;
       for (let j = i + 1; j < blockEnd; j++) {
         if (!lines[j].trim()) { descEnd = j; break; }
-        if (/^\s*-\s+/.test(lines[j])) { descEnd = j; break; }
+        if (FIELD_LINE_RE.test(lines[j])) { descEnd = j; break; }
         descEnd = j + 1;
       }
       break;
