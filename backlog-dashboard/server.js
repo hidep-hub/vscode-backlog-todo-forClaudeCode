@@ -2212,6 +2212,14 @@ function setGithubIssueLink(taskId, isChild, issueNumber, issueUrl) {
   const { lines, filePath, headerIdx } = block;
   let blockEnd = block.blockEnd;
 
+  // h3親タスクのblockEndは子タスク(h4)も含む範囲になっているため、親自身の
+  // フィールドは最初の子タスク行(####)の手前までに限定する。これをしないと
+  // 「起源:」行探索が子タスクのものまで拾ってしまい、フィールドが子タスクの
+  // ブロック内に誤挿入される(BT-134でEpicへのIssue紐付け時に発覚)。
+  for (let i = headerIdx + 1; i < blockEnd; i++) {
+    if (/^####\s+\[/.test(lines[i])) { blockEnd = i; break; }
+  }
+
   // 挿入基準点(起源行、無ければヘッダー行)。フィールドを1つ挿入するたびに
   // その挿入位置へ更新し、次のフィールドが直後に続くようにする。
   let insertAfter = headerIdx;
@@ -2499,16 +2507,43 @@ function serveStatic(req, res) {
         res.end(JSON.stringify({ error: `Task ${taskId} is already linked to issue #${task.githubIssueNumber}` }));
         return;
       }
+      // Epic(子タスクを持つh3親)の場合、親Issue作成後に各子タスクをGitHub Issueとして
+      // 個別作成し、Sub-issues機能で親に紐付ける(BT-134)
+      const isEpic = !isChild && Array.isArray(task.children) && task.children.length > 0;
+
       githubClient.issues.create(creds.repoUrl, creds.token, { title: task.title, body: task.description || '' })
-        .then((issue) => {
+        .then(async (issue) => {
           const result = setGithubIssueLink(taskId, !!isChild, String(issue.number), issue.html_url);
           if (!result.success) {
             res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ error: result.error }));
             return;
           }
+
+          const subIssues = [];
+          const failedChildIds = [];
+          if (isEpic) {
+            for (const child of task.children) {
+              if (child.githubIssueNumber) continue; // 既に紐付け済みの子はスキップ
+              try {
+                const subIssue = await githubClient.issues.create(creds.repoUrl, creds.token, {
+                  title: child.title,
+                  body: child.description || '',
+                });
+                await githubClient.issues.addSubIssue(creds.repoUrl, creds.token, issue.number, subIssue.id);
+                setGithubIssueLink(child.id, true, String(subIssue.number), subIssue.html_url);
+                subIssues.push({ taskId: child.id, issueNumber: subIssue.number, issueUrl: subIssue.html_url });
+              } catch (e) {
+                console.error(`[github-create-issue] Failed to create sub-issue for ${child.id}:`, e.message);
+                failedChildIds.push(child.id);
+              }
+            }
+          }
+
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify({ ok: true, issueNumber: issue.number, issueUrl: issue.html_url }));
+          res.end(JSON.stringify({
+            ok: true, issueNumber: issue.number, issueUrl: issue.html_url, subIssues, failedChildIds,
+          }));
           broadcast(buildBoard());
         })
         .catch((e) => {
