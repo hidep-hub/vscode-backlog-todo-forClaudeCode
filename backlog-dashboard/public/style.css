@@ -1016,12 +1016,18 @@ body {
 }
 
 .github-import-toolbar select {
-  flex: 1;
+  flex: 0 1 180px;
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
   color: var(--text);
+}
+
+.github-import-total-count {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .github-import-toolbar button {
@@ -1039,6 +1045,16 @@ body {
 .github-import-toolbar button:hover {
   background: var(--card);
   color: var(--text);
+}
+
+.github-import-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .github-import-body {

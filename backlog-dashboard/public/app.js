@@ -208,6 +208,7 @@ function populateGithubImportProjectSelect(selectEl) {
 
 let githubImportEl = null;
 let githubImportSelectedNumbers = new Set(); // BT-109: 選択中のissue番号(文字列)
+let githubImportAllIssues = []; // BT-130: フィルタ切り替え時に再取得しないためのキャッシュ
 
 function getOrCreateGithubImportModal() {
   if (githubImportEl) return githubImportEl;
@@ -220,6 +221,9 @@ function getOrCreateGithubImportModal() {
       <h3>🔗 GitHub Issues取り込み</h3>
       <div class="github-import-toolbar">
         <select id="github-import-project"></select>
+        <span class="github-import-total-count" id="github-import-total-count"></span>
+        <label class="github-import-filter"><input type="checkbox" id="github-import-filter-closed" checked><span id="github-import-filter-closed-label">closedを隠す</span></label>
+        <label class="github-import-filter"><input type="checkbox" id="github-import-filter-imported" checked><span id="github-import-filter-imported-label">取込済みを隠す</span></label>
         <button id="github-import-settings-btn" title="GitHub連携設定">⚙️ GitHub設定</button>
       </div>
       <div class="github-import-body" id="github-import-body">
@@ -242,6 +246,8 @@ function getOrCreateGithubImportModal() {
     loadGithubSettingsForSelectedProject();
   });
   githubImportEl.querySelector('#github-import-project').addEventListener('change', loadGithubImportPreview);
+  githubImportEl.querySelector('#github-import-filter-closed').addEventListener('change', renderGithubImportIssueList);
+  githubImportEl.querySelector('#github-import-filter-imported').addEventListener('change', renderGithubImportIssueList);
   githubImportEl.querySelector('#github-import-body').addEventListener('change', (e) => {
     if (e.target.classList.contains('github-issue-checkbox')) updateGithubImportSelection();
   });
@@ -262,6 +268,8 @@ async function loadGithubImportPreview() {
   const prefix = el.querySelector('#github-import-project').value;
   const bodyEl = el.querySelector('#github-import-body');
   resetGithubImportSelectionUi();
+  resetGithubImportFilterCounts();
+  githubImportAllIssues = [];
   if (!prefix) {
     bodyEl.innerHTML = `<p class="github-import-placeholder">プロジェクトを選択してください。</p>`;
     return;
@@ -271,21 +279,52 @@ async function loadGithubImportPreview() {
     const res = await fetch(`/api/github-preview-issues?prefix=${encodeURIComponent(prefix)}`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || '取得に失敗しました');
-    if (data.issues.length === 0) {
-      bodyEl.innerHTML = `<p class="github-import-placeholder">Issueが見つかりませんでした。</p>`;
-      return;
-    }
-    // BT-108: 他issueのtask listに子として現れるissueはトップレベル一覧から除外し、親の下に入れ子表示する
-    const issueByNumber = new Map(data.issues.map((i) => [i.number, i]));
-    const allChildNumbers = new Set();
-    for (const i of data.issues) {
-      for (const childNum of (i.childIssueNumbers || [])) allChildNumbers.add(childNum);
-    }
-    const topLevelIssues = data.issues.filter((i) => !allChildNumbers.has(i.number));
-    bodyEl.innerHTML = topLevelIssues.map((issue) => renderGithubImportIssueCard(issue, issueByNumber)).join('');
+    githubImportAllIssues = data.issues;
+    renderGithubImportIssueList();
   } catch (e) {
+    githubImportAllIssues = [];
     bodyEl.innerHTML = `<p class="github-import-placeholder">エラー: ${escapeHtml(e.message)}</p>`;
   }
+}
+
+// BT-130: 現在のフィルタ設定(closed非表示/取込済み非表示)に応じてトップレベルIssue一覧を絞り込んで再描画する
+// BT-131: あわせてチェックボックスへの該当件数表示・全体件数表示も更新する
+function renderGithubImportIssueList() {
+  const el = githubImportEl;
+  const bodyEl = el.querySelector('#github-import-body');
+  if (githubImportAllIssues.length === 0) {
+    bodyEl.innerHTML = `<p class="github-import-placeholder">Issueが見つかりませんでした。</p>`;
+    resetGithubImportFilterCounts();
+    return;
+  }
+  const hideClosed = el.querySelector('#github-import-filter-closed').checked;
+  const hideImported = el.querySelector('#github-import-filter-imported').checked;
+  // BT-108: 他issueのtask listに子として現れるissueはトップレベル一覧から除外し、親の下に入れ子表示する
+  const issueByNumber = new Map(githubImportAllIssues.map((i) => [i.number, i]));
+  const allChildNumbers = new Set();
+  for (const i of githubImportAllIssues) {
+    for (const childNum of (i.childIssueNumbers || [])) allChildNumbers.add(childNum);
+  }
+  const topLevelAllIssues = githubImportAllIssues.filter((i) => !allChildNumbers.has(i.number));
+  const closedCount = topLevelAllIssues.filter((i) => i.state === 'closed').length;
+  const importedCount = topLevelAllIssues.filter((i) => i.alreadyImported).length;
+  el.querySelector('#github-import-filter-closed-label').textContent = `closedを隠す (${closedCount})`;
+  el.querySelector('#github-import-filter-imported-label').textContent = `取込済みを隠す (${importedCount})`;
+  const topLevelIssues = topLevelAllIssues
+    .filter((i) => !(hideClosed && i.state === 'closed'))
+    .filter((i) => !(hideImported && i.alreadyImported));
+  el.querySelector('#github-import-total-count').textContent = `${topLevelIssues.length} / 全${topLevelAllIssues.length}件`;
+  bodyEl.innerHTML = topLevelIssues.length > 0
+    ? topLevelIssues.map((issue) => renderGithubImportIssueCard(issue, issueByNumber)).join('')
+    : `<p class="github-import-placeholder">条件に一致するIssueがありません。</p>`;
+}
+
+// BT-131: プロジェクト未選択/Issue0件のとき、フィルタ件数・全体件数の表示を空へ戻す
+function resetGithubImportFilterCounts() {
+  const el = githubImportEl;
+  el.querySelector('#github-import-filter-closed-label').textContent = 'closedを隠す';
+  el.querySelector('#github-import-filter-imported-label').textContent = '取込済みを隠す';
+  el.querySelector('#github-import-total-count').textContent = '';
 }
 
 // BT-109: 選択状態をSet・フッター表示ともに0件へ戻す(DOMの再読み込みに依存しない)
