@@ -1586,7 +1586,8 @@ body {
   background: #e53e3e;
 }
 
-.delete-confirm-modal {
+.delete-confirm-modal,
+.github-link-modal {
   max-width: 420px;
 }
 

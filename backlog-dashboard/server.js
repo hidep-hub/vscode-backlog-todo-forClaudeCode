@@ -2513,6 +2513,82 @@ function serveStatic(req, res) {
     return;
   }
 
+  // API: POST /api/github-link-issue（BT-122: 既存タスクカードへGitHub Issueを後から紐付け）
+  if (req.url === '/api/github-link-issue' && req.method === 'POST') {
+    readRequestBody(req).then(({ taskId, isChild, issueNumber }) => {
+      if (!taskId || !issueNumber) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'taskId and issueNumber are required' }));
+        return;
+      }
+      const project = findProjectEntryForTask(taskId);
+      if (!project) {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `Task ${taskId} not found` }));
+        return;
+      }
+      const creds = readGithubCredentials()[project.prefix];
+      if (!creds || !creds.repoUrl || !creds.token) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `GitHub連携が未設定です (prefix: ${project.prefix})` }));
+        return;
+      }
+      const task = findTaskInAll(taskId);
+      if (!task) {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `Task ${taskId} not found` }));
+        return;
+      }
+      if (task.githubIssueNumber) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `Task ${taskId} is already linked to issue #${task.githubIssueNumber}` }));
+        return;
+      }
+      const normalizedNumber = String(issueNumber).replace(/^#/, '').trim();
+      if (!/^\d+$/.test(normalizedNumber)) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `Invalid issue number: "${issueNumber}"` }));
+        return;
+      }
+
+      // 同一project内で既にその番号を使っている他タスクがないかチェック(重複紐付け防止)
+      const duplicated = parseAllBacklogs().some((t) => {
+        if (t.project !== project.file) return false;
+        if (t.id !== taskId && String(t.githubIssueNumber) === normalizedNumber) return true;
+        if (t.children) {
+          return t.children.some((c) => c.id !== taskId && String(c.githubIssueNumber) === normalizedNumber);
+        }
+        return false;
+      });
+      if (duplicated) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `Issue #${normalizedNumber} is already linked to another task` }));
+        return;
+      }
+
+      githubClient.issues.get(creds.repoUrl, creds.token, normalizedNumber)
+        .then((issue) => {
+          const result = setGithubIssueLink(taskId, !!isChild, String(issue.number), issue.html_url);
+          if (!result.success) {
+            res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ error: result.error }));
+            return;
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: true, issueNumber: issue.number, issueUrl: issue.html_url }));
+          broadcast(buildBoard());
+        })
+        .catch((e) => {
+          res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: `GitHub API error: ${e.message}` }));
+        });
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
   // API: GET /api/github-preview-issues?prefix=BT（BT-107: Issue一覧プレビュー、mdへの書き込みは行わない）
   if (req.url && req.url.startsWith('/api/github-preview-issues') && req.method === 'GET') {
     const prefix = new URL(req.url, 'http://localhost').searchParams.get('prefix');
