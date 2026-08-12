@@ -32,6 +32,7 @@
   - 今日やる: POST /api/toggle-today {taskId, isChild?, value?}
   - 実行中:   POST /api/toggle-running {taskId, isChild?, value?}
   - 追加:     POST /api/add-task {title, project?, status?, origin?, parentId?}
+    - **【重要】`project`にはprefix（例`"BT"`）ではなくconfig.jsonの`projects[].file`値（例`"backlog-todo"`）を渡すこと（BT-129）**。prefixを渡すと該当プロジェクトが解決できず、デフォルト（`inbox`等）に採番されてしまう。追加後は必ず期待したプレフィクスでID発行されたか確認する
 
 ## 新規ワークスペース追加時の初期処理
 - トリガー: 新しいワークスペースで「バックログ使いたい」と言われたとき
