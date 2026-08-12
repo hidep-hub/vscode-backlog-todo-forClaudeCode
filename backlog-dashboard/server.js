@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { WebSocketServer } = require('ws');
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const githubClient = require('./github-client');
 
 // --- Config ---
@@ -857,7 +857,29 @@ const publicDir = path.join(__dirname, 'public');
  * @param {boolean} isChild - 子タスク(h4)かどうか
  * @returns {{ success: boolean, file?: string, error?: string }}
  */
-function updateTaskStatus(taskId, newStatus, isChild = false) {
+/**
+ * タスクブロック(headerIdx直後〜blockEnd)に「- commit: <hash1>,<hash2>」を追加・更新する(BT-119)
+ * 完了日行の直後（無ければヘッダー直後）に挿入する。ブロックが削除されるケース
+ * (h3単発タスク完了)では呼び出し側で呼ばないこと。
+ */
+function insertOrUpdateCommitField(lines, headerIdx, blockEnd, commitHashes) {
+  const value = commitHashes.join(',');
+  let fieldIdx = -1;
+  for (let i = headerIdx + 1; i < blockEnd; i++) {
+    if (/^\s*-\s+commit[:：]/.test(lines[i])) { fieldIdx = i; break; }
+  }
+  if (fieldIdx !== -1) {
+    lines[fieldIdx] = `- commit: ${value}`;
+    return;
+  }
+  let insertAt = headerIdx + 1;
+  for (let i = headerIdx + 1; i < blockEnd; i++) {
+    if (/^\s*-\s+完了日[:：]/.test(lines[i])) { insertAt = i + 1; break; }
+  }
+  lines.splice(insertAt, 0, `- commit: ${value}`);
+}
+
+function updateTaskStatus(taskId, newStatus, isChild = false, commitHashes = []) {
   const files = fs.readdirSync(BACKLOG_DIR)
     .filter(f => f.endsWith('.backlog.md'));
 
@@ -980,7 +1002,17 @@ function updateTaskStatus(taskId, newStatus, isChild = false) {
             while (insertAt > doneSectionIdx + 1 && lines[insertAt - 1].trim() === '') insertAt--;
             lines.splice(insertAt, 0, `| ${dateStr} | ${tsStr} | - | ${taskId} | ${title} |`);
           }
+        } else if (commitHashes.length > 0) {
+          // Epic（子あり）: ブロックは削除されず残るのでcommitフィールドを追記する（BT-119）
+          insertOrUpdateCommitField(lines, taskLineIdx, archiveBlockEnd, commitHashes);
         }
+      } else if (isChild && commitHashes.length > 0) {
+        // h4子タスク: ブロックは残るのでcommitフィールドを追記する（BT-119）
+        let childBlockEnd = lines.length;
+        for (let i = taskLineIdx + 1; i < lines.length; i++) {
+          if (/^#{2,4}\s/.test(lines[i])) { childBlockEnd = i; break; }
+        }
+        insertOrUpdateCommitField(lines, taskLineIdx, childBlockEnd, commitHashes);
       }
     } else {
       // 完了以外に変更: 完了日行があれば削除
@@ -1446,6 +1478,58 @@ function getGithubSettings(prefix) {
   const creds = readGithubCredentials();
   const entry = creds[prefix] || {};
   return { prefix, repoUrl: entry.repoUrl || '', hasToken: !!entry.token };
+}
+
+// ============================================================
+// Task Completion -> GitHub Sync (BT-119)
+// ============================================================
+// タスクが完了したとき、コミットメッセージ末尾の「(taskId)」表記
+// （このリポジトリのコミットメッセージ規約）を目印にコミットハッシュを
+// 機械的に検索する。AIの都度判断ではなく決定的なパターンマッチで拾う。
+
+/**
+ * workspace配下のgit履歴から、コミットメッセージに taskId を含むコミットの
+ * ハッシュ一覧を取得する（新しい順）。gitリポジトリでない/コマンド失敗時は
+ * 空配列を返す（呼び出し元でエラー扱いしない）。
+ * @param {string} workspace - リポジトリのルートディレクトリ
+ * @param {string} taskId
+ * @returns {string[]}
+ */
+function getCommitHashesForTask(workspace, taskId) {
+  if (!workspace) return [];
+  try {
+    const output = execFileSync(
+      'git',
+      ['log', '--all', `--grep=(${taskId})`, '--fixed-strings', '--format=%H'],
+      { cwd: workspace, encoding: 'utf8' }
+    );
+    return output.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  } catch (e) {
+    console.error(`[github-sync] git log failed for ${taskId} in ${workspace}:`, e.message);
+    return [];
+  }
+}
+
+/**
+ * タスク完了時、GitHub Issueに完了コメントを投稿してcloseする（BT-119）。
+ * 失敗してもタスク完了自体は既に成功済みのため、ログ出力のみで握り潰す
+ * （fire-and-forget。APIレスポンスをGitHub側の成否で待たせない）。
+ * @param {string} prefix
+ * @param {{id: string, description?: string, githubIssueNumber: string}} task
+ * @param {string[]} commitHashes
+ */
+function syncCompletionToGithub(prefix, task, commitHashes) {
+  const creds = readGithubCredentials()[prefix];
+  if (!creds || !creds.repoUrl || !creds.token) return;
+
+  const bodyLines = ['タスクが完了しました。', '', task.description || '(説明なし)'];
+  if (commitHashes.length > 0) {
+    bodyLines.push('', `コミット: ${commitHashes.join(', ')}`);
+  }
+
+  githubClient.issues.createComment(creds.repoUrl, creds.token, task.githubIssueNumber, bodyLines.join('\n'))
+    .then(() => githubClient.issues.update(creds.repoUrl, creds.token, task.githubIssueNumber, { state: 'closed' }))
+    .catch(e => console.error(`[github-sync] Failed to sync completion for ${task.id}:`, e.message));
 }
 
 // ============================================================
@@ -2233,13 +2317,26 @@ function serveStatic(req, res) {
         res.end(JSON.stringify({ error: `Invalid newStatus: "${newStatus}". Must be one of: ${[...VALID_STATUSES].join(', ')}` }));
         return;
       }
-      const result = updateTaskStatus(taskId, newStatus, !!isChild);
+      // md書き換え前にGitHub連携情報とコミットハッシュを確定させる（BT-119）。
+      // h3単発タスクの完了ではタスクブロック自体が削除されるため、書き換え後には
+      // github_issue_number等をmdから読み取れなくなる。
+      const project = newStatus === '完了' ? findProjectEntryForTask(taskId) : null;
+      const taskBeforeUpdate = newStatus === '完了' ? findTaskInAll(taskId) : null;
+      const commitHashes = newStatus === '完了'
+        ? getCommitHashesForTask(project && project.workspace, taskId)
+        : [];
+
+      const result = updateTaskStatus(taskId, newStatus, !!isChild, commitHashes);
       if (result.success) {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ ok: true }));
         // ファイル変更 → watcherが検知してbroadcastするが、即時性のため手動broadcast
         const board = buildBoard();
         broadcast(board);
+
+        if (newStatus === '完了' && taskBeforeUpdate && taskBeforeUpdate.githubIssueNumber && project) {
+          syncCompletionToGithub(project.prefix, taskBeforeUpdate, commitHashes);
+        }
       } else {
         res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: result.error }));
