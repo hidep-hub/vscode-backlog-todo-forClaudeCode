@@ -65,6 +65,7 @@ body {
   color: var(--text);
   min-height: 100vh;
   overflow-x: auto;
+  padding-bottom: 34px; /* 画面下端固定の.running-strip分の余白（BT-059） */
   transition: background 0.3s, color 0.3s;
 }
 
@@ -149,6 +150,51 @@ body {
   align-items: center;
   gap: 10px;
   margin-left: auto;
+}
+
+.running-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 6px 20px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9;
+}
+
+.running-strip-empty {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.running-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px 10px 3px 8px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: border-color 0.15s ease;
+}
+
+.running-chip:hover {
+  border-color: var(--accent, #6366f1);
+}
+
+.running-chip-id {
+  color: var(--text-muted);
 }
 
 .status {
@@ -324,6 +370,22 @@ body {
   color: var(--text);
 }
 
+.github-import-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.github-import-btn:hover {
+  background: var(--card);
+  color: var(--text);
+}
+
 /* --- Board (Kanban) --- */
 .board {
   display: flex;
@@ -442,6 +504,24 @@ body {
 .card-tag.project {
   color: var(--tag-project-fg);
   background: var(--tag-project-bg);
+}
+
+.card-tag.github-issue-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.card-tag.github-issue-badge:hover {
+  background: var(--card);
+  color: var(--text);
+}
+
+.card-tag.github-issue-badge .github-mark-icon {
+  margin-top: 0;
 }
 
 .card-tag.category {
@@ -906,6 +986,165 @@ body {
   width: 95%;
 }
 
+/* --- GitHub Issues取り込みダイアログ (BT-106) --- */
+.github-import-modal {
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.github-import-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.github-import-toolbar select {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.github-import-toolbar button {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.github-import-toolbar button:hover {
+  background: var(--card);
+  color: var(--text);
+}
+
+.github-import-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.github-import-placeholder {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 40px 0;
+}
+
+.github-issue-card.card {
+  cursor: default;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.github-issue-checkbox {
+  flex-shrink: 0;
+  margin-top: 3px;
+  cursor: pointer;
+}
+
+.github-issue-checkbox:disabled {
+  cursor: not-allowed;
+}
+
+.github-issue-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.github-issue-epic {
+  border-left: 3px solid var(--accent);
+}
+
+.github-issue-children {
+  margin-left: 24px;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+
+.github-issue-child-card {
+  padding: 8px 10px;
+  opacity: 0.9;
+}
+
+.github-issue-child-card .card-title {
+  font-size: 0.78rem;
+}
+
+.github-issue-card .card-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.github-mark-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
+.card-tag.github-issue-closed {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.github-import-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+#github-import-selected-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+#github-import-execute-btn {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+#github-import-execute-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+#github-import-execute-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.card-tag.github-issue-imported {
+  color: var(--tag-project-fg);
+  background: var(--tag-project-bg);
+}
+
 /* --- Mini Kanban Board (inside modal) --- */
 .mini-board {
   display: flex;
@@ -1069,6 +1308,46 @@ body {
   word-break: break-all;
 }
 
+.settings-group-github select,
+.settings-group-github input {
+  margin-bottom: 8px;
+}
+
+.settings-github-hint {
+  margin: 0 2px 10px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.settings-github-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#settings-github-status {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+#settings-github-save {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+#settings-github-save:hover {
+  opacity: 0.85;
+}
+
 .settings-close {
   position: absolute;
   top: 12px;
@@ -1220,47 +1499,35 @@ body {
 }
 
 
-/* --- Add Child Task Button (in modal) --- */
-.detail-add-child {
-  margin: 12px 0 4px;
-}
-
-.add-child-btn {
-  padding: 6px 14px;
-  border-radius: 6px;
-  border: 1px dashed var(--accent);
-  background: transparent;
-  color: var(--accent);
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.add-child-btn:hover {
-  background: var(--accent);
-  color: #fff;
-}
-
-/* --- Edit / Delete (BT-036 / BT-031) --- */
-.detail-actions {
+/* --- Detail Modal Action Buttons (BT-036 / BT-031 / BT-034 / BT-053 / BT-063) --- */
+/* 編集/削除、子タスク追加/親設定、ワークスペース開く/移管 のように意味のあるペアを
+   1行に横並びさせる。片方しかないボタンは flex: 1 で全幅表示になる */
+.detail-actions-row {
   display: flex;
-  gap: 8px;
-  margin: 12px 0 4px;
+  gap: 6px;
+  margin: 6px 0;
 }
 
+.detail-actions-row .add-child-btn,
+.detail-actions-row .detail-action-btn {
+  flex: 1;
+}
+
+.add-child-btn,
 .detail-action-btn {
-  padding: 6px 14px;
+  padding: 5px 10px;
   border-radius: 6px;
   border: 1px dashed var(--accent);
   background: transparent;
   color: var(--accent);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
+  text-align: center;
   transition: background 0.15s, color 0.15s;
 }
 
+.add-child-btn:hover,
 .detail-action-btn:hover {
   background: var(--accent);
   color: #fff;
@@ -1319,7 +1586,8 @@ body {
   background: #e53e3e;
 }
 
-.delete-confirm-modal {
+.delete-confirm-modal,
+.github-link-modal {
   max-width: 420px;
 }
 
@@ -1740,6 +2008,17 @@ body {
 
 .selection-bar-parent:hover {
   opacity: 0.88;
+}
+
+.selection-bar-move {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.selection-bar-move:hover {
+  background: var(--accent);
+  color: #fff;
 }
 
 .selection-bar-cancel {

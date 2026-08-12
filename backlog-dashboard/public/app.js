@@ -742,11 +742,12 @@ function renderBoard(data) {
         }
       }
 
-      // ✏️🗑 編集・削除ボタン（BT-041: 詳細モーダルを開かずカードから直接操作。完了カラムには不要。Epicは削除不可のため編集のみ）
+      // ✏️🔗🗑 編集・GitHub紐付け・削除ボタン（BT-041: 詳細モーダルを開かずカードから直接操作。完了カラムには不要。Epicは削除不可のため編集のみ）
       let cardActionsHtml = '';
       if (!isCompact && item.id && item.id !== '-') {
         cardActionsHtml = `<div class="card-actions">
           <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集">✏️</button>
+          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueと紐づける">🔗</button>` : ''}
           ${!isEpic ? `<button class="card-action-btn card-delete-btn danger" data-task-id="${item.id}" title="削除">🗑</button>` : ''}
         </div>`;
       }
@@ -855,6 +856,16 @@ function renderBoard(data) {
   // 🔗 GitHub Issueバッジ: クリックしてもカード詳細を開かず、リンク遷移のみ行う（BT-110）
   boardEl.querySelectorAll('.github-issue-badge').forEach(link => {
     link.addEventListener('click', (e) => e.stopPropagation());
+  });
+
+  // 🔗 GitHub Issue紐付けボタンのイベントリスナー（BT-122）
+  boardEl.querySelectorAll('.card-github-link-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const item = findItemById(btn.dataset.taskId);
+      if (item) openGithubLinkModal(item, btn.dataset.isChild === 'true');
+    });
   });
 
   updateSelectionBar();
@@ -1489,6 +1500,7 @@ function openChildModal(item) {
   const statusBadge = `<span class="detail-status">${escapeHtml(item.status || '-')}</span>`;
   const category = (item.category && item.category !== '-') ? `<span class="detail-tag category">${escapeHtml(item.category)}</span>` : '';
   const project = item.project ? `<span class="detail-tag project">${escapeHtml(item.project)}</span>` : '';
+  const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
 
   const desc = item.description ? `<div class="detail-section"><h4>説明</h4><p>${formatDescription(item.description)}</p></div>` : '';
 
@@ -1513,6 +1525,11 @@ function openChildModal(item) {
   const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn" id="modal-edit-btn">✏️ 編集</button>` : '';
   const deleteBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>` : '';
 
+  // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
+  const githubLinkBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
+    ? `<button class="add-child-btn" id="modal-github-link-btn">🔗 GitHub Issueと紐づける</button>`
+    : '';
+
   // ワークスペース導線ボタン（BT-053）
   const workspaceActionHtml = buildWorkspaceActionHtml(item);
 
@@ -1523,7 +1540,7 @@ function openChildModal(item) {
     <div class="detail-header">
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
       ${statusBadge}
-      ${project}${category}
+      ${project}${category}${githubBadge}
     </div>
     <h3 class="detail-title">${escapeHtml(item.title)}</h3>
     ${desc}
@@ -1531,13 +1548,19 @@ function openChildModal(item) {
     ${metaHtml}
     ${actionsRow(editBtnHtml, deleteBtnHtml)}
     ${actionsRow(workspaceActionHtml, moveActionHtml)}
-    ${actionsRow(detachBtn)}
+    ${actionsRow(detachBtn, githubLinkBtnHtml)}
   `;
 
   // 親から外すボタンのイベント
   const detachBtnEl = body.querySelector('#modal-detach-btn');
   if (detachBtnEl) {
     detachBtnEl.addEventListener('click', () => detachTask(item.id));
+  }
+
+  // GitHub Issue紐付けボタンのイベント（BT-122）
+  const githubLinkBtnEl = body.querySelector('#modal-github-link-btn');
+  if (githubLinkBtnEl) {
+    githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item, true));
   }
 
   // 編集ボタンのイベント（BT-036: 子タスクは常に説明編集可）
@@ -1737,6 +1760,92 @@ function openDeleteConfirm(item, isChild) {
   el.classList.add('modal-visible');
 }
 
+// --- GitHub Issue紐付けダイアログ (BT-122: 既存タスクカードへ後から紐付ける) ---
+function getOrCreateGithubLinkModal() {
+  let el = document.getElementById('github-link-overlay');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'github-link-overlay';
+  el.className = 'modal-overlay';
+  el.innerHTML = `<div class="modal-content github-link-modal"></div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', (e) => {
+    if (e.target === el) closeGithubLinkModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && el.classList.contains('modal-visible')) closeGithubLinkModal();
+  });
+  return el;
+}
+
+function closeGithubLinkModal() {
+  const el = document.getElementById('github-link-overlay');
+  if (el) el.classList.remove('modal-visible');
+}
+
+// Issue番号の生入力（"123" / "#123" / Issue URL）からissue番号だけを取り出す
+function parseIssueNumberInput(raw) {
+  const s = (raw || '').trim();
+  const urlMatch = /\/issues\/(\d+)/.exec(s);
+  if (urlMatch) return urlMatch[1];
+  const hashMatch = /^#?(\d+)$/.exec(s);
+  if (hashMatch) return hashMatch[1];
+  return s;
+}
+
+/**
+ * GitHub Issue紐付けモーダルを開く
+ * @param {object} item - 紐付け対象タスク
+ * @param {boolean} isChild - h4子タスクか
+ */
+function openGithubLinkModal(item, isChild) {
+  const el = getOrCreateGithubLinkModal();
+  const content = el.querySelector('.modal-content');
+  content.innerHTML = `
+    <button class="modal-close" id="github-link-close">&times;</button>
+    <h3 class="add-form-title">🔗 GitHub Issueと紐づける</h3>
+    <p class="delete-confirm-text">「${escapeHtml(item.title)}」(${escapeHtml(item.id)}) に紐づけるIssue番号かURLを入力してね。</p>
+    <input type="text" id="github-link-input" class="parent-picker-search" placeholder="例: 123 / #123 / https://github.com/owner/repo/issues/123">
+    <p class="delete-confirm-error" style="display:none;"></p>
+    <div class="edit-form-actions">
+      <button class="add-task-submit" id="github-link-ok">紐づける</button>
+      <button class="add-child-btn" id="github-link-cancel">キャンセル</button>
+    </div>
+  `;
+
+  content.querySelector('#github-link-close').addEventListener('click', closeGithubLinkModal);
+  content.querySelector('#github-link-cancel').addEventListener('click', closeGithubLinkModal);
+  content.querySelector('#github-link-ok').addEventListener('click', async () => {
+    const errorEl = content.querySelector('.delete-confirm-error');
+    const issueNumber = parseIssueNumberInput(content.querySelector('#github-link-input').value);
+    if (!issueNumber) {
+      errorEl.textContent = 'Issue番号を入力してね';
+      errorEl.style.display = 'block';
+      return;
+    }
+    try {
+      const resp = await fetch('/api/github-link-issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: item.id, isChild, issueNumber }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        errorEl.textContent = data.error || '紐づけに失敗したよ';
+        errorEl.style.display = 'block';
+        return;
+      }
+      closeGithubLinkModal();
+    } catch (e) {
+      console.error('[github-link] Network error:', e);
+      errorEl.textContent = 'ネットワークエラーが発生したよ';
+      errorEl.style.display = 'block';
+    }
+  });
+
+  el.classList.add('modal-visible');
+}
+
 function renderModalContent(item) {
   const modal = getOrCreateModal();
   const body = modal.querySelector('.modal-body');
@@ -1748,6 +1857,7 @@ function renderModalContent(item) {
   const statusBadge = `<span class="detail-status">${escapeHtml(item.status || '-')}</span>`;
   const category = (item.category && item.category !== '-') ? `<span class="detail-tag category">${escapeHtml(item.category)}</span>` : '';
   const project = item.project ? `<span class="detail-tag project">${escapeHtml(item.project)}</span>` : '';
+  const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
 
   let badgeHtml = '';
   if (item.childrenTotal) {
@@ -1789,6 +1899,11 @@ function renderModalContent(item) {
   const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn" id="modal-edit-btn">✏️ 編集</button>` : '';
   const deleteBtnHtml = (item.id && item.id !== '-' && !isEpic) ? `<button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>` : '';
 
+  // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
+  const githubLinkBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
+    ? `<button class="add-child-btn" id="modal-github-link-btn">🔗 GitHub Issueと紐づける</button>`
+    : '';
+
   // ワークスペース導線ボタン（BT-053）
   const workspaceActionHtml = buildWorkspaceActionHtml(item);
 
@@ -1800,7 +1915,7 @@ function renderModalContent(item) {
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
       ${statusBadge}
       ${badgeHtml}
-      ${project}${category}
+      ${project}${category}${githubBadge}
     </div>
     <h3 class="detail-title">${escapeHtml(item.title)}</h3>
     ${desc}
@@ -1809,6 +1924,7 @@ function renderModalContent(item) {
     ${actionsRow(editBtnHtml, deleteBtnHtml)}
     ${actionsRow(addChildBtn, setParentBtn)}
     ${actionsRow(workspaceActionHtml, moveActionHtml)}
+    ${actionsRow(githubLinkBtnHtml)}
     ${miniBoard}
   `;
 
@@ -1838,6 +1954,12 @@ function renderModalContent(item) {
     setParentBtnEl.addEventListener('click', () => {
       openParentPicker([item.id]);
     });
+  }
+
+  // GitHub Issue紐付けボタンのイベント（BT-122）
+  const githubLinkBtnEl = body.querySelector('#modal-github-link-btn');
+  if (githubLinkBtnEl) {
+    githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item, false));
   }
 
   // 編集ボタンのイベント（BT-036: 完了済み単発タスクは説明編集不可）
@@ -1995,10 +2117,11 @@ function buildMiniBoard(epic) {
         ? `<button class="today-pin-btn${child.todayFlag ? ' pin-active' : ''}" data-task-id="${child.id}" data-is-child="true" title="今日やる">📌</button>`
         : '';
 
-      // ✏️🗑 編集・削除ボタン（ミニボード子カード、BT-041: 子タスクは常に単独削除可）
+      // ✏️🔗🗑 編集・GitHub紐付け・削除ボタン（ミニボード子カード、BT-041: 子タスクは常に単独削除可。BT-122でGitHub紐付けボタンを追加）
       const childActionsHtml = child.id
         ? `<div class="card-actions">
             <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集">✏️</button>
+            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける">🔗</button>` : ''}
             <button class="card-action-btn card-child-delete-btn danger" data-task-id="${child.id}" title="削除">🗑</button>
           </div>`
         : '';
@@ -2037,6 +2160,17 @@ function buildMiniBoard(epic) {
       const childGithubBadgeEl = card.querySelector('.github-issue-badge');
       if (childGithubBadgeEl) {
         childGithubBadgeEl.addEventListener('click', (e) => e.stopPropagation());
+      }
+
+      // GitHub Issue紐付けボタンのイベント（BT-122）
+      const childGithubLinkBtnEl = card.querySelector('.card-child-github-link-btn');
+      if (childGithubLinkBtnEl) {
+        childGithubLinkBtnEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const childWithProject = { ...child, project: epic.project };
+          openGithubLinkModal(childWithProject, true);
+        });
       }
 
       body.appendChild(card);
