@@ -2680,6 +2680,9 @@ function getOrCreateAddForm() {
 
 function openAddTaskForm(defaultStatus, defaultProject, parentId) {
   const form = getOrCreateAddForm();
+  // 同じz-index(1000)の他モーダル(EPIC詳細など)より必ず手前に出すため、
+  // 表示するたびDOM末尾に移動する（BT-118: ミニボードから開くとEPIC画面の後ろに隠れる問題の修正）
+  document.body.appendChild(form);
 
   // プロジェクト選択肢を更新
   const projectSelect = form.querySelector('#add-task-project');
