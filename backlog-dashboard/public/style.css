@@ -407,7 +407,7 @@ body {
   gap: var(--col-gap);
   padding: 16px;
   min-height: calc(100vh - 60px);
-  align-items: flex-start;
+  align-items: stretch;
 }
 
 /* --- Column --- */
@@ -469,8 +469,8 @@ body {
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
-  max-height: calc(100vh - 120px);
-  min-height: 120px;
+  flex: 1;
+  min-height: 0;
 }
 
 /* --- Card --- */
