@@ -4,11 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Backlog Dashboard</title>
+  <link rel="icon" type="image/png" href="favicon.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="header">
-    <h1>Backlog Dashboard <span id="project-badges" class="project-badges"></span></h1>
+    <div class="header-brand">
+      <img src="favicon.png" alt="" class="header-logo">
+      <h1><span class="header-title-main">BackLog</span><span class="header-title-sub">Dashboard</span></h1>
+    </div>
+    <span id="project-badges" class="project-badges"></span>
     <div class="header-controls">
       <button class="search-btn" id="search-btn" title="検索: タイトル・ID・説明・担当（/ または Ctrl+K）">🔍</button>
       <button class="today-filter-btn" id="today-filter-btn" title="今日やるフィルター">📌</button>

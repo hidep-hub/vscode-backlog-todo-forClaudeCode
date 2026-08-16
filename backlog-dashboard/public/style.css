@@ -59,6 +59,12 @@
   --drop-highlight: rgba(76, 95, 213, 0.08);
 }
 
+:root {
+  --brand: #c97055;
+  --brand-fg: #ffffff;
+  --brand-fg-soft: rgba(255, 255, 255, 0.72);
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: var(--bg);
@@ -77,11 +83,24 @@ body {
   align-items: center;
   gap: 12px;
   padding: 10px 20px;
-  background: var(--surface);
+  background: var(--brand);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 10;
+  flex-shrink: 0;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
   flex-shrink: 0;
 }
 
@@ -91,8 +110,19 @@ body {
   letter-spacing: 0.02em;
   white-space: nowrap;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  line-height: 1.2;
+  gap: 0;
+}
+
+.header-title-main {
+  color: var(--brand-fg);
+}
+
+.header-title-sub {
+  font-size: 0.85em;
+  font-weight: 700;
+  color: var(--brand-fg-soft);
 }
 
 .project-badges {
@@ -161,7 +191,7 @@ body {
   gap: 6px;
   overflow: hidden;
   padding: 6px 20px;
-  background: var(--surface);
+  background: var(--brand);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
   z-index: 9;
@@ -170,7 +200,8 @@ body {
 
 .running-strip-empty {
   font-size: 0.7rem;
-  color: var(--text-muted);
+  color: var(--brand-fg);
+  opacity: 0.85;
 }
 
 .running-chip {
