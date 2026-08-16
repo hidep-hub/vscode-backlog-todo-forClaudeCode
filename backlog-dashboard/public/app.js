@@ -6,6 +6,7 @@ const projectFilterEl = document.getElementById('project-filter');
 const searchBtn = document.getElementById('search-btn');
 const themeSelectEl = document.getElementById('theme-select');
 const githubImportBtn = document.getElementById('github-import-btn');
+const headerLogoEl = document.getElementById('header-logo');
 const settingsBtn = document.getElementById('settings-btn');
 const settingsOverlay = document.getElementById('settings-overlay');
 const settingsClose = document.getElementById('settings-close');
@@ -447,6 +448,19 @@ function openGithubImportModal() {
 }
 
 githubImportBtn.addEventListener('click', openGithubImportModal);
+
+// --- Header Logo: このダッシュボードアプリ自体のGitHubリポジトリを別タブで開く (BT-162) ---
+headerLogoEl.addEventListener('click', async () => {
+  try {
+    const res = await fetch('/api/github-settings?prefix=BT');
+    const data = await res.json();
+    if (data.repoUrl) {
+      window.open(data.repoUrl, '_blank', 'noopener');
+    }
+  } catch (e) {
+    console.error('[header-logo] Failed to open GitHub repo:', e.message);
+  }
+});
 
 // --- Project Filter ---
 projectFilterEl.addEventListener('change', () => {
