@@ -16,6 +16,33 @@ const BACKLOG_DIR = config.backlogDir.replace(/^~/, os.homedir());
 const COUNTER_FILE = path.join(BACKLOG_DIR, '_counter.md');
 const GITHUB_CREDENTIALS_PATH = path.join(__dirname, 'github-credentials.json');
 
+/**
+ * このプロダクト(backlog-dashboard)自体のソースリポジトリURLを、
+ * cloneしてきた .git/config の remote origin から取得する（BT-162）。
+ * ユーザーごとに異なるgithub-credentials.json（Issue連携先の設定）とは無関係に、
+ * 誰の環境でも「最新版を見に行けるリンク」として同じ値になるようにするための実装。
+ * gitが使えない/originが無い環境では空文字を返し、呼び出し元でリンクを無効化する。
+ */
+function resolveRepoOriginUrl() {
+  try {
+    const output = execFileSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: path.join(__dirname, '..'),
+      encoding: 'utf8',
+    }).trim();
+    if (!output) return '';
+    let url = output.replace(/\.git$/, '');
+    const sshMatch = url.match(/^git@([^:]+):(.+)$/);
+    if (sshMatch) {
+      url = `https://${sshMatch[1]}/${sshMatch[2]}`;
+    }
+    return url;
+  } catch (e) {
+    console.error('[repo-origin-url] Failed to resolve:', e.message);
+    return '';
+  }
+}
+const REPO_ORIGIN_URL = resolveRepoOriginUrl();
+
 // フィールド行として認識する既知キー一覧（説明欄の継続行判定に使う。
 // 単純に「- で始まる行」を次フィールドとみなすと、説明文中の箇条書き「- xxx」が
 // 誤って次フィールドの開始と判定されてしまうため、既知キーに限定する。BT-149）
@@ -2353,6 +2380,13 @@ function serveStatic(req, res) {
   if (req.url === '/api/health' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
+    return;
+  }
+
+  // API: GET /api/repo-origin-url（BT-162: ヘッダーロゴクリックで開くこのプロダクト自体のGitHubリンク）
+  if (req.url === '/api/repo-origin-url' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ repoUrl: REPO_ORIGIN_URL }));
     return;
   }
 

@@ -450,9 +450,11 @@ function openGithubImportModal() {
 githubImportBtn.addEventListener('click', openGithubImportModal);
 
 // --- Header Logo: このダッシュボードアプリ自体のGitHubリポジトリを別タブで開く (BT-162) ---
+// リポジトリURLはユーザーごとのgithub-credentials.json（Issue連携先）とは無関係に、
+// サーバー側でclone元の`git remote origin`から解決した値を使う（誰の環境でも同じリンクになる）
 headerLogoEl.addEventListener('click', async () => {
   try {
-    const res = await fetch('/api/github-settings?prefix=BT');
+    const res = await fetch('/api/repo-origin-url');
     const data = await res.json();
     if (data.repoUrl) {
       window.open(data.repoUrl, '_blank', 'noopener');
