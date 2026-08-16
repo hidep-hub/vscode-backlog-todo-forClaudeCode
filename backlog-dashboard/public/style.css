@@ -102,6 +102,12 @@ body {
   height: 34px;
   border-radius: 8px;
   flex-shrink: 0;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.header-logo:hover {
+  transform: scale(1.08);
 }
 
 .header h1 {
