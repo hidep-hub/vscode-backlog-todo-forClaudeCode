@@ -614,9 +614,11 @@ function collectRunningTasks(data) {
 }
 
 function renderRunningStrip(data) {
-  const el = document.getElementById('running-strip');
+  const el = document.getElementById('running-strip-chips');
+  const iconEl = document.getElementById('running-strip-icon');
   if (!el) return;
   const running = collectRunningTasks(data);
+  if (iconEl) iconEl.classList.toggle('spinning', running.length > 0);
   if (!running.length) {
     el.innerHTML = '<span class="running-strip-empty">🟡 進行中のタスクはなし</span>';
     return;
