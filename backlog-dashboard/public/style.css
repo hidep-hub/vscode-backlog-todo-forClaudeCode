@@ -431,7 +431,13 @@ body {
   border-radius: 6px;
   font-size: 0.75rem;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
   transition: background 0.15s, color 0.15s;
+}
+
+.github-import-btn svg {
+  display: block;
 }
 
 .github-import-btn:hover {
