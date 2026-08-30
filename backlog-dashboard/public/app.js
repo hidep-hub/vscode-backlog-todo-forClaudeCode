@@ -162,7 +162,7 @@ async function loadGithubSettingsForSelectedProject() {
     const res = await fetch(`/api/github-settings?prefix=${encodeURIComponent(prefix)}`);
     const data = await res.json();
     settingsGithubRepoUrlEl.value = data.repoUrl || '';
-    settingsGithubStatusEl.textContent = data.hasToken ? '✅ トークン設定済み' : '未設定';
+    settingsGithubStatusEl.textContent = data.hasToken ? 'トークン設定済み' : '未設定';
     // トークン自体の値は表示せず、設定済みかどうかをplaceholderのマスク表示で示す
     settingsGithubTokenEl.placeholder = data.hasToken
       ? '●●●●●●●●●●●●（設定済み・変更する場合のみ入力）'
@@ -219,13 +219,13 @@ function getOrCreateGithubImportModal() {
   githubImportEl.innerHTML = `
     <div class="modal-content modal-wide github-import-modal">
       <button class="modal-close" id="github-import-close">&times;</button>
-      <h3>🔗 GitHub Issues取り込み</h3>
+      <h3><span class="material-icon icon-link"></span> GitHub Issues取り込み</h3>
       <div class="github-import-toolbar">
         <select id="github-import-project"></select>
         <span class="github-import-total-count" id="github-import-total-count"></span>
         <label class="github-import-filter"><input type="checkbox" id="github-import-filter-closed" checked><span id="github-import-filter-closed-label">closedを隠す</span></label>
         <label class="github-import-filter"><input type="checkbox" id="github-import-filter-imported" checked><span id="github-import-filter-imported-label">取込済みを隠す</span></label>
-        <button id="github-import-settings-btn" title="GitHub連携設定">⚙️ GitHub設定</button>
+        <button id="github-import-settings-btn" title="GitHub連携設定"><span class="material-icon icon-settings"></span> GitHub設定</button>
       </div>
       <div class="github-import-body" id="github-import-body">
         <p class="github-import-placeholder">プロジェクトを選択してください。</p>
@@ -620,7 +620,7 @@ function renderRunningStrip(data) {
   const running = collectRunningTasks(data);
   if (iconEl) iconEl.classList.toggle('spinning', running.length > 0);
   if (!running.length) {
-    el.innerHTML = '<span class="running-strip-empty">🟡 進行中のタスクはなし</span>';
+    el.innerHTML = '<span class="running-strip-empty">進行中のタスクはなし</span>';
     return;
   }
   el.innerHTML = running.map(({ item }, idx) => `
@@ -698,14 +698,14 @@ function renderBoard(data) {
 
     // 完了カラム用「本日完了だけ」トグルチップ
     const doneTodayToggleHtml = isCompact
-      ? `<button class="done-today-btn${doneTodayOnly ? ' filter-active' : ''}" data-col-id="${col.id}" title="本日完了分のみ表示（達成感モード）">🎉 今日</button>`
+      ? `<button class="done-today-btn${doneTodayOnly ? ' filter-active' : ''}" data-col-id="${col.id}" title="本日完了分のみ表示（達成感モード）"><span class="material-icon icon-celebration"></span> 今日</button>`
       : '';
 
     // カウント/limit表示エリア
     let countAreaHtml;
     if (doneTodayActive) {
       // 本日完了だけ表示中: 達成感カウント（limit入力は隠す）
-      countAreaHtml = `<span class="count done-today-count">🎉 ${items.length}</span>`;
+      countAreaHtml = `<span class="count done-today-count"><span class="material-icon icon-celebration"></span> ${items.length}</span>`;
     } else if (currentLimit) {
       countAreaHtml = `<input type="number" class="limit-input" value="${currentLimit}" min="1" max="${totalBeforeLimit}" data-col-id="${col.id}" title="表示件数 (全${totalBeforeLimit}件)">
                <span class="count-total">/ ${totalBeforeLimit}</span>`;
@@ -774,45 +774,46 @@ function renderBoard(data) {
       }
 
       // 起源マーク
-      const originIcon = item.origin === 'claude' ? '<span class="origin-mark" title="Claude">🤖</span>'
-        : item.origin === 'user' ? '<span class="origin-mark" title="User">👤</span>' : '';
+      const originIcon = item.origin === 'claude' ? '<span class="origin-mark" title="Claude"><span class="material-icon icon-smart-toy"></span></span>'
+        : item.origin === 'user' ? '<span class="origin-mark" title="User"><span class="material-icon icon-person"></span></span>' : '';
 
       // 実行中スピナー
       const spinnerHtml = item.running ? '<span class="running-spinner"></span>' : '';
 
       // Epicハブアイコン（子タスクを束ねる親タスクの目印）
-      const epicIcon = isEpic ? '<span class="epic-icon" title="親タスク（子タスクを束ねるEpic）">⧉</span>' : '';
+      const epicIcon = isEpic ? '<span class="epic-icon" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : '';
 
       const idHtml = id ? `<div class="card-id">${spinnerHtml}${epicIcon}<span>${id}</span>${badge}${originIcon}</div>` : (badge || originIcon || epicIcon ? `<div class="card-id">${spinnerHtml}${epicIcon}${badge}${originIcon}</div>` : '');
       const titleHtml = showField('title') ? `<div class="card-title">${escapeHtml(item.title)}</div>` : '';
       const projectTag = showField('project') ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
-      const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり">📎</span>' : '';
+      const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>' : '';
       const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
       const metaParts = [projectTag, category, artifactIndicator, githubBadge, completedDate].filter(Boolean);
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
 
-      // 📌 ピンボタン（完了カラムには不要）
+      // ピンボタン（完了カラムには不要）
       let pinHtml = '';
+      const pinIconHtml = '<span class="material-icon icon-keep"></span>';
       if (!isCompact && item.id && item.id !== '-') {
         if (isEpic) {
-          // Epic: 子の集約表示。📌n（一括操作ボタン）
+          // Epic: 子の集約表示。ピン+件数（一括操作ボタン）
           const pinActive = item.todayCount > 0;
-          const pinLabel = pinActive ? `📌${item.todayCount}` : '📌';
+          const pinLabel = pinActive ? `${pinIconHtml}${item.todayCount}` : pinIconHtml;
           pinHtml = `<button class="today-pin-btn${pinActive ? ' pin-active' : ''}" data-task-id="${item.id}" data-is-child="false" title="今日やる（一括）">${pinLabel}</button>`;
         } else {
           // 単発タスク: 通常トグル
-          pinHtml = `<button class="today-pin-btn${item.todayFlag ? ' pin-active' : ''}" data-task-id="${item.id}" data-is-child="false" title="今日やる">📌</button>`;
+          pinHtml = `<button class="today-pin-btn${item.todayFlag ? ' pin-active' : ''}" data-task-id="${item.id}" data-is-child="false" title="今日やる">${pinIconHtml}</button>`;
         }
       }
 
-      // ✏️🔗🗑 編集・GitHub紐付け・削除ボタン（BT-041: 詳細モーダルを開かずカードから直接操作。完了カラムには不要。Epicは削除不可のため編集のみ）
+      // 編集・GitHub紐付け・削除ボタン（BT-041: 詳細モーダルを開かずカードから直接操作。完了カラムには不要。Epicは削除不可のため編集のみ）
       let cardActionsHtml = '';
       if (!isCompact && item.id && item.id !== '-') {
         cardActionsHtml = `<div class="card-actions">
-          <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集">✏️</button>
-          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueと紐づける">🔗</button>` : ''}
-          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成">📤</button>` : ''}
-          ${!isEpic ? `<button class="card-action-btn card-delete-btn danger" data-task-id="${item.id}" title="削除">🗑</button>` : ''}
+          <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集"><span class="material-icon icon-edit"></span></button>
+          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
+          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
+          ${!isEpic ? `<button class="card-action-btn card-delete-btn danger" data-task-id="${item.id}" title="削除"><span class="material-icon icon-delete"></span></button>` : ''}
         </div>`;
       }
 
@@ -885,7 +886,7 @@ function renderBoard(data) {
     });
   });
 
-  // 📌 ピンボタンのイベントリスナー
+  // ピンボタンのイベントリスナー
   boardEl.querySelectorAll('.today-pin-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -897,7 +898,7 @@ function renderBoard(data) {
     });
   });
 
-  // ✏️ カード直接編集ボタンのイベントリスナー（BT-041）
+  // カード直接編集ボタンのイベントリスナー（BT-041）
   boardEl.querySelectorAll('.card-edit-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -907,7 +908,7 @@ function renderBoard(data) {
     });
   });
 
-  // 🗑 カード直接削除ボタンのイベントリスナー（BT-041）
+  // カード直接削除ボタンのイベントリスナー（BT-041）
   boardEl.querySelectorAll('.card-delete-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -917,12 +918,12 @@ function renderBoard(data) {
     });
   });
 
-  // 🔗 GitHub Issueバッジ: クリックしてもカード詳細を開かず、リンク遷移のみ行う（BT-110）
+  // GitHub Issueバッジ: クリックしてもカード詳細を開かず、リンク遷移のみ行う（BT-110）
   boardEl.querySelectorAll('.github-issue-badge').forEach(link => {
     link.addEventListener('click', (e) => e.stopPropagation());
   });
 
-  // 🔗 GitHub Issue紐付けボタンのイベントリスナー（BT-122）
+  // GitHub Issue紐付けボタンのイベントリスナー（BT-122）
   boardEl.querySelectorAll('.card-github-link-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -932,7 +933,7 @@ function renderBoard(data) {
     });
   });
 
-  // 📤 GitHub Issue新規作成ボタンのイベントリスナー（BT-134）
+  // GitHub Issue新規作成ボタンのイベントリスナー（BT-134）
   boardEl.querySelectorAll('.card-github-create-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -946,7 +947,7 @@ function renderBoard(data) {
 }
 
 /**
- * カードの✏️ボタンから直接呼ばれる: 詳細モーダルを開いて即編集モードにする（BT-041）
+ * カードの編集ボタンから直接呼ばれる: 詳細モーダルを開いて即編集モードにする（BT-041）
  * @param {object} item
  */
 function openCardEditDirect(item) {
@@ -959,7 +960,7 @@ function openCardEditDirect(item) {
 }
 
 /**
- * ミニボード子カードの✏️ボタンから直接呼ばれる: 子詳細モーダルを開いて即編集モードにする（BT-041）
+ * ミニボード子カードの編集ボタンから直接呼ばれる: 子詳細モーダルを開いて即編集モードにする（BT-041）
  * @param {object} childWithProject
  * @param {object} epic
  */
@@ -977,7 +978,7 @@ function buildArtifactsHtml(item) {
   const artifactItems = item.artifacts.map((art, idx) => {
     const escaped = escapeHtml(art);
     const fullPath = wsPath ? (wsPath + '/' + art.replace(/\\/g, '/')) : art;
-    return `<li class="artifact-item"><code>${escaped}</code> <button class="artifact-copy-btn" data-path="${escapeHtml(fullPath)}" title="パスをコピー">&#128203;</button></li>`;
+    return `<li class="artifact-item"><code>${escaped}</code> <button class="artifact-copy-btn" data-path="${escapeHtml(fullPath)}" title="パスをコピー"><span class="material-icon icon-content-copy"></span></button></li>`;
   }).join('');
   return `<div class="detail-section"><h4>成果物</h4><ul class="detail-artifacts">${artifactItems}</ul></div>`;
 }
@@ -997,9 +998,9 @@ function buildWorkspaceActionHtml(item) {
   const workspaceMap = currentBoardData && currentBoardData.workspaceMap || {};
   const wsPath = workspaceMap[item.project] || '';
   if (wsPath) {
-    return `<button class="add-child-btn" id="modal-open-workspace-btn">📂 ワークスペースを開く</button>`;
+    return `<button class="add-child-btn" id="modal-open-workspace-btn"><span class="material-icon icon-folder-open"></span> ワークスペースを開く</button>`;
   }
-  return `<button class="add-child-btn btn-add" id="modal-create-workspace-btn">🛠 ワークスペースを作る</button>`;
+  return `<button class="add-child-btn btn-add" id="modal-create-workspace-btn"><span class="material-icon icon-construction"></span> ワークスペースを作る</button>`;
 }
 
 function setupWorkspaceActionButtons(body, item) {
@@ -1016,7 +1017,7 @@ function setupWorkspaceActionButtons(body, item) {
 // ワークスペース移管ボタンのHTMLを生成する（BT-063）
 function buildMoveActionHtml(item) {
   if (!item.id || item.id === '-') return '';
-  return `<button class="add-child-btn" id="modal-move-btn">🚚 ワークスペースを移管</button>`;
+  return `<button class="add-child-btn" id="modal-move-btn"><span class="material-icon icon-local-shipping"></span> ワークスペースを移管</button>`;
 }
 
 function setupMoveActionButton(body, item, isChild) {
@@ -1206,7 +1207,7 @@ function renderSearchResults(query) {
     if (entry.type === 'header') {
       return `<div class="search-group-header">${escapeHtml(entry.label)}</div>`;
     }
-    const epicIcon = entry.isEpic ? '<span class="epic-icon" title="Epic">⧉</span>' : '';
+    const epicIcon = entry.isEpic ? '<span class="epic-icon" title="Epic"><span class="material-icon icon-stacks"></span></span>' : '';
     return `<div class="search-result-item search-indent-${entry.indent}" data-entry-idx="${idx}">
       ${epicIcon}<span class="search-result-id">${escapeHtml(entry.item.id)}</span>
       <span class="search-result-title">${escapeHtml(entry.item.title)}</span>
@@ -1613,21 +1614,21 @@ function openChildModal(item) {
 
   // 親から外すボタン（BT-034: attachの逆操作。単に外すだけで他の親には付け替えない）
   const detachBtn = (item.id && item.id !== '-')
-    ? `<button class="add-child-btn detach-btn" id="modal-detach-btn">🔓 親から外す</button>`
+    ? `<button class="add-child-btn detach-btn" id="modal-detach-btn"><span class="material-icon icon-lock-open"></span> 親から外す</button>`
     : '';
 
   // 編集・削除ボタン（BT-036/BT-031: 子タスクは常に単独削除可）
-  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn btn-edit" id="modal-edit-btn">✏️ 編集</button>` : '';
-  const deleteBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>` : '';
+  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn btn-edit" id="modal-edit-btn"><span class="material-icon icon-edit"></span> 編集</button>` : '';
+  const deleteBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn danger" id="modal-delete-btn"><span class="material-icon icon-delete"></span> 削除</button>` : '';
 
   // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
   const githubLinkBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn" id="modal-github-link-btn">🔗 GitHub Issueと紐づける</button>`
+    ? `<button class="add-child-btn" id="modal-github-link-btn"><span class="material-icon icon-link"></span> GitHub Issueと紐づける</button>`
     : '';
 
   // GitHub Issue新規作成ボタン（BT-134）
   const githubCreateBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn">📤 GitHub Issueを新規作成</button>`
+    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn"><span class="material-icon icon-upload"></span> GitHub Issueを新規作成</button>`
     : '';
 
   // ワークスペース導線ボタン（BT-053）
@@ -1910,7 +1911,7 @@ function openGithubLinkModal(item, isChild) {
   const content = el.querySelector('.modal-content');
   content.innerHTML = `
     <button class="modal-close" id="github-link-close">&times;</button>
-    <h3 class="add-form-title">🔗 GitHub Issueと紐づける</h3>
+    <h3 class="add-form-title"><span class="material-icon icon-link"></span> GitHub Issueと紐づける</h3>
     <p class="delete-confirm-text">「${escapeHtml(item.title)}」(${escapeHtml(item.id)}) に紐づけるIssue番号かURLを入力してね。</p>
     <input type="text" id="github-link-input" class="parent-picker-search" placeholder="例: 123 / #123 / https://github.com/owner/repo/issues/123">
     <p class="delete-confirm-error" style="display:none;"></p>
@@ -1990,7 +1991,7 @@ function openGithubCreateConfirm(item, isChild) {
     : '';
   content.innerHTML = `
     <button class="modal-close" id="github-create-confirm-close">&times;</button>
-    <h3 class="add-form-title">📤 GitHub Issueを新規作成</h3>
+    <h3 class="add-form-title"><span class="material-icon icon-upload"></span> GitHub Issueを新規作成</h3>
     <p class="delete-confirm-text">「${escapeHtml(item.title)}」(${escapeHtml(item.id)}) からGitHub Issueを新規作成するよ。大丈夫?</p>
     ${epicNote}
     <p class="delete-confirm-error" style="display:none;"></p>
@@ -2064,7 +2065,7 @@ function openBulkGithubCreateConfirm() {
     : '';
   content.innerHTML = `
     <button class="modal-close" id="github-create-confirm-close">&times;</button>
-    <h3 class="add-form-title">📤 GitHub Issueを一括作成</h3>
+    <h3 class="add-form-title"><span class="material-icon icon-upload"></span> GitHub Issueを一括作成</h3>
     <p class="delete-confirm-text">選択中のタスクから ${targets.length}件 のGitHub Issueを新規作成するよ。大丈夫?</p>
     ${skipNote}
     <p class="delete-confirm-error" style="display:none;"></p>
@@ -2167,23 +2168,23 @@ function renderModalContent(item) {
 
   // 親を設定ボタン（BT-034: 単独タスク→その場でEPIC化。子を持つ/完了済みは対象外）
   const setParentBtn = (item.id && item.id !== '-' && !isEpic && item.status !== '完了')
-    ? `<button class="add-child-btn" id="modal-set-parent-btn">🔗 親を設定</button>`
+    ? `<button class="add-child-btn" id="modal-set-parent-btn"><span class="material-icon icon-link"></span> 親を設定</button>`
     : '';
 
   const detailSpinner = item.running ? '<span class="running-spinner detail-spinner"></span>' : '';
 
   // 編集・削除ボタン（BT-036/BT-031: 子ありEpicは削除不可のため削除ボタンを出さない）
-  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn btn-edit" id="modal-edit-btn">✏️ 編集</button>` : '';
-  const deleteBtnHtml = (item.id && item.id !== '-' && !isEpic) ? `<button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>` : '';
+  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn btn-edit" id="modal-edit-btn"><span class="material-icon icon-edit"></span> 編集</button>` : '';
+  const deleteBtnHtml = (item.id && item.id !== '-' && !isEpic) ? `<button class="detail-action-btn danger" id="modal-delete-btn"><span class="material-icon icon-delete"></span> 削除</button>` : '';
 
   // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
   const githubLinkBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn" id="modal-github-link-btn">🔗 GitHub Issueと紐づける</button>`
+    ? `<button class="add-child-btn" id="modal-github-link-btn"><span class="material-icon icon-link"></span> GitHub Issueと紐づける</button>`
     : '';
 
   // GitHub Issue新規作成ボタン（BT-134: Epicの場合は子タスクもsub-issueとして一括作成）
   const githubCreateBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn">📤 GitHub Issueを新規作成</button>`
+    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn"><span class="material-icon icon-upload"></span> GitHub Issueを新規作成</button>`
     : '';
 
   // ワークスペース導線ボタン（BT-053）
@@ -2329,11 +2330,11 @@ function buildMiniBoard(epic) {
 
     // 完了カラム用「本日完了だけ」トグル＋達成感カウント
     const doneTodayToggleHtml = isDoneCol
-      ? `<button class="done-today-btn${doneTodayOnly ? ' filter-active' : ''}" data-mini-done-today="1" title="本日完了分のみ表示（達成感モード）">🎉 今日</button>`
+      ? `<button class="done-today-btn${doneTodayOnly ? ' filter-active' : ''}" data-mini-done-today="1" title="本日完了分のみ表示（達成感モード）"><span class="material-icon icon-celebration"></span> 今日</button>`
       : '';
     let countHtml;
     if (miniDoneTodayActive) {
-      countHtml = `<span class="count done-today-count">🎉 ${matchedChildren.length}</span>`;
+      countHtml = `<span class="count done-today-count"><span class="material-icon icon-celebration"></span> ${matchedChildren.length}</span>`;
     } else if (miniLimit) {
       countHtml = `<input type="number" class="limit-input mini-limit-input" value="${miniLimit}" min="1" max="${miniTotalBeforeLimit}" data-col-id="${col.id}" title="表示件数 (全${miniTotalBeforeLimit}件)"><span class="count-total">/ ${miniTotalBeforeLimit}</span>`;
     } else {
@@ -2390,7 +2391,7 @@ function buildMiniBoard(epic) {
         mParts.push(`<span class="card-tag">${escapeHtml(child.assignee)}</span>`);
       }
       if (child.artifacts && child.artifacts.length > 0) {
-        mParts.push('<span class="card-tag artifact-indicator" title="成果物あり">📎</span>');
+        mParts.push('<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>');
       }
       if (child.githubIssueNumber) {
         mParts.push(renderGithubIssueBadge(child.githubIssueNumber, child.githubIssueUrl));
@@ -2400,18 +2401,18 @@ function buildMiniBoard(epic) {
       }
       const mHtml = mParts.length > 0 ? `<div class="card-meta">${mParts.join('')}</div>` : '';
 
-      // 📌 ピンボタン（ミニボード子カード）
+      // ピンボタン（ミニボード子カード）
       const childPinHtml = child.id
-        ? `<button class="today-pin-btn${child.todayFlag ? ' pin-active' : ''}" data-task-id="${child.id}" data-is-child="true" title="今日やる">📌</button>`
+        ? `<button class="today-pin-btn${child.todayFlag ? ' pin-active' : ''}" data-task-id="${child.id}" data-is-child="true" title="今日やる"><span class="material-icon icon-keep"></span></button>`
         : '';
 
-      // ✏️🔗🗑 編集・GitHub紐付け・削除ボタン（ミニボード子カード、BT-041: 子タスクは常に単独削除可。BT-122でGitHub紐付けボタンを追加）
+      // 編集・GitHub紐付け・削除ボタン（ミニボード子カード、BT-041: 子タスクは常に単独削除可。BT-122でGitHub紐付けボタンを追加）
       const childActionsHtml = child.id
         ? `<div class="card-actions">
-            <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集">✏️</button>
-            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける">🔗</button>` : ''}
-            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-create-btn" data-task-id="${child.id}" title="GitHub Issueを新規作成">📤</button>` : ''}
-            <button class="card-action-btn card-child-delete-btn danger" data-task-id="${child.id}" title="削除">🗑</button>
+            <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集"><span class="material-icon icon-edit"></span></button>
+            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
+            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-create-btn" data-task-id="${child.id}" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
+            <button class="card-action-btn card-child-delete-btn danger" data-task-id="${child.id}" title="削除"><span class="material-icon icon-delete"></span></button>
           </div>`
         : '';
 
@@ -2543,7 +2544,7 @@ function buildMiniBoard(epic) {
     });
   });
 
-  // ミニボード内の📌ピンボタンにイベント設定
+  // ミニボード内のピンボタンにイベント設定
   container.querySelectorAll('.today-pin-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -2587,9 +2588,9 @@ function getOrCreateSelectionBar() {
   selectionBarEl.innerHTML = `
     <span class="selection-bar-count"></span>
     <button class="selection-bar-btn selection-bar-parent" id="selection-pick-parent">親を選ぶ</button>
-    <button class="selection-bar-btn selection-bar-move" id="selection-pick-move">🚚 移動</button>
-    <button class="selection-bar-btn selection-bar-github" id="selection-github-create">📤 GitHub登録</button>
-    <button class="selection-bar-btn selection-bar-delete danger" id="selection-delete">🗑 削除</button>
+    <button class="selection-bar-btn selection-bar-move" id="selection-pick-move"><span class="material-icon icon-local-shipping"></span> 移動</button>
+    <button class="selection-bar-btn selection-bar-github" id="selection-github-create"><span class="material-icon icon-upload"></span> GitHub登録</button>
+    <button class="selection-bar-btn selection-bar-delete danger" id="selection-delete"><span class="material-icon icon-delete"></span> 削除</button>
     <button class="selection-bar-btn selection-bar-cancel" id="selection-cancel">キャンセル</button>
   `;
   document.body.appendChild(selectionBarEl);
@@ -2854,7 +2855,7 @@ function renderParentPickerList(query) {
 
   const q = query.trim().toLowerCase();
   const candidates = [];
-  // ボード表示順（🔥アクティブ→💡保留、完了カラムは除外）で同一プロジェクトの候補を収集
+  // ボード表示順（次やる→保留、完了カラムは除外）で同一プロジェクトの候補を収集
   for (const col of currentBoardData.columns) {
     if (col.compact || col.id === 'done') continue;
     for (const item of col.items) {

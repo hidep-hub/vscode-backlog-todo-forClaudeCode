@@ -2,7 +2,7 @@
   "columns": [
     {
       "id": "in_progress",
-      "label": "🟡 進行中",
+      "label": "進行中",
       "match": [
         "進行中"
       ],
@@ -16,7 +16,7 @@
     },
     {
       "id": "todo",
-      "label": "⬜ 未着手",
+      "label": "未着手",
       "match": [
         "未着手",
         "未着手（素材あり）"
@@ -31,7 +31,7 @@
     },
     {
       "id": "on_hold",
-      "label": "💤 保留",
+      "label": "保留",
       "match": [
         "保留"
       ],
@@ -43,7 +43,7 @@
     },
     {
       "id": "done",
-      "label": "✅ 完了",
+      "label": "完了",
       "match": [
         "完了"
       ],
