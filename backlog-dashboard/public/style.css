@@ -32,6 +32,12 @@
   --compact-card-bg: #2e2e3e;
   --compact-card-hover: #343446;
   --drop-highlight: rgba(124, 143, 255, 0.08);
+  --btn-add-fg: #6fcf97;
+  --btn-add-bg: rgba(111, 207, 151, 0.12);
+  --btn-neutral-fg: #9a9ab0;
+  --btn-neutral-bg: rgba(154, 154, 176, 0.12);
+  --btn-danger-fg: #e53e3e;
+  --btn-danger-bg: rgba(229, 62, 62, 0.12);
 }
 
 [data-theme="light"] {
@@ -57,6 +63,12 @@
   --compact-card-bg: #e8e9ec;
   --compact-card-hover: #dddee2;
   --drop-highlight: rgba(76, 95, 213, 0.08);
+  --btn-add-fg: #2f9e5c;
+  --btn-add-bg: rgba(47, 158, 92, 0.1);
+  --btn-neutral-fg: #6b6b80;
+  --btn-neutral-bg: rgba(107, 107, 128, 0.08);
+  --btn-danger-fg: #e53e3e;
+  --btn-danger-bg: rgba(229, 62, 62, 0.1);
 }
 
 :root {
@@ -1622,47 +1634,68 @@ body {
 }
 
 
-/* --- Detail Modal Action Buttons (BT-036 / BT-031 / BT-034 / BT-053 / BT-063) --- */
-/* 編集/削除、子タスク追加/親設定、ワークスペース開く/移管 のように意味のあるペアを
-   1行に横並びさせる。片方しかないボタンは flex: 1 で全幅表示になる */
+/* --- Detail Modal Action Buttons (BT-036 / BT-031 / BT-034 / BT-053 / BT-063 / BT-166) --- */
+/* 全ボタンを1つのflex-wrapグループにまとめて、内容幅で並べる。
+   意味のあるペア単位でflex:1にする方式(BT-063)は、条件次第で片割れが消えると
+   残った1個が不要に全幅表示されてしまう(BT-166で判明)ためやめた */
 .detail-actions-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin: 6px 0;
 }
 
-.detail-actions-row .add-child-btn,
-.detail-actions-row .detail-action-btn {
-  flex: 1;
-}
-
 .add-child-btn,
 .detail-action-btn {
-  padding: 5px 10px;
+  flex: 0 0 auto;
+  padding: 5px 12px;
   border-radius: 6px;
-  border: 1px dashed var(--accent);
-  background: transparent;
-  color: var(--accent);
+  border: 1px solid transparent;
+  background: var(--btn-neutral-bg);
+  color: var(--btn-neutral-fg);
   font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
   text-align: center;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .add-child-btn:hover,
 .detail-action-btn:hover {
+  background: var(--btn-neutral-fg);
+  color: #fff;
+}
+
+/* 編集系（accent色。カード直接編集ボタンのbadge等と同トーン） */
+.detail-action-btn.btn-edit {
+  background: rgba(124, 143, 255, 0.12);
+  color: var(--accent);
+}
+
+.detail-action-btn.btn-edit:hover {
   background: var(--accent);
   color: #fff;
 }
 
+/* 追加系（子タスク追加・親を設定・新規作成など、緑） */
+.add-child-btn.btn-add {
+  background: var(--btn-add-bg);
+  color: var(--btn-add-fg);
+}
+
+.add-child-btn.btn-add:hover {
+  background: var(--btn-add-fg);
+  color: #fff;
+}
+
+/* 削除系（赤） */
 .detail-action-btn.danger {
-  border-color: #e53e3e;
-  color: #e53e3e;
+  background: var(--btn-danger-bg);
+  color: var(--btn-danger-fg);
 }
 
 .detail-action-btn.danger:hover {
-  background: #e53e3e;
+  background: var(--btn-danger-fg);
   color: #fff;
 }
 

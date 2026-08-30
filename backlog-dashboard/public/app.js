@@ -982,9 +982,9 @@ function buildArtifactsHtml(item) {
   return `<div class="detail-section"><h4>成果物</h4><ul class="detail-artifacts">${artifactItems}</ul></div>`;
 }
 
-// ボタン群を横並び1行にまとめる（BT-063: 編集/削除、子タスク追加/親設定、
-// ワークスペース開く/移管 のように意味のあるペアを1行にレイアウトするため）
-// 引数のうち空文字列は無視するので、片方しかないボタンは自動で全幅表示になる
+// ボタン群を1つのflex-wrapグループにまとめる（BT-166: ペア単位のflex:1をやめ、
+// 内容幅で並べて折り返す方式に変更。ボタン数が変わっても不要に間延びしない）
+// 引数のうち空文字列は無視する
 function actionsRow(...btns) {
   const content = btns.filter(Boolean).join('');
   return content ? `<div class="detail-actions-row">${content}</div>` : '';
@@ -999,7 +999,7 @@ function buildWorkspaceActionHtml(item) {
   if (wsPath) {
     return `<button class="add-child-btn" id="modal-open-workspace-btn">📂 ワークスペースを開く</button>`;
   }
-  return `<button class="add-child-btn" id="modal-create-workspace-btn">🛠 ワークスペースを作る</button>`;
+  return `<button class="add-child-btn btn-add" id="modal-create-workspace-btn">🛠 ワークスペースを作る</button>`;
 }
 
 function setupWorkspaceActionButtons(body, item) {
@@ -1617,7 +1617,7 @@ function openChildModal(item) {
     : '';
 
   // 編集・削除ボタン（BT-036/BT-031: 子タスクは常に単独削除可）
-  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn" id="modal-edit-btn">✏️ 編集</button>` : '';
+  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn btn-edit" id="modal-edit-btn">✏️ 編集</button>` : '';
   const deleteBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>` : '';
 
   // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
@@ -1627,7 +1627,7 @@ function openChildModal(item) {
 
   // GitHub Issue新規作成ボタン（BT-134）
   const githubCreateBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn" id="modal-github-create-btn">📤 GitHub Issueを新規作成</button>`
+    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn">📤 GitHub Issueを新規作成</button>`
     : '';
 
   // ワークスペース導線ボタン（BT-053）
@@ -1646,10 +1646,7 @@ function openChildModal(item) {
     ${desc}
     ${artifactsHtml}
     ${metaHtml}
-    ${actionsRow(editBtnHtml, deleteBtnHtml)}
-    ${actionsRow(workspaceActionHtml, moveActionHtml)}
-    ${actionsRow(detachBtn, githubLinkBtnHtml)}
-    ${actionsRow(githubCreateBtnHtml)}
+    ${actionsRow(editBtnHtml, deleteBtnHtml, workspaceActionHtml, moveActionHtml, detachBtn, githubLinkBtnHtml, githubCreateBtnHtml)}
   `;
 
   // 親から外すボタンのイベント
@@ -2165,7 +2162,7 @@ function renderModalContent(item) {
 
   // 子タスク追加ボタン（Epicでも非Epicでも表示）
   const addChildBtn = (item.id && item.id !== '-')
-    ? `<button class="add-child-btn" id="modal-add-child-btn">＋ 子タスクを追加</button>`
+    ? `<button class="add-child-btn btn-add" id="modal-add-child-btn">＋ 子タスクを追加</button>`
     : '';
 
   // 親を設定ボタン（BT-034: 単独タスク→その場でEPIC化。子を持つ/完了済みは対象外）
@@ -2176,7 +2173,7 @@ function renderModalContent(item) {
   const detailSpinner = item.running ? '<span class="running-spinner detail-spinner"></span>' : '';
 
   // 編集・削除ボタン（BT-036/BT-031: 子ありEpicは削除不可のため削除ボタンを出さない）
-  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn" id="modal-edit-btn">✏️ 編集</button>` : '';
+  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn btn-edit" id="modal-edit-btn">✏️ 編集</button>` : '';
   const deleteBtnHtml = (item.id && item.id !== '-' && !isEpic) ? `<button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>` : '';
 
   // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
@@ -2186,7 +2183,7 @@ function renderModalContent(item) {
 
   // GitHub Issue新規作成ボタン（BT-134: Epicの場合は子タスクもsub-issueとして一括作成）
   const githubCreateBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn" id="modal-github-create-btn">📤 GitHub Issueを新規作成</button>`
+    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn">📤 GitHub Issueを新規作成</button>`
     : '';
 
   // ワークスペース導線ボタン（BT-053）
@@ -2206,10 +2203,7 @@ function renderModalContent(item) {
     ${desc}
     ${artifactsHtml}
     ${metaHtml}
-    ${actionsRow(editBtnHtml, deleteBtnHtml)}
-    ${actionsRow(addChildBtn, setParentBtn)}
-    ${actionsRow(workspaceActionHtml, moveActionHtml)}
-    ${actionsRow(githubLinkBtnHtml, githubCreateBtnHtml)}
+    ${actionsRow(editBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml)}
     ${miniBoard}
   `;
 
