@@ -16,6 +16,54 @@ const BACKLOG_DIR = config.backlogDir.replace(/^~/, os.homedir());
 const COUNTER_FILE = path.join(BACKLOG_DIR, '_counter.md');
 const GITHUB_CREDENTIALS_PATH = path.join(__dirname, 'github-credentials.json');
 
+// セクション見出しは絵文字ではなく文言で判定する（BT-170）
+const SECTION_KEYWORDS = { active: '次やる', hold: 'アイデア', done: '完了' };
+
+function detectSectionType(headingText) {
+  if (headingText.includes(SECTION_KEYWORDS.active)) return 'active';
+  if (headingText.includes(SECTION_KEYWORDS.hold)) return 'hold';
+  if (headingText.includes(SECTION_KEYWORDS.done)) return 'done';
+  return null;
+}
+
+function isSectionHeadingLine(line, type) {
+  const m = line.match(/^##\s+(.*)/);
+  return m ? detectSectionType(m[1]) === type : false;
+}
+
+/**
+ * このプロダクト(backlog-dashboard)自体のソースリポジトリURLを、
+ * cloneしてきた .git/config の remote origin から取得する（BT-162）。
+ * ユーザーごとに異なるgithub-credentials.json（Issue連携先の設定）とは無関係に、
+ * 誰の環境でも「最新版を見に行けるリンク」として同じ値になるようにするための実装。
+ * gitが使えない/originが無い環境では空文字を返し、呼び出し元でリンクを無効化する。
+ */
+function resolveRepoOriginUrl() {
+  try {
+    const output = execFileSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: path.join(__dirname, '..'),
+      encoding: 'utf8',
+    }).trim();
+    if (!output) return '';
+    let url = output.replace(/\.git$/, '');
+    const sshMatch = url.match(/^git@([^:]+):(.+)$/);
+    if (sshMatch) {
+      url = `https://${sshMatch[1]}/${sshMatch[2]}`;
+    }
+    return url;
+  } catch (e) {
+    console.error('[repo-origin-url] Failed to resolve:', e.message);
+    return '';
+  }
+}
+const REPO_ORIGIN_URL = resolveRepoOriginUrl();
+
+// フィールド行として認識する既知キー一覧（説明欄の継続行判定に使う。
+// 単純に「- で始まる行」を次フィールドとみなすと、説明文中の箇条書き「- xxx」が
+// 誤って次フィールドの開始と判定されてしまうため、既知キーに限定する。BT-149）
+const KNOWN_FIELD_KEYS = ['状態', '分類', '説明', '担当', '開始日', '期日', '起源', '成果物', '完了日', 'github_issue_number', 'github_issue_url', 'commit'];
+const FIELD_LINE_RE = new RegExp(`^\\s*-\\s+(?:${KNOWN_FIELD_KEYS.join('|')})[:：]`);
+
 // --- Projects / Prefix helper ---
 function getPrefixMap() {
   // { file: prefix } マッピングを返す
@@ -288,11 +336,11 @@ const PREFIX_RE = /^[A-Z]{2}$/;
 function projectTemplate(name) {
   return `# ${name} バックログ
 
-## 🔥 次やる
+## 次やる
 
-## 💡 アイデア／保留
+## アイデア／保留
 
-## ✅ 完了（アーカイブ）
+## 完了（アーカイブ）
 
 | 完了日 | ts | 親 | ID | 件名 |
 |---|---|---|---|---|
@@ -428,14 +476,14 @@ function parseBacklogFile(filePath) {
   const projectName = titleMatch ? titleMatch[1].trim() : fileName;
 
   const lines = content.split(/\r?\n/);
-  let currentSection = null; // セクション名 (🔥 / 💡 / ✅)
+  let currentSection = null; // セクション名 (active / hold / done)
   let currentTask = null;    // h3 タスク（カード化対象）
   let currentChild = null;   // h4 子タスク（カードにしない）
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // セクション検出: ## 🔥 / ## 💡 / ## ✅
+    // セクション検出: ## 次やる / ## アイデア／保留 / ## 完了（アーカイブ）
     const sectionMatch = line.match(/^##\s+(.*)/);
     if (sectionMatch) {
       // 前の子タスクを確定
@@ -447,11 +495,7 @@ function parseBacklogFile(filePath) {
       if (currentTask) tasks.push(currentTask);
       currentTask = null;
 
-      const sectionText = sectionMatch[1];
-      if (sectionText.includes('🔥')) currentSection = 'active';
-      else if (sectionText.includes('💡')) currentSection = 'hold';
-      else if (sectionText.includes('✅')) currentSection = 'done';
-      else currentSection = null;
+      currentSection = detectSectionType(sectionMatch[1]);
       continue;
     }
 
@@ -538,11 +582,11 @@ function parseBacklogFile(filePath) {
           break;
         case '説明':
           target.description = value;
-          // 次の行が継続行なら取り込む（- で始まらず # でも始まらない非空行）
+          // 次の行が継続行なら取り込む（既知フィールド行・ヘッダー・空行以外）
           while (i + 1 < lines.length) {
             const nextLine = lines[i + 1];
             if (!nextLine.trim()) break; // 空行で終了
-            if (/^\s*-\s+/.test(nextLine)) break; // 次のフィールド
+            if (FIELD_LINE_RE.test(nextLine)) break; // 次のフィールド
             if (/^#{1,4}\s/.test(nextLine)) break; // 次のヘッダー
             target.description += '\n' + nextLine.trim();
             i++;
@@ -706,7 +750,7 @@ function mergeArchiveDetails(allTasks) {
               while (i + 1 < lines.length) {
                 const nextLine = lines[i + 1];
                 if (!nextLine.trim()) break;
-                if (/^\s*-\s+/.test(nextLine)) break;
+                if (FIELD_LINE_RE.test(nextLine)) break;
                 if (/^#{1,4}\s/.test(nextLine)) break;
                 current.description += '\n' + nextLine.trim();
                 i++;
@@ -720,6 +764,12 @@ function mergeArchiveDetails(allTasks) {
               break;
             case '担当':
               current.assignee = value;
+              break;
+            case 'github_issue_number':
+              current.githubIssueNumber = value;
+              break;
+            case 'github_issue_url':
+              current.githubIssueUrl = value;
               break;
           }
         }
@@ -738,6 +788,9 @@ function mergeArchiveDetails(allTasks) {
       if (detail.artifacts) task.artifacts = detail.artifacts;
       if (detail.category && task.category === '-') task.category = detail.category;
       if (detail.assignee && !task.assignee) task.assignee = detail.assignee;
+      // BT-132: h3単発タスク完了時に失われるgithub_issue_number/urlをarchiveから復元(取込済み判定への反映用)
+      if (detail.githubIssueNumber && !task.githubIssueNumber) task.githubIssueNumber = detail.githubIssueNumber;
+      if (detail.githubIssueUrl && !task.githubIssueUrl) task.githubIssueUrl = detail.githubIssueUrl;
     }
   }
 }
@@ -974,7 +1027,7 @@ function updateTaskStatus(taskId, newStatus, isChild = false, commitHashes = [])
         lines.splice(insertIdx, 0, `- 完了日: ${dateStr}`);
       }
 
-      // h3単発タスク（子を持たない）が完了した場合、🔥/💡ブロックから
+      // h3単発タスク（子を持たない）が完了した場合、次やる/アイデアブロックから
       // 完了テーブルへ自動移動する（BT-017）。h4子タスクとEpic（子あり）は対象外。
       if (!isChild && h3Regex.test(lines[taskLineIdx])) {
         let archiveBlockEnd = lines.length;
@@ -991,7 +1044,7 @@ function updateTaskStatus(taskId, newStatus, isChild = false, commitHashes = [])
 
           let doneSectionIdx = -1;
           for (let i = 0; i < lines.length; i++) {
-            if (/^##\s+.*✅/.test(lines[i])) { doneSectionIdx = i; break; }
+            if (isSectionHeadingLine(lines[i], 'done')) { doneSectionIdx = i; break; }
           }
           if (doneSectionIdx !== -1) {
             let tableEnd = lines.length;
@@ -1336,10 +1389,7 @@ function reorderTasks(orderedIds, isChild = false, parentId = null) {
       for (let i = 0; i < lines.length; i++) {
         const secMatch = lines[i].match(/^##\s+(.*)/);
         if (secMatch) {
-          if (secMatch[1].includes('🔥')) currentSection = 'active';
-          else if (secMatch[1].includes('💡')) currentSection = 'hold';
-          else if (secMatch[1].includes('✅')) currentSection = 'done';
-          else currentSection = null;
+          currentSection = detectSectionType(secMatch[1]);
           continue;
         }
         const taskMatch = lines[i].match(/^###\s+\[([^\]]+)\]/);
@@ -1539,11 +1589,11 @@ function syncCompletionToGithub(prefix, task, commitHashes) {
 const INBOX_FILE = 'inbox.backlog.md';
 const INBOX_TEMPLATE = `# Inbox バックログ
 
-## 🔥 アクティブ
+## 次やる
 
-## 💡 アイデア／保留
+## アイデア／保留
 
-## ✅ 完了（アーカイブ）
+## 完了（アーカイブ）
 
 | 完了日 | ts | 親 | ID | 件名 |
 |---|---|---|---|---|
@@ -1597,10 +1647,10 @@ function addTask(title, project, status = '未着手', origin = 'user', descript
   const content = fs.readFileSync(filePath, 'utf8');
   const lines = content.split(/\r?\n/);
 
-  // 🔥 アクティブセクションを探す
+  // 次やるセクションを探す
   let activeIdx = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (/^##\s+.*🔥/.test(lines[i])) {
+    if (isSectionHeadingLine(lines[i], 'active')) {
       activeIdx = i;
       break;
     }
@@ -1814,7 +1864,7 @@ function attachToParent(taskIds, parentId) {
 }
 
 /**
- * 子タスク(h4)を親から外し、独立したh3タスクとして🔥アクティブセクション末尾に戻す
+ * 子タスク(h4)を親から外し、独立したh3タスクとして次やるセクション末尾に戻す
  * @param {string} taskId - 外す子タスクのID
  * @returns {{ success: boolean, id?: string, error?: string }}
  */
@@ -1852,10 +1902,10 @@ function detachFromParent(taskId) {
     // 元の位置（親の配下）から削除
     lines.splice(start, end - start);
 
-    // 🔥 アクティブセクション末尾（次の##直前）に独立タスクとして挿入
+    // 次やるセクション末尾（次の##直前）に独立タスクとして挿入
     let activeIdx = -1;
     for (let i = 0; i < lines.length; i++) {
-      if (/^##\s+.*🔥/.test(lines[i])) { activeIdx = i; break; }
+      if (isSectionHeadingLine(lines[i], 'active')) { activeIdx = i; break; }
     }
 
     const insertBlock = [...raw, ''];
@@ -1929,10 +1979,10 @@ function moveTaskToProject(taskId, targetFile, isChild = false) {
   const targetLines = fs.readFileSync(targetPath, 'utf8').split(/\r?\n/);
   let activeIdx = -1;
   for (let i = 0; i < targetLines.length; i++) {
-    if (/^##\s+.*🔥/.test(targetLines[i])) { activeIdx = i; break; }
+    if (isSectionHeadingLine(targetLines[i], 'active')) { activeIdx = i; break; }
   }
   if (activeIdx === -1) {
-    return { success: false, error: `Active section (🔥) not found in ${targetProject.file}.backlog.md` };
+    return { success: false, error: `Active section not found in ${targetProject.file}.backlog.md` };
   }
 
   const raw = lines.slice(headerIdx, blockEnd);
@@ -1950,7 +2000,7 @@ function moveTaskToProject(taskId, targetFile, isChild = false) {
   lines.splice(headerIdx, blockEnd - headerIdx);
   fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
 
-  // 移動先の🔥アクティブセクション末尾に挿入
+  // 移動先の次やるセクション末尾に挿入
   let insertIdx = targetLines.length;
   for (let i = activeIdx + 1; i < targetLines.length; i++) {
     if (/^##\s/.test(targetLines[i])) { insertIdx = i; break; }
@@ -2148,7 +2198,7 @@ function updateTaskDescription(taskId, newDescription, isChild = false) {
       descStart = i;
       for (let j = i + 1; j < blockEnd; j++) {
         if (!lines[j].trim()) { descEnd = j; break; }
-        if (/^\s*-\s+/.test(lines[j])) { descEnd = j; break; }
+        if (FIELD_LINE_RE.test(lines[j])) { descEnd = j; break; }
         descEnd = j + 1;
       }
       break;
@@ -2191,6 +2241,45 @@ function findTaskInAll(taskId) {
   return null;
 }
 
+// GitHub Issue⇔Backlogタスクの紐付けを示す固定ラベル(BT-143)
+const BACKLOG_LINK_LABEL = 'backlog-todo';
+const BACKLOG_FOOTER_SEPARATOR = '---';
+
+/**
+ * GitHub Issue側でBacklogタスクIDが一目で分かるよう件名にprefixを付与する(BT-143)
+ */
+function buildBacklogLinkedTitle(taskId, title) {
+  return `[${taskId}] ${title}`;
+}
+
+/**
+ * GitHub Issue本文の末尾にBacklogタスクIDを示すフッターを追記する(BT-143)
+ */
+function appendBacklogFooter(body, taskId) {
+  const base = (body || '').trim();
+  const footer = `${BACKLOG_FOOTER_SEPARATOR}\n🔖 Backlog: ${taskId}`;
+  return base ? `${base}\n\n${footer}` : footer;
+}
+
+/**
+ * 取り込んだGitHub Issue側に、確定したBacklogタスクIDを書き戻す(BT-143)。
+ * labelsはPATCHで渡すと既存ラベルが上書きされるため、既存ラベル名に合成してから渡す。
+ * 失敗してもタスク自体の取り込みは既に成功しているため、ログのみでスキップする。
+ */
+async function writeBacklogLinkToGithubIssue(creds, issue, taskId) {
+  const existingLabels = (issue.labels || []).map((l) => (typeof l === 'string' ? l : l.name)).filter(Boolean);
+  const labels = existingLabels.includes(BACKLOG_LINK_LABEL) ? existingLabels : [...existingLabels, BACKLOG_LINK_LABEL];
+  try {
+    await githubClient.issues.update(creds.repoUrl, creds.token, issue.number, {
+      title: buildBacklogLinkedTitle(taskId, issue.title),
+      body: appendBacklogFooter(issue.body, taskId),
+      labels,
+    });
+  } catch (e) {
+    console.error(`[github-fetch-issues] Failed to write backlog link back to issue #${issue.number}:`, e.message);
+  }
+}
+
 /**
  * タスクのmdブロックに github_issue_number / github_issue_url フィールドを追加・更新する(BT-079)
  * @returns {{ success: boolean, error?: string }}
@@ -2202,6 +2291,14 @@ function setGithubIssueLink(taskId, isChild, issueNumber, issueUrl) {
   }
   const { lines, filePath, headerIdx } = block;
   let blockEnd = block.blockEnd;
+
+  // h3親タスクのblockEndは子タスク(h4)も含む範囲になっているため、親自身の
+  // フィールドは最初の子タスク行(####)の手前までに限定する。これをしないと
+  // 「起源:」行探索が子タスクのものまで拾ってしまい、フィールドが子タスクの
+  // ブロック内に誤挿入される(BT-134でEpicへのIssue紐付け時に発覚)。
+  for (let i = headerIdx + 1; i < blockEnd; i++) {
+    if (/^####\s+\[/.test(lines[i])) { blockEnd = i; break; }
+  }
 
   // 挿入基準点(起源行、無ければヘッダー行)。フィールドを1つ挿入するたびに
   // その挿入位置へ更新し、次のフィールドが直後に続くようにする。
@@ -2291,6 +2388,13 @@ function serveStatic(req, res) {
   if (req.url === '/api/health' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
+    return;
+  }
+
+  // API: GET /api/repo-origin-url（BT-162: ヘッダーロゴクリックで開くこのプロダクト自体のGitHubリンク）
+  if (req.url === '/api/repo-origin-url' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ repoUrl: REPO_ORIGIN_URL }));
     return;
   }
 
@@ -2490,16 +2594,48 @@ function serveStatic(req, res) {
         res.end(JSON.stringify({ error: `Task ${taskId} is already linked to issue #${task.githubIssueNumber}` }));
         return;
       }
-      githubClient.issues.create(creds.repoUrl, creds.token, { title: task.title, body: task.description || '' })
-        .then((issue) => {
+      // Epic(子タスクを持つh3親)の場合、親Issue作成後に各子タスクをGitHub Issueとして
+      // 個別作成し、Sub-issues機能で親に紐付ける(BT-134)
+      const isEpic = !isChild && Array.isArray(task.children) && task.children.length > 0;
+
+      githubClient.issues.create(creds.repoUrl, creds.token, {
+        title: buildBacklogLinkedTitle(taskId, task.title),
+        body: appendBacklogFooter(task.description, taskId),
+        labels: [BACKLOG_LINK_LABEL],
+      })
+        .then(async (issue) => {
           const result = setGithubIssueLink(taskId, !!isChild, String(issue.number), issue.html_url);
           if (!result.success) {
             res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ error: result.error }));
             return;
           }
+
+          const subIssues = [];
+          const failedChildIds = [];
+          if (isEpic) {
+            for (const child of task.children) {
+              if (child.githubIssueNumber) continue; // 既に紐付け済みの子はスキップ
+              try {
+                const subIssue = await githubClient.issues.create(creds.repoUrl, creds.token, {
+                  title: buildBacklogLinkedTitle(child.id, child.title),
+                  body: appendBacklogFooter(child.description, child.id),
+                  labels: [BACKLOG_LINK_LABEL],
+                });
+                await githubClient.issues.addSubIssue(creds.repoUrl, creds.token, issue.number, subIssue.id);
+                setGithubIssueLink(child.id, true, String(subIssue.number), subIssue.html_url);
+                subIssues.push({ taskId: child.id, issueNumber: subIssue.number, issueUrl: subIssue.html_url });
+              } catch (e) {
+                console.error(`[github-create-issue] Failed to create sub-issue for ${child.id}:`, e.message);
+                failedChildIds.push(child.id);
+              }
+            }
+          }
+
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify({ ok: true, issueNumber: issue.number, issueUrl: issue.html_url }));
+          res.end(JSON.stringify({
+            ok: true, issueNumber: issue.number, issueUrl: issue.html_url, subIssues, failedChildIds,
+          }));
           broadcast(buildBoard());
         })
         .catch((e) => {
@@ -2523,6 +2659,11 @@ function serveStatic(req, res) {
       }
       const project = findProjectEntryForTask(taskId);
       if (!project) {
+        if (findArchiveTableRow(taskId)) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: `Task ${taskId} は完了済みのため、GitHub Issueとの紐づけには対応していません` }));
+          return;
+        }
         res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: `Task ${taskId} not found` }));
         return;
@@ -2610,13 +2751,13 @@ function serveStatic(req, res) {
       return;
     }
 
-    // 既取り込み済みのissue番号集合(このプロジェクト内、親・子とも)
-    const existingNumbers = new Set();
+    // 既取り込み済みのissue番号 → backlog内タスクID(このプロジェクト内、親・子とも)
+    const existingNumberToTaskId = new Map();
     for (const t of parseAllBacklogs()) {
-      if (t.project === project.file && t.githubIssueNumber) existingNumbers.add(String(t.githubIssueNumber));
+      if (t.project === project.file && t.githubIssueNumber) existingNumberToTaskId.set(String(t.githubIssueNumber), t.id);
       if (t.children) {
         for (const c of t.children) {
-          if (c.githubIssueNumber) existingNumbers.add(String(c.githubIssueNumber));
+          if (c.githubIssueNumber) existingNumberToTaskId.set(String(c.githubIssueNumber), c.id);
         }
       }
     }
@@ -2636,7 +2777,8 @@ function serveStatic(req, res) {
           body: issue.body || '',
           url: issue.html_url,
           state: issue.state,
-          alreadyImported: existingNumbers.has(String(issue.number)),
+          alreadyImported: existingNumberToTaskId.has(String(issue.number)),
+          importedTaskId: existingNumberToTaskId.get(String(issue.number)) || null,
           childIssueNumbers: parseTaskListChildren(issue.body),
         }));
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -2693,7 +2835,7 @@ function serveStatic(req, res) {
         .trim();
 
       githubClient.issues.listForRepo(creds.repoUrl, creds.token, { state: 'all', perPage: 100 })
-        .then((issues) => {
+        .then(async (issues) => {
           // Issues APIはPull Requestも返すため除外する
           const allIssues = (issues || []).filter((i) => !i.pull_request);
           const issueByNumber = new Map(allIssues.map((i) => [i.number, i]));
@@ -2715,6 +2857,8 @@ function serveStatic(req, res) {
             });
             if (!result.success) continue;
             added++;
+            // 取り込んだGitHub Issue側にも確定したBacklog番号を書き戻す(BT-143)
+            await writeBacklogLinkToGithubIssue(creds, issue, result.id);
 
             // task listで紐付いた子issueを親の直下に一括取り込み
             for (const childNumber of parseTaskListChildren(issue.body)) {
@@ -2725,7 +2869,10 @@ function serveStatic(req, res) {
                 githubIssueNumber: String(childIssue.number),
                 githubIssueUrl: childIssue.html_url,
               });
-              if (childResult.success) added++;
+              if (childResult.success) {
+                added++;
+                await writeBacklogLinkToGithubIssue(creds, childIssue, childResult.id);
+              }
             }
           }
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });

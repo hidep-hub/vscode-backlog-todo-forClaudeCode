@@ -16,6 +16,21 @@ const BACKLOG_DIR = config.backlogDir.replace(/^~/, os.homedir());
 const COUNTER_FILE = path.join(BACKLOG_DIR, '_counter.md');
 const GITHUB_CREDENTIALS_PATH = path.join(__dirname, 'github-credentials.json');
 
+// セクション見出しは絵文字ではなく文言で判定する（BT-170）
+const SECTION_KEYWORDS = { active: '次やる', hold: 'アイデア', done: '完了' };
+
+function detectSectionType(headingText) {
+  if (headingText.includes(SECTION_KEYWORDS.active)) return 'active';
+  if (headingText.includes(SECTION_KEYWORDS.hold)) return 'hold';
+  if (headingText.includes(SECTION_KEYWORDS.done)) return 'done';
+  return null;
+}
+
+function isSectionHeadingLine(line, type) {
+  const m = line.match(/^##\s+(.*)/);
+  return m ? detectSectionType(m[1]) === type : false;
+}
+
 /**
  * このプロダクト(backlog-dashboard)自体のソースリポジトリURLを、
  * cloneしてきた .git/config の remote origin から取得する（BT-162）。
@@ -321,11 +336,11 @@ const PREFIX_RE = /^[A-Z]{2}$/;
 function projectTemplate(name) {
   return `# ${name} バックログ
 
-## 🔥 次やる
+## 次やる
 
-## 💡 アイデア／保留
+## アイデア／保留
 
-## ✅ 完了（アーカイブ）
+## 完了（アーカイブ）
 
 | 完了日 | ts | 親 | ID | 件名 |
 |---|---|---|---|---|
@@ -461,14 +476,14 @@ function parseBacklogFile(filePath) {
   const projectName = titleMatch ? titleMatch[1].trim() : fileName;
 
   const lines = content.split(/\r?\n/);
-  let currentSection = null; // セクション名 (🔥 / 💡 / ✅)
+  let currentSection = null; // セクション名 (active / hold / done)
   let currentTask = null;    // h3 タスク（カード化対象）
   let currentChild = null;   // h4 子タスク（カードにしない）
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // セクション検出: ## 🔥 / ## 💡 / ## ✅
+    // セクション検出: ## 次やる / ## アイデア／保留 / ## 完了（アーカイブ）
     const sectionMatch = line.match(/^##\s+(.*)/);
     if (sectionMatch) {
       // 前の子タスクを確定
@@ -480,11 +495,7 @@ function parseBacklogFile(filePath) {
       if (currentTask) tasks.push(currentTask);
       currentTask = null;
 
-      const sectionText = sectionMatch[1];
-      if (sectionText.includes('🔥')) currentSection = 'active';
-      else if (sectionText.includes('💡')) currentSection = 'hold';
-      else if (sectionText.includes('✅')) currentSection = 'done';
-      else currentSection = null;
+      currentSection = detectSectionType(sectionMatch[1]);
       continue;
     }
 
@@ -1016,7 +1027,7 @@ function updateTaskStatus(taskId, newStatus, isChild = false, commitHashes = [])
         lines.splice(insertIdx, 0, `- 完了日: ${dateStr}`);
       }
 
-      // h3単発タスク（子を持たない）が完了した場合、🔥/💡ブロックから
+      // h3単発タスク（子を持たない）が完了した場合、次やる/アイデアブロックから
       // 完了テーブルへ自動移動する（BT-017）。h4子タスクとEpic（子あり）は対象外。
       if (!isChild && h3Regex.test(lines[taskLineIdx])) {
         let archiveBlockEnd = lines.length;
@@ -1033,7 +1044,7 @@ function updateTaskStatus(taskId, newStatus, isChild = false, commitHashes = [])
 
           let doneSectionIdx = -1;
           for (let i = 0; i < lines.length; i++) {
-            if (/^##\s+.*✅/.test(lines[i])) { doneSectionIdx = i; break; }
+            if (isSectionHeadingLine(lines[i], 'done')) { doneSectionIdx = i; break; }
           }
           if (doneSectionIdx !== -1) {
             let tableEnd = lines.length;
@@ -1378,10 +1389,7 @@ function reorderTasks(orderedIds, isChild = false, parentId = null) {
       for (let i = 0; i < lines.length; i++) {
         const secMatch = lines[i].match(/^##\s+(.*)/);
         if (secMatch) {
-          if (secMatch[1].includes('🔥')) currentSection = 'active';
-          else if (secMatch[1].includes('💡')) currentSection = 'hold';
-          else if (secMatch[1].includes('✅')) currentSection = 'done';
-          else currentSection = null;
+          currentSection = detectSectionType(secMatch[1]);
           continue;
         }
         const taskMatch = lines[i].match(/^###\s+\[([^\]]+)\]/);
@@ -1581,11 +1589,11 @@ function syncCompletionToGithub(prefix, task, commitHashes) {
 const INBOX_FILE = 'inbox.backlog.md';
 const INBOX_TEMPLATE = `# Inbox バックログ
 
-## 🔥 アクティブ
+## 次やる
 
-## 💡 アイデア／保留
+## アイデア／保留
 
-## ✅ 完了（アーカイブ）
+## 完了（アーカイブ）
 
 | 完了日 | ts | 親 | ID | 件名 |
 |---|---|---|---|---|
@@ -1639,10 +1647,10 @@ function addTask(title, project, status = '未着手', origin = 'user', descript
   const content = fs.readFileSync(filePath, 'utf8');
   const lines = content.split(/\r?\n/);
 
-  // 🔥 アクティブセクションを探す
+  // 次やるセクションを探す
   let activeIdx = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (/^##\s+.*🔥/.test(lines[i])) {
+    if (isSectionHeadingLine(lines[i], 'active')) {
       activeIdx = i;
       break;
     }
@@ -1856,7 +1864,7 @@ function attachToParent(taskIds, parentId) {
 }
 
 /**
- * 子タスク(h4)を親から外し、独立したh3タスクとして🔥アクティブセクション末尾に戻す
+ * 子タスク(h4)を親から外し、独立したh3タスクとして次やるセクション末尾に戻す
  * @param {string} taskId - 外す子タスクのID
  * @returns {{ success: boolean, id?: string, error?: string }}
  */
@@ -1894,10 +1902,10 @@ function detachFromParent(taskId) {
     // 元の位置（親の配下）から削除
     lines.splice(start, end - start);
 
-    // 🔥 アクティブセクション末尾（次の##直前）に独立タスクとして挿入
+    // 次やるセクション末尾（次の##直前）に独立タスクとして挿入
     let activeIdx = -1;
     for (let i = 0; i < lines.length; i++) {
-      if (/^##\s+.*🔥/.test(lines[i])) { activeIdx = i; break; }
+      if (isSectionHeadingLine(lines[i], 'active')) { activeIdx = i; break; }
     }
 
     const insertBlock = [...raw, ''];
@@ -1971,10 +1979,10 @@ function moveTaskToProject(taskId, targetFile, isChild = false) {
   const targetLines = fs.readFileSync(targetPath, 'utf8').split(/\r?\n/);
   let activeIdx = -1;
   for (let i = 0; i < targetLines.length; i++) {
-    if (/^##\s+.*🔥/.test(targetLines[i])) { activeIdx = i; break; }
+    if (isSectionHeadingLine(targetLines[i], 'active')) { activeIdx = i; break; }
   }
   if (activeIdx === -1) {
-    return { success: false, error: `Active section (🔥) not found in ${targetProject.file}.backlog.md` };
+    return { success: false, error: `Active section not found in ${targetProject.file}.backlog.md` };
   }
 
   const raw = lines.slice(headerIdx, blockEnd);
@@ -1992,7 +2000,7 @@ function moveTaskToProject(taskId, targetFile, isChild = false) {
   lines.splice(headerIdx, blockEnd - headerIdx);
   fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
 
-  // 移動先の🔥アクティブセクション末尾に挿入
+  // 移動先の次やるセクション末尾に挿入
   let insertIdx = targetLines.length;
   for (let i = activeIdx + 1; i < targetLines.length; i++) {
     if (/^##\s/.test(targetLines[i])) { insertIdx = i; break; }

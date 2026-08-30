@@ -5,6 +5,40 @@
   padding: 0;
 }
 
+/* --- Material Icons（絵文字の代わりにローカルSVGを使用。BT-173） ---
+   アイコンを変更したい場合は public/icons/ 配下のSVGファイルを差し替えるだけでよい */
+.material-icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  mask-position: center;
+  flex-shrink: 0;
+}
+.material-icon.icon-search        { -webkit-mask-image: url('icons/search.svg'); mask-image: url('icons/search.svg'); }
+.material-icon.icon-link          { -webkit-mask-image: url('icons/link.svg'); mask-image: url('icons/link.svg'); }
+.material-icon.icon-settings      { -webkit-mask-image: url('icons/settings.svg'); mask-image: url('icons/settings.svg'); }
+.material-icon.icon-celebration   { -webkit-mask-image: url('icons/celebration.svg'); mask-image: url('icons/celebration.svg'); }
+.material-icon.icon-smart-toy     { -webkit-mask-image: url('icons/smart_toy.svg'); mask-image: url('icons/smart_toy.svg'); }
+.material-icon.icon-keep          { -webkit-mask-image: url('icons/keep.svg'); mask-image: url('icons/keep.svg'); }
+.material-icon.icon-person        { -webkit-mask-image: url('icons/person.svg'); mask-image: url('icons/person.svg'); }
+.material-icon.icon-attach-file   { -webkit-mask-image: url('icons/attach_file.svg'); mask-image: url('icons/attach_file.svg'); }
+.material-icon.icon-edit          { -webkit-mask-image: url('icons/edit.svg'); mask-image: url('icons/edit.svg'); }
+.material-icon.icon-delete        { -webkit-mask-image: url('icons/delete.svg'); mask-image: url('icons/delete.svg'); }
+.material-icon.icon-upload        { -webkit-mask-image: url('icons/upload.svg'); mask-image: url('icons/upload.svg'); }
+.material-icon.icon-folder-open   { -webkit-mask-image: url('icons/folder_open.svg'); mask-image: url('icons/folder_open.svg'); }
+.material-icon.icon-construction  { -webkit-mask-image: url('icons/construction.svg'); mask-image: url('icons/construction.svg'); }
+.material-icon.icon-local-shipping{ -webkit-mask-image: url('icons/local_shipping.svg'); mask-image: url('icons/local_shipping.svg'); }
+.material-icon.icon-lock-open     { -webkit-mask-image: url('icons/lock_open.svg'); mask-image: url('icons/lock_open.svg'); }
+.material-icon.icon-stacks        { -webkit-mask-image: url('icons/stacks.svg'); mask-image: url('icons/stacks.svg'); }
+.material-icon.icon-content-copy  { -webkit-mask-image: url('icons/content_copy.svg'); mask-image: url('icons/content_copy.svg'); }
+
 /* --- Theme Variables --- */
 :root,
 [data-theme="dark"] {
