@@ -2387,7 +2387,9 @@ function serveStatic(req, res) {
   // API: GET /api/health
   if (req.url === '/api/health' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
+    // devInstanceLabelはDB化(BT-169)の並行運用中、本番と見分けるための開発用バッジ表示に使う（BT-185）。
+    // 本番のconfig.jsonにはこのキー自体が存在しないため、バッジは複製先(開発用)にのみ出る。
+    res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), devInstanceLabel: config.devInstanceLabel || null }));
     return;
   }
 
