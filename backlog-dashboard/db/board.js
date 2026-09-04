@@ -31,6 +31,7 @@ function toTaskItem(row, { statusLabelMap, projectName }) {
     title: row.title,
     project: projectName,
     status: statusLabelMap[row.status] || row.status,
+    statusCode: row.status,
     category: row.category || '-',
     description: row.description || '',
     assignee: row.assignee || null,
@@ -115,25 +116,24 @@ function buildBoardFromDb(db, config) {
     item.children = children;
     item.todayFlag = pinnedTaskIds.has(row.id);
     item.running = runningTaskIds.has(row.id);
-    let statusCode = row.status;
     if (childRows.length > 0) {
       item.childrenTotal = childRows.length;
       item.childrenDone = childRows.filter(c => c.status === 'done').length;
-      statusCode = computeParentStatusCode(childRows, row.status);
+      const statusCode = computeParentStatusCode(childRows, row.status);
       item.status = statusLabelMap[statusCode] || statusCode;
+      item.statusCode = statusCode;
       const todayCount = children.filter(c => c.todayFlag).length;
       if (todayCount > 0) item.todayCount = todayCount;
       if (children.some(c => c.running)) item.running = true;
     }
-    return { item, statusCode };
+    return item;
   }
 
   const topLevelRows = allRows.filter(r => r.parent_id === null);
-  const topLevelResults = topLevelRows.map(toItem);
-  const topLevelItems = topLevelResults.map(r => r.item);
+  const topLevelItems = topLevelRows.map(toItem);
 
   const columns = (config.columns || []).map(col => {
-    let items = topLevelResults.filter(r => col.match.includes(r.statusCode)).map(r => r.item);
+    let items = topLevelItems.filter(item => col.match.includes(item.statusCode));
     const totalCount = items.length;
     if (col.compact || col.id === 'done') {
       items = items.slice().sort((a, b) => {
@@ -165,8 +165,8 @@ function buildBoardFromDb(db, config) {
   const projects = [...new Set([...projectsFromConfig, ...projectsFromTasks])].sort();
 
   const remainingByProject = {};
-  for (const { item, statusCode } of topLevelResults) {
-    if (!item.project || statusCode === 'done') continue;
+  for (const item of topLevelItems) {
+    if (!item.project || item.statusCode === 'done') continue;
     remainingByProject[item.project] = (remainingByProject[item.project] || 0) + 1;
   }
 

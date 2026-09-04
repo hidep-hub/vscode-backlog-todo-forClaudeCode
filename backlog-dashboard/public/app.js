@@ -2305,7 +2305,7 @@ function buildMiniBoard(epic) {
 
   for (const col of columns) {
     const isDoneCol = col.compact || col.id === 'done';
-    let matchedChildren = children.filter(c => col.match.includes(c.status));
+    let matchedChildren = children.filter(c => col.match.includes(c.statusCode));
     // 完了カラムは日付降順、同日内はID降順ソート（completedDateがないものは末尾）
     if (isDoneCol) {
       matchedChildren = [...matchedChildren].sort((a, b) => {
