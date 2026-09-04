@@ -972,7 +972,7 @@ function openCardEditDirect(item) {
   const modal = getOrCreateModal();
   const body = modal.querySelector('.modal-body');
   const isEpic = item.children && item.children.length > 0;
-  const isArchivedSingle = !isEpic && item.status === '完了';
+  const isArchivedSingle = !isEpic && item.statusCode === 'done';
   enterEditMode(item, body, isArchivedSingle, renderModalContent);
 }
 
@@ -2182,7 +2182,7 @@ function renderModalContent(item) {
     : '';
 
   // 親を設定ボタン（BT-034: 単独タスク→その場でEPIC化。子を持つ/完了済みは対象外）
-  const setParentBtn = (item.id && item.id !== '-' && !isEpic && item.status !== '完了')
+  const setParentBtn = (item.id && item.id !== '-' && !isEpic && item.statusCode !== 'done')
     ? `<button class="add-child-btn" id="modal-set-parent-btn"><span class="material-icon icon-link"></span> 親を設定</button>`
     : '';
 
@@ -2206,7 +2206,7 @@ function renderModalContent(item) {
   const workspaceActionHtml = buildWorkspaceActionHtml(item);
 
   // ワークスペース移管ボタン（BT-063: 子ありEpicはサーバー側でも拒否されるため出さない）
-  const moveActionHtml = (!isEpic && item.status !== '完了') ? buildMoveActionHtml(item) : '';
+  const moveActionHtml = (!isEpic && item.statusCode !== 'done') ? buildMoveActionHtml(item) : '';
 
   body.innerHTML = `
     <div class="detail-header">
@@ -2270,7 +2270,7 @@ function renderModalContent(item) {
   const editBtnEl = body.querySelector('#modal-edit-btn');
   if (editBtnEl) {
     editBtnEl.addEventListener('click', () => {
-      const isArchivedSingle = !isEpic && item.status === '完了';
+      const isArchivedSingle = !isEpic && item.statusCode === 'done';
       enterEditMode(item, body, isArchivedSingle, renderModalContent);
     });
   }
@@ -2586,7 +2586,7 @@ function setupCardClick(card, item) {
 function toggleCardSelection(item) {
   if (!item.id || item.id === '-') return;
   const isEpic = item.childrenTotal > 0;
-  const isDone = item.status === '完了';
+  const isDone = item.statusCode === 'done';
   if (isEpic || isDone) return; // 選択不可（グレーアウト対象と同条件）
   if (selectedIds.has(item.id)) selectedIds.delete(item.id);
   else selectedIds.add(item.id);
@@ -3104,9 +3104,9 @@ function getOrCreateAddForm() {
       <div class="settings-group">
         <label>ステータス</label>
         <select id="add-task-status">
-          <option value="todo">未着手</option>
-          <option value="ready">未着手（素材あり）</option>
-          <option value="do">進行中</option>
+          <option value="todo">TODO</option>
+          <option value="ready">READY</option>
+          <option value="do">DO</option>
         </select>
       </div>
       <button class="add-task-submit" id="add-task-submit">追加</button>
