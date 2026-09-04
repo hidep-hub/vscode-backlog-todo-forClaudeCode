@@ -2242,7 +2242,7 @@ function renderModalContent(item) {
   const childBtn = body.querySelector('#modal-add-child-btn');
   if (childBtn) {
     childBtn.addEventListener('click', () => {
-      openAddTaskForm('未着手', item.project, item.id);
+      openAddTaskForm('todo', item.project, item.id);
     });
   }
 
@@ -2869,7 +2869,7 @@ function renderParentPickerList(query) {
 
   const q = query.trim().toLowerCase();
   const candidates = [];
-  // ボード表示順（次やる→保留、完了カラムは除外）で同一プロジェクトの候補を収集
+  // ボード表示順（完了カラムは除外）で同一プロジェクトの候補を収集
   for (const col of currentBoardData.columns) {
     if (col.compact || col.id === 'done') continue;
     for (const item of col.items) {
@@ -2925,7 +2925,7 @@ async function submitNewParent(title) {
     const resp = await fetch('/api/add-task', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, project: parentPickerProject, status: '未着手', origin: 'user' }),
+      body: JSON.stringify({ title, project: parentPickerProject, status: 'todo', origin: 'user' }),
     });
     const data = await resp.json();
     if (!resp.ok) {
@@ -3104,9 +3104,9 @@ function getOrCreateAddForm() {
       <div class="settings-group">
         <label>ステータス</label>
         <select id="add-task-status">
-          <option value="未着手">未着手</option>
-          <option value="進行中">進行中</option>
-          <option value="保留">保留</option>
+          <option value="todo">未着手</option>
+          <option value="ready">未着手（素材あり）</option>
+          <option value="do">進行中</option>
         </select>
       </div>
       <button class="add-task-submit" id="add-task-submit">追加</button>
