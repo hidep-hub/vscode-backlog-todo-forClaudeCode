@@ -184,10 +184,38 @@ function detachFromParent(db, displayId) {
 }
 
 /**
+ * 子を持つ親(Epic)の実効ステータスcodeを、子の最大進捗と親自身のステータスの
+ * 大きい方から決める(db/board.jsのcomputeParentStatusCodeと同じ「C案」ロジック)。
+ * 子を持たないタスクは自身のstatusをそのまま返す。
+ * ボード上の列振り分け(db/board.js)はこの実効ステータスで行っているため、
+ * reorder()のスコープ判定も同じ基準に合わせる必要がある(BT-200で発覚)。
+ */
+function getEffectiveStatus(db, row) {
+  const children = db.prepare('SELECT status FROM tasks WHERE parent_id = ? AND deleted_at IS NULL').all(row.id);
+  if (children.length === 0) return row.status;
+  if (children.every(c => c.status === 'done')) return 'done';
+  const rankMap = {};
+  for (const s of db.prepare('SELECT code, sort_order FROM statuses').all()) rankMap[s.code] = s.sort_order;
+  let maxRank = 0;
+  let maxCode = 'todo';
+  for (const c of children) {
+    if (c.status === 'done') continue;
+    const rank = rankMap[c.status] || 0;
+    if (rank > maxRank) { maxRank = rank; maxCode = c.status; }
+  }
+  const parentRank = rankMap[row.status] || 0;
+  return parentRank > maxRank ? row.status : maxCode;
+}
+
+/**
  * orderedIds(表示IDの配列、2件以上)の並び順でsort_orderを振り直す。
- * BT-187決定のスコープ: parent_id IS NULLのタスク同士はstatus単位、
+ * BT-187決定のスコープ: parent_id IS NULLのタスク同士は実効ステータス単位、
  * parent_idがあるタスク同士はparent_id単位でのみ並べ替えを許可する
  * (異なるスコープを混ぜて渡された場合はエラーにする)。
+ * トップレベルの比較は生statusではなく実効ステータス(getEffectiveStatus)で行う。
+ * Epicは子から集約したステータスでボードの列に表示される(db/board.js)ため、
+ * 生statusで比較すると同じ列に見えているのに別スコープ扱いになりreorderが
+ * 404で失敗していた(BT-200)。
  */
 function reorder(db, orderedIds) {
   if (!Array.isArray(orderedIds) || orderedIds.length < 2) {
@@ -198,9 +226,9 @@ function reorder(db, orderedIds) {
   if (missingIdx !== -1) throw new Error(`Task not found: ${orderedIds[missingIdx]}`);
 
   const scopeParentId = rows[0].parent_id;
-  const scopeStatus = rows[0].status;
+  const scopeStatus = getEffectiveStatus(db, rows[0]);
   const sameScope = rows.every(r => scopeParentId === null
-    ? (r.parent_id === null && r.status === scopeStatus)
+    ? (r.parent_id === null && getEffectiveStatus(db, r) === scopeStatus)
     : r.parent_id === scopeParentId);
   if (!sameScope) {
     throw new Error('reorder対象は同じ親を持つ子タスク同士、またはトップレベルで同じstatus同士である必要があります');
@@ -301,6 +329,6 @@ function listGithubLinkedNumbers(db, workspace) {
 module.exports = {
   getByDisplayId, listByWorkspace, listAll, allocateSeq, create, updateStatus,
   setPin, setRunning, isPinned, isRunning, updateFields, softDelete,
-  attachToParent, detachFromParent, reorder, moveWorkspace,
+  attachToParent, detachFromParent, reorder, moveWorkspace, getEffectiveStatus,
   setGithubLink, getChildren, findByGithubIssueNumber, listGithubLinkedNumbers,
 };
