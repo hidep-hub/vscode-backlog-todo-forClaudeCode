@@ -744,7 +744,7 @@ function renderBoard(data) {
     `;
 
     const body = colEl.querySelector('.column-body');
-    setupDropZone(body, col.id, col.match, false, null);
+    setupDropZone(body, col.id, col.match);
 
     for (const item of items) {
       const card = document.createElement('div');
@@ -755,7 +755,7 @@ function renderBoard(data) {
 
       if (item.id && item.id !== '-') {
         card.dataset.taskId = item.id;
-        setupDragAndDrop(card, item, col.id, false);
+        setupDragAndDrop(card, item, col.id);
       }
 
       card.classList.add('card-clickable');
@@ -817,10 +817,10 @@ function renderBoard(data) {
           // Epic: 子の集約表示。ピン+件数（一括操作ボタン）
           const pinActive = item.todayCount > 0;
           const pinLabel = pinActive ? `${pinIconHtml}${item.todayCount}` : pinIconHtml;
-          pinHtml = `<button class="today-pin-btn${pinActive ? ' pin-active' : ''}" data-task-id="${item.id}" data-is-child="false" title="今日やる（一括）">${pinLabel}</button>`;
+          pinHtml = `<button class="today-pin-btn${pinActive ? ' pin-active' : ''}" data-task-id="${item.id}" title="今日やる（一括）">${pinLabel}</button>`;
         } else {
           // 単発タスク: 通常トグル
-          pinHtml = `<button class="today-pin-btn${item.todayFlag ? ' pin-active' : ''}" data-task-id="${item.id}" data-is-child="false" title="今日やる">${pinIconHtml}</button>`;
+          pinHtml = `<button class="today-pin-btn${item.todayFlag ? ' pin-active' : ''}" data-task-id="${item.id}" title="今日やる">${pinIconHtml}</button>`;
         }
       }
 
@@ -829,7 +829,7 @@ function renderBoard(data) {
       if (!isCompact && item.id && item.id !== '-') {
         cardActionsHtml = `<div class="card-actions">
           <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集"><span class="material-icon icon-edit"></span></button>
-          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
+          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
           ${!isEpic ? `<button class="card-action-btn card-delete-btn danger" data-task-id="${item.id}" title="削除"><span class="material-icon icon-delete"></span></button>` : ''}
         </div>`;
@@ -910,9 +910,8 @@ function renderBoard(data) {
       e.stopPropagation();
       e.preventDefault();
       const taskId = btn.dataset.taskId;
-      const isChild = btn.dataset.isChild === 'true';
       const isActive = btn.classList.contains('pin-active');
-      toggleTodayFlag(taskId, isChild, !isActive);
+      toggleTodayFlag(taskId, !isActive);
     });
   });
 
@@ -947,7 +946,7 @@ function renderBoard(data) {
       e.stopPropagation();
       e.preventDefault();
       const item = findItemById(btn.dataset.taskId);
-      if (item) openGithubLinkModal(item, btn.dataset.isChild === 'true');
+      if (item) openGithubLinkModal(item);
     });
   });
 
@@ -974,7 +973,7 @@ function openCardEditDirect(item) {
   const body = modal.querySelector('.modal-body');
   const isEpic = item.children && item.children.length > 0;
   const isArchivedSingle = !isEpic && item.status === '完了';
-  enterEditMode(item, body, false, isArchivedSingle, renderModalContent);
+  enterEditMode(item, body, isArchivedSingle, renderModalContent);
 }
 
 /**
@@ -986,7 +985,7 @@ function openChildCardEditDirect(childWithProject, epic) {
   openCardDetail(childWithProject, epic);
   const modal = getOrCreateChildModal();
   const body = modal.querySelector('.modal-body');
-  enterEditMode(childWithProject, body, true, false, openChildModal);
+  enterEditMode(childWithProject, body, false, openChildModal);
 }
 
 function buildArtifactsHtml(item) {
@@ -1330,12 +1329,12 @@ function setupDescriptionToggle(container) {
 // --- Drag & Drop ---
 let dragData = null;
 
-function setupDragAndDrop(card, item, colId, isChild = false, parentId = null) {
+function setupDragAndDrop(card, item, colId) {
   card.setAttribute('draggable', 'true');
   card.classList.add('card-draggable');
 
   card.addEventListener('dragstart', (e) => {
-    dragData = { id: item.id, isChild, sourceColId: colId, parentId };
+    dragData = { id: item.id, sourceColId: colId };
     card.classList.add('card-dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', item.id);
@@ -1350,7 +1349,7 @@ function setupDragAndDrop(card, item, colId, isChild = false, parentId = null) {
   });
 }
 
-function setupDropZone(bodyEl, colId, colMatch, isChildZone = false, parentId = null) {
+function setupDropZone(bodyEl, colId, colMatch) {
   let lastDropTarget = { card: null, position: 'below' }; // dragoverで計算した最後のターゲットを保持
 
   bodyEl.addEventListener('dragover', (e) => {
@@ -1407,7 +1406,7 @@ function setupDropZone(bodyEl, colId, colMatch, isChildZone = false, parentId = 
       filteredIds.splice(insertIdx, 0, dragId);
 
       if (JSON.stringify(filteredIds) === JSON.stringify(currentIds)) return;
-      reorderItems(filteredIds, dragData.isChild, dragData.parentId || parentId);
+      reorderItems(filteredIds);
     } else {
       // 別カラムへ移動 → ステータス変更 + ドロップ位置での並び替え
       const newStatus = colMatch[0];
@@ -1431,10 +1430,10 @@ function setupDropZone(bodyEl, colId, colMatch, isChildZone = false, parentId = 
 
       // ステータス変更してから並び替え
       const dragInfo = { ...dragData };
-      updateStatus(dragInfo.id, newStatus, dragInfo.isChild).then(() => {
+      updateStatus(dragInfo.id, newStatus).then(() => {
         // 2つ以上のIDがあればreorder実行
         if (existingIds.length >= 2) {
-          reorderItems(existingIds, dragInfo.isChild, dragInfo.parentId || parentId);
+          reorderItems(existingIds);
         }
       });
     }
@@ -1459,12 +1458,12 @@ function clearDropIndicators(bodyEl) {
   bodyEl.querySelectorAll('.card-drop-below').forEach(el => el.classList.remove('card-drop-below'));
 }
 
-async function reorderItems(orderedIds, isChild, parentId) {
+async function reorderItems(orderedIds) {
   try {
     const resp = await fetch('/api/reorder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderedIds, isChild, parentId }),
+      body: JSON.stringify({ orderedIds }),
     });
     if (!resp.ok) {
       const err = await resp.json();
@@ -1475,12 +1474,12 @@ async function reorderItems(orderedIds, isChild, parentId) {
   }
 }
 
-async function updateStatus(taskId, newStatus, isChild) {
+async function updateStatus(taskId, newStatus) {
   try {
     const resp = await fetch('/api/update-status', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ taskId, newStatus, isChild }),
+      body: JSON.stringify({ taskId, newStatus }),
     });
     if (!resp.ok) {
       const err = await resp.json();
@@ -1492,12 +1491,12 @@ async function updateStatus(taskId, newStatus, isChild) {
 }
 
 // --- Today Flag Toggle ---
-async function toggleTodayFlag(taskId, isChild, value) {
+async function toggleTodayFlag(taskId, value) {
   try {
     const resp = await fetch('/api/toggle-today', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ taskId, isChild, value }),
+      body: JSON.stringify({ taskId, value }),
     });
     if (!resp.ok) {
       const err = await resp.json();
@@ -1677,7 +1676,7 @@ function openChildModal(item) {
   // GitHub Issue紐付けボタンのイベント（BT-122）
   const githubLinkBtnEl = body.querySelector('#modal-github-link-btn');
   if (githubLinkBtnEl) {
-    githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item, true));
+    githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item));
   }
 
   // GitHub Issue新規作成ボタンのイベント（BT-134）
@@ -1690,7 +1689,7 @@ function openChildModal(item) {
   const editBtnEl = body.querySelector('#modal-edit-btn');
   if (editBtnEl) {
     editBtnEl.addEventListener('click', () => {
-      enterEditMode(item, body, true, false, openChildModal);
+      enterEditMode(item, body, false, openChildModal);
     });
   }
 
@@ -1742,11 +1741,10 @@ async function detachTask(taskId) {
  * 詳細モーダルのbodyを編集フォームに差し替える
  * @param {object} item - 編集対象タスク
  * @param {HTMLElement} body - モーダルの .modal-body 要素
- * @param {boolean} isChild - h4子タスクか
  * @param {boolean} isArchivedSingle - 完了済みアーカイブ単発タスクか（説明編集不可）
  * @param {(item: object) => void} renderFn - 表示モードに戻す際に呼ぶ描画関数
  */
-function enterEditMode(item, body, isChild, isArchivedSingle, renderFn) {
+function enterEditMode(item, body, isArchivedSingle, renderFn) {
   const descValue = item.description || '';
   const descField = isArchivedSingle
     ? `<div class="detail-section"><p class="archived-note">完了済みタスクのため説明は編集できないよ</p></div>`
@@ -1784,7 +1782,7 @@ function enterEditMode(item, body, isChild, isArchivedSingle, renderFn) {
       return;
     }
 
-    const payload = { taskId: item.id, isChild, title: newTitle };
+    const payload = { taskId: item.id, title: newTitle };
     if (descInput) payload.description = descInput.value;
 
     try {
@@ -1863,7 +1861,7 @@ function openDeleteConfirm(item, isChild) {
       const resp = await fetch('/api/delete-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId: item.id, isChild }),
+        body: JSON.stringify({ taskId: item.id }),
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -1922,9 +1920,8 @@ function parseIssueNumberInput(raw) {
 /**
  * GitHub Issue紐付けモーダルを開く
  * @param {object} item - 紐付け対象タスク
- * @param {boolean} isChild - h4子タスクか
  */
-function openGithubLinkModal(item, isChild) {
+function openGithubLinkModal(item) {
   const el = getOrCreateGithubLinkModal();
   const content = el.querySelector('.modal-content');
   content.innerHTML = `
@@ -1953,7 +1950,7 @@ function openGithubLinkModal(item, isChild) {
       const resp = await fetch('/api/github-link-issue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId: item.id, isChild, issueNumber }),
+        body: JSON.stringify({ taskId: item.id, issueNumber }),
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -2030,7 +2027,7 @@ function openGithubCreateConfirm(item, isChild) {
       const resp = await fetch('/api/github-create-issue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId: item.id, isChild }),
+        body: JSON.stringify({ taskId: item.id }),
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -2112,7 +2109,7 @@ function openBulkGithubCreateConfirm() {
         const resp = await fetch('/api/github-create-issue', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ taskId: item.id, isChild: false }),
+          body: JSON.stringify({ taskId: item.id }),
         });
         const data = await resp.json();
         if (!resp.ok) {
@@ -2260,7 +2257,7 @@ function renderModalContent(item) {
   // GitHub Issue紐付けボタンのイベント（BT-122）
   const githubLinkBtnEl = body.querySelector('#modal-github-link-btn');
   if (githubLinkBtnEl) {
-    githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item, false));
+    githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item));
   }
 
   // GitHub Issue新規作成ボタンのイベント（BT-134）
@@ -2274,7 +2271,7 @@ function renderModalContent(item) {
   if (editBtnEl) {
     editBtnEl.addEventListener('click', () => {
       const isArchivedSingle = !isEpic && item.status === '完了';
-      enterEditMode(item, body, false, isArchivedSingle, renderModalContent);
+      enterEditMode(item, body, isArchivedSingle, renderModalContent);
     });
   }
 
@@ -2372,7 +2369,7 @@ function buildMiniBoard(epic) {
     `;
 
     const body = colEl.querySelector('.mini-col-body');
-    setupDropZone(body, col.id, col.match, true, epic.id);
+    setupDropZone(body, col.id, col.match);
 
     for (const child of matchedChildren) {
       const card = document.createElement('div');
@@ -2384,7 +2381,7 @@ function buildMiniBoard(epic) {
       card.dataset.taskId = child.id;
 
       card.addEventListener('dragstart', (e) => {
-        dragData = { id: child.id, isChild: true, sourceColId: col.id, parentId: epic.id };
+        dragData = { id: child.id, sourceColId: col.id };
         card.classList.add('card-dragging');
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', child.id);
@@ -2421,7 +2418,7 @@ function buildMiniBoard(epic) {
 
       // ピンボタン（ミニボード子カード）
       const childPinHtml = child.id
-        ? `<button class="today-pin-btn${child.todayFlag ? ' pin-active' : ''}" data-task-id="${child.id}" data-is-child="true" title="今日やる"><span class="material-icon icon-keep"></span></button>`
+        ? `<button class="today-pin-btn${child.todayFlag ? ' pin-active' : ''}" data-task-id="${child.id}" title="今日やる"><span class="material-icon icon-keep"></span></button>`
         : '';
 
       // 編集・GitHub紐付け・削除ボタン（ミニボード子カード、BT-041: 子タスクは常に単独削除可。BT-122でGitHub紐付けボタンを追加）
@@ -2477,7 +2474,7 @@ function buildMiniBoard(epic) {
           e.stopPropagation();
           e.preventDefault();
           const childWithProject = { ...child, project: epic.project };
-          openGithubLinkModal(childWithProject, true);
+          openGithubLinkModal(childWithProject);
         });
       }
 
@@ -2568,9 +2565,8 @@ function buildMiniBoard(epic) {
       e.stopPropagation();
       e.preventDefault();
       const taskId = btn.dataset.taskId;
-      const isChild = btn.dataset.isChild === 'true';
       const isActive = btn.classList.contains('pin-active');
-      toggleTodayFlag(taskId, isChild, !isActive);
+      toggleTodayFlag(taskId, !isActive);
     });
   });
 }
@@ -2798,7 +2794,7 @@ async function confirmMove(targetFile) {
       const resp = await fetch('/api/move-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId, targetFile, isChild }),
+        body: JSON.stringify({ taskId, targetFile }),
       });
       const data = await resp.json();
       if (!resp.ok) {
