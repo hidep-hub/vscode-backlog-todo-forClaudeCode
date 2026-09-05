@@ -281,6 +281,58 @@ function getGithubSettings(prefix) {
   return { prefix, repoUrl: entry.repoUrl || '', hasToken: !!entry.token };
 }
 
+// ============================================================
+// Task Completion -> GitHub Sync (BT-119相当、DB版はBT-179で移植)
+// ============================================================
+// タスクが完了したとき、コミットメッセージ末尾の「(taskId)」表記
+// （このリポジトリのコミットメッセージ規約）を目印にコミットハッシュを
+// 機械的に検索する。AIの都度判断ではなく決定的なパターンマッチで拾う。
+
+/**
+ * workspace配下のgit履歴から、コミットメッセージに taskId を含むコミットの
+ * ハッシュ一覧を取得する（新しい順）。gitリポジトリでない/コマンド失敗時は
+ * 空配列を返す（呼び出し元でエラー扱いしない）。
+ * @param {string} workspace - リポジトリのルートディレクトリ
+ * @param {string} taskId
+ * @returns {string[]}
+ */
+function getCommitHashesForTask(workspace, taskId) {
+  if (!workspace) return [];
+  try {
+    const output = execFileSync(
+      'git',
+      ['log', '--all', `--grep=(${taskId})`, '--fixed-strings', '--format=%H'],
+      { cwd: workspace, encoding: 'utf8' }
+    );
+    return output.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  } catch (e) {
+    console.error(`[github-sync] git log failed for ${taskId} in ${workspace}:`, e.message);
+    return [];
+  }
+}
+
+/**
+ * タスク完了時、GitHub Issueに完了コメントを投稿してcloseする（BT-119相当）。
+ * 失敗してもタスク完了自体は既に成功済みのため、ログ出力のみで握り潰す
+ * （fire-and-forget。APIレスポンスをGitHub側の成否で待たせない）。
+ * @param {string} prefix
+ * @param {{display_id: string, description?: string, github_issue_number: number}} task
+ * @param {string[]} commitHashes
+ */
+function syncCompletionToGithub(prefix, task, commitHashes) {
+  const creds = readGithubCredentials()[prefix];
+  if (!creds || !creds.repoUrl || !creds.token) return;
+
+  const bodyLines = ['タスクが完了しました。', '', task.description || '(説明なし)'];
+  if (commitHashes.length > 0) {
+    bodyLines.push('', `コミット: ${commitHashes.join(', ')}`);
+  }
+
+  githubClient.issues.createComment(creds.repoUrl, creds.token, task.github_issue_number, bodyLines.join('\n'))
+    .then(() => githubClient.issues.update(creds.repoUrl, creds.token, task.github_issue_number, { state: 'closed' }))
+    .catch(e => console.error(`[github-sync] Failed to sync completion for ${task.display_id}:`, e.message));
+}
+
 // GitHub Issue⇔Backlogタスクの紐付けを示す固定ラベル(BT-143)
 const BACKLOG_LINK_LABEL = 'backlog-todo';
 const BACKLOG_FOOTER_SEPARATOR = '---';
@@ -429,8 +481,8 @@ function serveStatic(req, res) {
   }
 
   // API: POST /api/update-status (BT-189: DB版。newStatusはstatus code(todo/ready/do/done)を
-  // 受け取る。isChildパラメータは廃止(BT-187)。GitHub連携の完了時同期(旧BT-119相当)は
-  // BT-192でGitHub連携APIのDB化と合わせて統合する。それまでは完了時のGitHub同期は動作しない)
+  // 受け取る。isChildパラメータは廃止(BT-187)。完了時の自動処理(BT-179で移植):
+  // pin/running解除、コミットハッシュ紐付け、GitHub連携完了時同期(旧BT-119相当)
   if (req.url === '/api/update-status' && req.method === 'POST') {
     readRequestBody(req).then(({ taskId, newStatus }) => {
       if (!taskId || !newStatus) {
@@ -451,10 +503,25 @@ function serveStatic(req, res) {
         res.end(JSON.stringify({ error: `Task not found: ${taskId}` }));
         return;
       }
+
+      const isCompleting = newStatus === 'done';
+      const project = isCompleting ? (config.projects || []).find(p => p.file === existing.workspace) : null;
+      const commitHashes = isCompleting ? getCommitHashesForTask(project && project.workspace, taskId) : [];
+
       tasksRepo.updateStatus(db, taskId, newStatus);
+      if (isCompleting) {
+        if (commitHashes.length > 0) tasksRepo.updateCommitHash(db, taskId, commitHashes);
+        tasksRepo.setPin(db, existing.workspace, taskId, false);
+        tasksRepo.setRunning(db, existing.workspace, taskId, false);
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ ok: true }));
       broadcast(buildBoard());
+
+      if (isCompleting && existing.github_issue_number && project) {
+        syncCompletionToGithub(project.prefix, existing, commitHashes);
+      }
     }).catch(e => {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'Invalid JSON body' }));
