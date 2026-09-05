@@ -4,10 +4,15 @@
   "description": "バックログかんばんダッシュボード - mdファイルをリアルタイムにかんばんボード表示",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "db:import": "node db/import-from-md.js",
+    "db:export": "node db/export.js"
   },
   "dependencies": {
     "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=22.5.0"
   },
   "private": true
 }
