@@ -449,6 +449,24 @@ function openGithubImportModal() {
 
 githubImportBtn.addEventListener('click', openGithubImportModal);
 
+// --- 開発用インスタンスのビジュアル差別化 (BT-185) ---
+// DB化(BT-169)を並行運用で進める間、本番(md版)と複製先(DB版開発中)を見た目で区別するためのバッジ。
+// config.jsonにdevInstanceLabelを設定した複製先だけで表示される（本番config.jsonにはキー自体が無い）。
+(async () => {
+  try {
+    const res = await fetch('/api/health');
+    const data = await res.json();
+    if (data.devInstanceLabel) {
+      const badgeEl = document.getElementById('dev-instance-badge');
+      badgeEl.textContent = data.devInstanceLabel;
+      badgeEl.hidden = false;
+      document.body.classList.add('dev-instance');
+    }
+  } catch (e) {
+    console.error('[dev-instance-badge] Failed to fetch health:', e.message);
+  }
+})();
+
 // --- Header Logo: このダッシュボードアプリ自体のGitHubリポジトリを別タブで開く (BT-162) ---
 // リポジトリURLはユーザーごとのgithub-credentials.json（Issue連携先）とは無関係に、
 // サーバー側でclone元の`git remote origin`から解決した値を使う（誰の環境でも同じリンクになる）
