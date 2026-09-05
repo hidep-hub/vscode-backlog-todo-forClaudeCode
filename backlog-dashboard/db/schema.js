@@ -79,11 +79,13 @@ const DDL = [
 ];
 
 // BT-182決定: 保留廃止、todo/ready/do/doneの4値
+// BT-178(2026-09-05追記): labelを日本語から英語表記に変更(design doc参照)。
+// READYの意味も「素材あり」から「着手する意思決定済み・いつでも始められる状態」に再定義
 const STATUS_SEED = [
-  { code: 'todo', label: '未着手', sort_order: 1 },
-  { code: 'ready', label: '未着手（素材あり）', sort_order: 2 },
-  { code: 'do', label: '進行中', sort_order: 3 },
-  { code: 'done', label: '完了', sort_order: 4 },
+  { code: 'todo', label: 'TODO', sort_order: 1 },
+  { code: 'ready', label: 'READY', sort_order: 2 },
+  { code: 'do', label: 'DO', sort_order: 3 },
+  { code: 'done', label: 'DONE', sort_order: 4 },
 ];
 
 const EVENT_TYPE_SEED = [

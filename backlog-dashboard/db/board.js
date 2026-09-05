@@ -1,19 +1,14 @@
 'use strict';
 
 // buildBoard()のDB版(BT-186骨格→BT-188でserver.jsに接続)。
-// config.columns[].matchは現時点ではstatusesの日本語labelの配列のまま
-// (BT-187で1:1のstatus code配列に簡素化する予定、その前提のここでは
-// codeをlabelへ変換してから既存matchと比較する)。
-// 返却するJSON構造は現行server.jsのbuildBoard()と同じ形を目指す
-// (新形状の確定自体はBT-187のスコープ、ここではmd版との突き合わせ検証を優先する)。
+// config.columns[].matchはBT-187決定によりstatuses.code単位の配列(例["todo"])。
+// カラム振り分けはDB上のcode(row.status)で行い、表示用のitem.statusはlabelに変換して返す。
+// 返却するJSON構造は現行server.jsのbuildBoard()と同じ形を目指す。
 
 const tasksRepo = require('./tasks-repo');
 
-function getStatusLabelMap(db) {
-  const rows = db.prepare('SELECT code, label FROM statuses').all();
-  const map = {};
-  for (const r of rows) map[r.code] = r.label;
-  return map;
+function getStatusList(db) {
+  return db.prepare('SELECT code, label, sort_order FROM statuses ORDER BY sort_order').all();
 }
 
 function toDateOnly(completedAt) {
@@ -36,6 +31,7 @@ function toTaskItem(row, { statusLabelMap, projectName }) {
     title: row.title,
     project: projectName,
     status: statusLabelMap[row.status] || row.status,
+    statusCode: row.status,
     category: row.category || '-',
     description: row.description || '',
     assignee: row.assignee || null,
@@ -58,7 +54,13 @@ function toTaskItem(row, { statusLabelMap, projectName }) {
  * @param {object} config - server.jsのconfigオブジェクト(columns/projects/defaultWorkspaceParent)
  */
 function buildBoardFromDb(db, config) {
-  const statusLabelMap = getStatusLabelMap(db);
+  const statusList = getStatusList(db);
+  const statusLabelMap = {};
+  const statusRankMap = {};
+  for (const s of statusList) {
+    statusLabelMap[s.code] = s.label;
+    statusRankMap[s.code] = s.sort_order;
+  }
   const workspaceToProjectName = {};
   for (const p of config.projects || []) {
     if (p.file) workspaceToProjectName[p.file] = p.name;
@@ -85,10 +87,27 @@ function buildBoardFromDb(db, config) {
     }
   }
 
+  // 子を持つ親の実効ステータスcodeを、子の最大進捗と親自身のステータスの大きい方から決める
+  // (md版のcomputeParentStatusと同じ「C案」ロジック。完了は除外して集計し、全子完了ならdone)
+  function computeParentStatusCode(childRows, parentOwnCode) {
+    if (childRows.length === 0) return parentOwnCode;
+    if (childRows.every(c => c.status === 'done')) return 'done';
+    let maxRank = 0;
+    let maxCode = 'todo';
+    for (const c of childRows) {
+      if (c.status === 'done') continue;
+      const rank = statusRankMap[c.status] || 0;
+      if (rank > maxRank) { maxRank = rank; maxCode = c.status; }
+    }
+    const parentRank = statusRankMap[parentOwnCode] || 0;
+    return parentRank > maxRank ? parentOwnCode : maxCode;
+  }
+
   function toItem(row) {
     const projectName = workspaceToProjectName[row.workspace] || row.workspace;
     const item = toTaskItem(row, { statusLabelMap, projectName });
-    const children = (childrenByParentId[row.id] || []).map(childRow => {
+    const childRows = childrenByParentId[row.id] || [];
+    const children = childRows.map(childRow => {
       const childItem = toTaskItem(childRow, { statusLabelMap, projectName });
       childItem.todayFlag = pinnedTaskIds.has(childRow.id);
       childItem.running = runningTaskIds.has(childRow.id);
@@ -97,17 +116,24 @@ function buildBoardFromDb(db, config) {
     item.children = children;
     item.todayFlag = pinnedTaskIds.has(row.id);
     item.running = runningTaskIds.has(row.id);
-    if (children.length > 0) {
-      item.childrenTotal = children.length;
-      item.childrenDone = children.filter(c => c.status === statusLabelMap.done).length;
+    if (childRows.length > 0) {
+      item.childrenTotal = childRows.length;
+      item.childrenDone = childRows.filter(c => c.status === 'done').length;
+      const statusCode = computeParentStatusCode(childRows, row.status);
+      item.status = statusLabelMap[statusCode] || statusCode;
+      item.statusCode = statusCode;
+      const todayCount = children.filter(c => c.todayFlag).length;
+      if (todayCount > 0) item.todayCount = todayCount;
+      if (children.some(c => c.running)) item.running = true;
     }
     return item;
   }
 
-  const topLevelItems = allRows.filter(r => r.parent_id === null).map(toItem);
+  const topLevelRows = allRows.filter(r => r.parent_id === null);
+  const topLevelItems = topLevelRows.map(toItem);
 
   const columns = (config.columns || []).map(col => {
-    let items = topLevelItems.filter(item => col.match.includes(item.status));
+    let items = topLevelItems.filter(item => col.match.includes(item.statusCode));
     const totalCount = items.length;
     if (col.compact || col.id === 'done') {
       items = items.slice().sort((a, b) => {
@@ -138,17 +164,19 @@ function buildBoardFromDb(db, config) {
   const projectsFromTasks = topLevelItems.map(t => t.project).filter(Boolean);
   const projects = [...new Set([...projectsFromConfig, ...projectsFromTasks])].sort();
 
-  const doneLabel = statusLabelMap.done;
   const remainingByProject = {};
   for (const item of topLevelItems) {
-    if (!item.project || item.status === doneLabel) continue;
+    if (!item.project || item.statusCode === 'done') continue;
     remainingByProject[item.project] = (remainingByProject[item.project] || 0) + 1;
   }
+
+  const statuses = statusList.map(s => ({ code: s.code, label: s.label, sortOrder: s.sort_order }));
 
   return {
     columns,
     projects,
     remainingByProject,
+    statuses,
     updatedAt: new Date().toISOString(),
     defaultWorkspaceParent: config.defaultWorkspaceParent || '',
   };
