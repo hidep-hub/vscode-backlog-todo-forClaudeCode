@@ -127,6 +127,21 @@ function updateCommitHash(db, displayId, commitHashes) {
 }
 
 /**
+ * 成果物(deliverables)を丸ごと入れ替える(BT-225)。既存行を全削除してartifacts配列
+ * (パス文字列の配列)を新規sort_orderで挿入し直す。description列は現状使用箇所が
+ * ないため常にNULL(BT-202で使用箇所なしと判断済み)。
+ */
+function setArtifacts(db, displayId, artifacts) {
+  const task = getByDisplayId(db, displayId);
+  if (!task) throw new Error(`タスクが見つかりません: ${displayId}`);
+  const now = nowIso();
+  db.prepare('DELETE FROM deliverables WHERE task_id = ?').run(task.id);
+  const insert = db.prepare('INSERT INTO deliverables (task_id, description, path, sort_order) VALUES (?, NULL, ?, ?)');
+  artifacts.forEach((path, idx) => insert.run(task.id, path, idx));
+  db.prepare('UPDATE tasks SET updated_at = ?, updated_by = ? WHERE display_id = ?').run(now, 'user', displayId);
+}
+
+/**
  * title/description/category/assignee/startDate/dueDateのうち渡されたものだけ更新する。
  */
 function updateFields(db, displayId, fields) {
@@ -337,7 +352,7 @@ function listGithubLinkedNumbers(db, workspace) {
 
 module.exports = {
   getByDisplayId, listByWorkspace, listAll, allocateSeq, create, updateStatus,
-  setPin, setRunning, isPinned, isRunning, updateFields, updateCommitHash, softDelete,
+  setPin, setRunning, isPinned, isRunning, updateFields, updateCommitHash, setArtifacts, softDelete,
   attachToParent, detachFromParent, reorder, moveWorkspace, getEffectiveStatus,
   setGithubLink, getChildren, findByGithubIssueNumber, listGithubLinkedNumbers,
 };
