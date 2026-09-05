@@ -118,6 +118,15 @@ function isRunning(db, displayId) {
 }
 
 /**
+ * commit_hash列をカンマ区切り文字列で更新する(BT-179、旧md版BT-119相当)。
+ */
+function updateCommitHash(db, displayId, commitHashes) {
+  const now = nowIso();
+  db.prepare('UPDATE tasks SET commit_hash = ?, updated_at = ?, updated_by = ? WHERE display_id = ?')
+    .run(commitHashes.join(','), now, 'user', displayId);
+}
+
+/**
  * title/description/category/assignee/startDate/dueDateのうち渡されたものだけ更新する。
  */
 function updateFields(db, displayId, fields) {
@@ -328,7 +337,7 @@ function listGithubLinkedNumbers(db, workspace) {
 
 module.exports = {
   getByDisplayId, listByWorkspace, listAll, allocateSeq, create, updateStatus,
-  setPin, setRunning, isPinned, isRunning, updateFields, softDelete,
+  setPin, setRunning, isPinned, isRunning, updateFields, updateCommitHash, softDelete,
   attachToParent, detachFromParent, reorder, moveWorkspace, getEffectiveStatus,
   setGithubLink, getChildren, findByGithubIssueNumber, listGithubLinkedNumbers,
 };

@@ -27,6 +27,10 @@
     Invoke-RestMethod -Uri http://localhost:3333/api/update-status -Method Post -ContentType "application/json" -Body $bytes
     ```
   - `curl.exe`（本物）はクォート処理でJSON自体が壊れやすく非推奨。上記の`Invoke-RestMethod` + `UTF8.GetBytes`に統一する
+- **【重要】Bash（Git Bash）で`curl -d '{"title":"日本語..."}'`のように日本語をシングルクォート内に直書きしてPOSTすると、Windows環境でエンコーディングが壊れて文字化けする（BT-179で実際に発生。一度気づいて直したのに別の検証で再発させた反省あり）**
+  - 文字化けしたタイトル・本文がそのままDBやGitHub Issueに書き込まれてしまう（見た目のミスだけでなく実データの汚染になり得る）
+  - Bashで日本語を含むAPI呼び出し・`gh`コマンドを行う場合は、PowerShellの`Invoke-RestMethod`+`UTF8.GetBytes`方式に切り替えるか、日本語を含まないテスト文言（英数字のみ）を使う。どうしてもBashが必要なら、JSONを一旦UTF-8のファイルに書き出してから`--data-binary @file`で渡す
+  - 実行後は文字化けしていないか目視確認する習慣をつける（「テストデータだから」で流さない。ユーザーに指摘されて気づいた実例あり）
 - 主要API:
   - 状態変更: POST /api/update-status {taskId, newStatus, isChild?}
   - 今日やる: POST /api/toggle-today {taskId, isChild?, value?}
@@ -42,7 +46,7 @@
   2. prefix決定: ワークスペースのフォルダ名から未使用の2英大文字（`_counter.md`・既存`projects[]`と重複しないか確認）
   3. `projects[]` に `{file: <フォルダ名>, prefix, name: <フォルダ名>, workspace: <絶対パス（スラッシュ区切り）>}` を追記（既存エントリは変更しない）
   4. `<backlogDir>/<file>.backlog.md` を雛形（見出し構成は上記md書式規約どおり）で新規作成
-  5. **重要**: config.jsonはサーバー起動時に1度だけ読み込まれる（`fs.watch`の対象は`<backlogDir>`配下のmdファイルのみで、config.json自体は監視対象外）。`projects[]`の追記を反映するには**サーバープロセスの再起動が必須**
+  5. **重要（BT-179で訂正）**: config.json自体も`fs.watch`でホットリロードされる（保存後300msデバウンスで自動反映、`PORT`/`BACKLOG_DIR`など起動時にしか意味を持たない値だけがリロード対象外）。**以前「サーバー起動時に1度だけ読み込まれる」としていたのは誤り**。`projects[]`の追記程度なら再起動不要だが、`columns[].match`（ステータス値の正当性チェックに直結）を書き換える場合は要注意——**コード側（server.js）がその新しいステータス値の集合に対応していない状態で保存すると、保存した瞬間に書き込み系APIが軒並み400エラーになる**（実例: BT-179でDB版4列構成をmd版コードのまま反映し、本番の`update-status`等が即座に壊れた）。config.jsonの`columns[].match`変更は、対応するコード変更と**同時に**（プロセス停止→両方反映→起動、の順で）行うこと
   6. 再起動後 `/api/health` → `/api/board` の `workspaceMap` に新ワークスペースが載っているか確認
   7. `add-task` で1件テスト投入し採番（例: プレフィクス-001）を確認 → 確認後はテストタスクを削除してmdをクリーンな状態に戻す
 
