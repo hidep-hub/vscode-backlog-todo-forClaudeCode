@@ -1139,9 +1139,10 @@ function serveStatic(req, res) {
 
   // API: POST /api/update-task (BT-190: DB版。isChildパラメータは廃止(BT-187)。
   // title/descriptionに加えcategory/assignee/startDate/dueDateも同じエンドポイントで
-  // 更新できるよう統合した(BT-187決定)。渡されたフィールドのみ更新する)
+  // 更新できるよう統合した(BT-187決定)。渡されたフィールドのみ更新する。
+  // artifactsはBT-225で追加(成果物パスの配列、渡すと丸ごと入れ替え)
   if (req.url === '/api/update-task' && req.method === 'POST') {
-    readRequestBody(req).then(({ taskId, title, description, category, assignee, startDate, dueDate }) => {
+    readRequestBody(req).then(({ taskId, title, description, category, assignee, startDate, dueDate, artifacts }) => {
       if (!taskId) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'taskId is required' }));
@@ -1154,9 +1155,9 @@ function serveStatic(req, res) {
       if (assignee !== undefined) fields.assignee = assignee;
       if (startDate !== undefined) fields.startDate = startDate;
       if (dueDate !== undefined) fields.dueDate = dueDate;
-      if (Object.keys(fields).length === 0) {
+      if (Object.keys(fields).length === 0 && artifacts === undefined) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ error: 'at least one field (title/description/category/assignee/startDate/dueDate) is required' }));
+        res.end(JSON.stringify({ error: 'at least one field (title/description/category/assignee/startDate/dueDate/artifacts) is required' }));
         return;
       }
       if (fields.title !== undefined && !fields.title.trim()) {
@@ -1165,6 +1166,11 @@ function serveStatic(req, res) {
         return;
       }
       if (fields.title !== undefined) fields.title = fields.title.trim();
+      if (artifacts !== undefined && !Array.isArray(artifacts)) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'artifacts must be an array of path strings' }));
+        return;
+      }
 
       const db = getDb(BACKLOG_DIR);
       const existing = tasksRepo.getByDisplayId(db, taskId);
@@ -1173,7 +1179,8 @@ function serveStatic(req, res) {
         res.end(JSON.stringify({ error: `Task not found: ${taskId}` }));
         return;
       }
-      tasksRepo.updateFields(db, taskId, fields);
+      if (Object.keys(fields).length > 0) tasksRepo.updateFields(db, taskId, fields);
+      if (artifacts !== undefined) tasksRepo.setArtifacts(db, taskId, artifacts);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ ok: true }));
       broadcast(buildBoard());
