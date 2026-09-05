@@ -462,6 +462,10 @@ githubImportBtn.addEventListener('click', openGithubImportModal);
       badgeEl.hidden = false;
       document.body.classList.add('dev-instance');
     }
+    // バージョン表示 (BT-212): API/Dashboard/ルールファイルの世代照合に使う
+    if (data.apiVersion) {
+      document.getElementById('version-badge').textContent = `v${data.apiVersion}`;
+    }
   } catch (e) {
     console.error('[dev-instance-badge] Failed to fetch health:', e.message);
   }
