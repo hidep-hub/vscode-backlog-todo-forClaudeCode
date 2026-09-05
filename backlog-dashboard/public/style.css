@@ -128,12 +128,20 @@ body.dev-instance {
   white-space: nowrap;
 }
 
+.status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
 .version-badge {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 500;
   letter-spacing: 0.02em;
   color: var(--text-muted);
   white-space: nowrap;
+  padding-right: 2px;
 }
 
 body {
