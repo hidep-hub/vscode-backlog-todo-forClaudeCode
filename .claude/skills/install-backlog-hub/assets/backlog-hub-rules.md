@@ -1,5 +1,7 @@
 # バックログ管理ルール（backlog-dashboard 連携）
 
+> 対応API version: 2.0.0（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+
 ## データの真実
 - タスクの真のデータは SQLite DB（`<backlogDir>/backlog.sqlite3`）。UIやAPIはその窓（BT-179でmdから移行済み）。
 - `*.backlog.md` は移行前の旧データソースで、現在は直接読み書きしない。DBファイルへの直接SQL操作もしない（pin/running自動解除・GitHub連携同期などAPI側の自動処理を経由しなくなるため）。**すべての操作はAPI経由で行うこと**。
@@ -8,6 +10,7 @@
 - まず `Invoke-RestMethod -Uri http://localhost:3333/api/health -Method Get` で起動確認（PowerShellの`curl`は`Invoke-WebRequest`のエイリアスで`-s`等のcurlオプションが通らないため使わない）
   - `status: ok` → API経由で操作（下記）。実行後は必ずレスポンス {"ok":true} を確認してから成功報告
   - 接続不可 → サーバーの復旧を待つ（mdへのフォールバックはDB化により廃止。DBファイルへの直接操作もしない）
+  - **【重要・BT-212】healthレスポンスの`apiVersion`と、このファイル冒頭の対応バージョンを照合する**。不一致の場合はこのルールファイルが古い（またはAPI側が先行更新されている）可能性があるため、記述通りに動くとは限らないと考え、作業前にユーザーへ一声かける
 - Content-Type は application/json のみ（; charset=utf-8 を付けない）
 - **【重要】PowerShellでBodyに日本語を含むPOSTを送る際は、必ずUTF-8バイト配列に変換してから渡すこと（BT-016）**
   - `Invoke-RestMethod -Body <文字列>` は日本語をデフォルトエンコーディング（Shift-JIS系）で送信してしまい、サーバー側で文字化けした値になる（例: 状態値が `"??"` になり400 Bad Requestで弾かれる）

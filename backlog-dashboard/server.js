@@ -10,6 +10,7 @@ const githubClient = require('./github-client');
 const { getDb } = require('./db/connection');
 const { buildBoardFromDb } = require('./db/board');
 const tasksRepo = require('./db/tasks-repo');
+const { version: API_VERSION } = require('./package.json');
 
 // --- Config ---
 const CONFIG_PATH = path.join(__dirname, 'config.json');
@@ -461,7 +462,7 @@ function serveStatic(req, res) {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     // devInstanceLabelはDB化(BT-169)の並行運用中、本番と見分けるための開発用バッジ表示に使う（BT-185）。
     // 本番のconfig.jsonにはこのキー自体が存在しないため、バッジは複製先(開発用)にのみ出る。
-    res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), devInstanceLabel: config.devInstanceLabel || null }));
+    res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), apiVersion: API_VERSION, devInstanceLabel: config.devInstanceLabel || null }));
     return;
   }
 
