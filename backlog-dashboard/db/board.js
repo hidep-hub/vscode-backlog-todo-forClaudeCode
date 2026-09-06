@@ -47,6 +47,22 @@ function toTaskItem(row, { statusLabelMap, projectName }) {
   };
 }
 
+// 子を持つ親の実効ステータスcodeを、子の最大進捗と親自身のステータスの大きい方から決める
+// (md版のcomputeParentStatusと同じ「C案」ロジック。完了は除外して集計し、全子完了ならdone)
+function computeParentStatusCode(childRows, parentOwnCode, statusRankMap) {
+  if (childRows.length === 0) return parentOwnCode;
+  if (childRows.every(c => c.status === 'done')) return 'done';
+  let maxRank = 0;
+  let maxCode = 'todo';
+  for (const c of childRows) {
+    if (c.status === 'done') continue;
+    const rank = statusRankMap[c.status] || 0;
+    if (rank > maxRank) { maxRank = rank; maxCode = c.status; }
+  }
+  const parentRank = statusRankMap[parentOwnCode] || 0;
+  return parentRank > maxRank ? parentOwnCode : maxCode;
+}
+
 /**
  * 全ワークスペースの全タスク(削除済み除く)+成果物+pins+running_tasksを読み、
  * 現行buildBoard()と同じ形状の{columns, projects, remainingByProject, ...}を返す。
@@ -87,22 +103,6 @@ function buildBoardFromDb(db, config) {
     }
   }
 
-  // 子を持つ親の実効ステータスcodeを、子の最大進捗と親自身のステータスの大きい方から決める
-  // (md版のcomputeParentStatusと同じ「C案」ロジック。完了は除外して集計し、全子完了ならdone)
-  function computeParentStatusCode(childRows, parentOwnCode) {
-    if (childRows.length === 0) return parentOwnCode;
-    if (childRows.every(c => c.status === 'done')) return 'done';
-    let maxRank = 0;
-    let maxCode = 'todo';
-    for (const c of childRows) {
-      if (c.status === 'done') continue;
-      const rank = statusRankMap[c.status] || 0;
-      if (rank > maxRank) { maxRank = rank; maxCode = c.status; }
-    }
-    const parentRank = statusRankMap[parentOwnCode] || 0;
-    return parentRank > maxRank ? parentOwnCode : maxCode;
-  }
-
   function toItem(row) {
     const projectName = workspaceToProjectName[row.workspace] || row.workspace;
     const item = toTaskItem(row, { statusLabelMap, projectName });
@@ -119,7 +119,7 @@ function buildBoardFromDb(db, config) {
     if (childRows.length > 0) {
       item.childrenTotal = childRows.length;
       item.childrenDone = childRows.filter(c => c.status === 'done').length;
-      const statusCode = computeParentStatusCode(childRows, row.status);
+      const statusCode = computeParentStatusCode(childRows, row.status, statusRankMap);
       item.status = statusLabelMap[statusCode] || statusCode;
       item.statusCode = statusCode;
       const todayCount = children.filter(c => c.todayFlag).length;
@@ -182,4 +182,68 @@ function buildBoardFromDb(db, config) {
   };
 }
 
-module.exports = { buildBoardFromDb };
+/**
+ * displayId(例 "BT-181")1件を、buildBoardFromDb()と同じ形状のタスクアイテムとして返す。
+ * 子タスクを持つ親であればchildren/childrenTotal/childrenDone/実効statusを含める。
+ * 見つからない場合はnullを返す(GET /api/task/:id用、BT-222)。
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {object} config - server.jsのconfigオブジェクト(projects)
+ * @param {string} displayId
+ */
+function buildTaskDetail(db, config, displayId) {
+  const row = tasksRepo.getByDisplayId(db, displayId);
+  if (!row) return null;
+
+  const statusList = getStatusList(db);
+  const statusLabelMap = {};
+  const statusRankMap = {};
+  for (const s of statusList) {
+    statusLabelMap[s.code] = s.label;
+    statusRankMap[s.code] = s.sort_order;
+  }
+  const workspaceToProjectName = {};
+  for (const p of config.projects || []) {
+    if (p.file) workspaceToProjectName[p.file] = p.name;
+  }
+
+  const childRows = db.prepare('SELECT * FROM tasks WHERE parent_id = ? AND deleted_at IS NULL ORDER BY sort_order').all(row.id);
+  const relevantIds = [row.id, ...childRows.map(c => c.id)];
+  const placeholders = relevantIds.map(() => '?').join(',');
+  const deliverableRows = db.prepare(`SELECT * FROM deliverables WHERE task_id IN (${placeholders}) ORDER BY task_id, sort_order`).all(...relevantIds);
+  const deliverablesByTaskId = {};
+  for (const d of deliverableRows) {
+    (deliverablesByTaskId[d.task_id] = deliverablesByTaskId[d.task_id] || []).push(d);
+  }
+  row.__deliverables = deliverablesByTaskId[row.id] || [];
+  for (const c of childRows) c.__deliverables = deliverablesByTaskId[c.id] || [];
+
+  const pinnedTaskIds = new Set(db.prepare(`SELECT task_id FROM pins WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
+  const runningTaskIds = new Set(db.prepare(`SELECT task_id FROM running_tasks WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
+
+  const projectName = workspaceToProjectName[row.workspace] || row.workspace;
+  const item = toTaskItem(row, { statusLabelMap, projectName });
+  item.todayFlag = pinnedTaskIds.has(row.id);
+  item.running = runningTaskIds.has(row.id);
+
+  const children = childRows.map(childRow => {
+    const childItem = toTaskItem(childRow, { statusLabelMap, projectName });
+    childItem.todayFlag = pinnedTaskIds.has(childRow.id);
+    childItem.running = runningTaskIds.has(childRow.id);
+    return childItem;
+  });
+  item.children = children;
+  if (childRows.length > 0) {
+    item.childrenTotal = childRows.length;
+    item.childrenDone = childRows.filter(c => c.status === 'done').length;
+    const statusCode = computeParentStatusCode(childRows, row.status, statusRankMap);
+    item.status = statusLabelMap[statusCode] || statusCode;
+    item.statusCode = statusCode;
+    const todayCount = children.filter(c => c.todayFlag).length;
+    if (todayCount > 0) item.todayCount = todayCount;
+    if (children.some(c => c.running)) item.running = true;
+  }
+
+  return item;
+}
+
+module.exports = { buildBoardFromDb, buildTaskDetail };

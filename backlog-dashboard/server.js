@@ -8,7 +8,7 @@ const { WebSocketServer } = require('ws');
 const { spawn, execFileSync } = require('child_process');
 const githubClient = require('./github-client');
 const { getDb } = require('./db/connection');
-const { buildBoardFromDb } = require('./db/board');
+const { buildBoardFromDb, buildTaskDetail } = require('./db/board');
 const tasksRepo = require('./db/tasks-repo');
 const { version: API_VERSION } = require('./package.json');
 
@@ -478,6 +478,23 @@ function serveStatic(req, res) {
     const board = buildBoard();
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(board));
+    return;
+  }
+
+  // API: GET /api/task/:id (BT-222: taskId単体の詳細取得。boardの全件取得を経由せず1件だけ
+  // 欲しい場面向け。boardと同じitem形状(children/childrenTotal等含む)で返す)
+  const taskDetailMatch = req.method === 'GET' && req.url.match(/^\/api\/task\/([^/?]+)$/);
+  if (taskDetailMatch) {
+    const taskId = decodeURIComponent(taskDetailMatch[1]);
+    const db = getDb(BACKLOG_DIR);
+    const task = buildTaskDetail(db, config, taskId);
+    if (!task) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: `Task not found: ${taskId}` }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(task));
     return;
   }
 

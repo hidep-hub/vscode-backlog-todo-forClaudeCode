@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携）
 
-> 対応API version: 2.0.0（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.1.0（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## データの真実
 - タスクの真のデータは SQLite DB（`<backlogDir>/backlog.sqlite3`）。UIやAPIはその窓（BT-179でmdから移行済み）。
@@ -26,6 +26,7 @@
   - Bashで日本語を含むAPI呼び出し・`gh`コマンドを行う場合は、PowerShellの`Invoke-RestMethod`+`UTF8.GetBytes`方式に切り替えるか、日本語を含まないテスト文言（英数字のみ）を使う。どうしてもBashが必要なら、JSONを一旦UTF-8のファイルに書き出してから`--data-binary @file`で渡す
   - 実行後は文字化けしていないか目視確認する習慣をつける（「テストデータだから」で流さない。ユーザーに指摘されて気づいた実例あり）
 - **主要API（BT-179でDB版に刷新。`isChild`パラメータは全API廃止、`taskId`（例`BT-181`）単独で親・子どちらも指定できる）**:
+  - 単体取得: `GET /api/task/:id`（BT-222）— `/api/board`の全件走査を経由せず1件だけ取得できる。返却形状は`/api/board`のitemと同じ（親を指定すると`children`/`childrenTotal`/`childrenDone`も含む）。存在しないtaskIdは404
   - 状態変更: `POST /api/update-status {taskId, newStatus}` — `newStatus`はcode値 `todo`/`ready`/`do`/`done` のいずれか（**日本語ラベルではない**）
   - 今日やる: `POST /api/toggle-today {taskId, value?}` — レスポンスキーは `pinned`（旧`todayFlag`から改名）
   - 実行中: `POST /api/toggle-running {taskId, value?}`
@@ -68,7 +69,7 @@
   自己判断（「これは軽微だから」等）でのスキップは一切禁止。
 
 ## タスクID指定で始めるときの必須アクション（最初の応答で）
-1. そのタスクの説明欄を読む
+1. `GET /api/task/:id`（BT-222）でそのタスクの説明欄を読む — `/api/board`の全件取得から探す遠回りはしない
 2. 即座に 状態を `todo`→`do` に変更（`update-status {taskId, newStatus:"do"}`）
 3. 即座に 実行中フラグON（`toggle-running {taskId, value:true}`）
 4. 説明欄に引き継ぎファイルパスがあれば自動で読み込みコンテキスト復元
