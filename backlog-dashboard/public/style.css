@@ -63,6 +63,8 @@
   --tag-project-fg: #a8d8ea;
   --tag-category-bg: #2a1a3a;
   --tag-category-fg: #c8a8ea;
+  --tag-parent-bg: #3a2a1a;
+  --tag-parent-fg: #e8b87c;
   --compact-card-bg: #2e2e3e;
   --compact-card-hover: #343446;
   --drop-highlight: rgba(124, 143, 255, 0.08);
@@ -94,6 +96,8 @@
   --tag-project-fg: #1a5276;
   --tag-category-bg: #e8daef;
   --tag-category-fg: #6c3483;
+  --tag-parent-bg: #f8e8d6;
+  --tag-parent-fg: #8a5a1a;
   --compact-card-bg: #e8e9ec;
   --compact-card-hover: #dddee2;
   --drop-highlight: rgba(76, 95, 213, 0.08);
@@ -688,6 +692,27 @@ body {
   background: var(--tag-category-bg);
 }
 
+/* 親Epicへのリンク（BT-201: 完了カラムに混在表示された子タスクカードのヘッダーから、親Epicへジャンプ） */
+.parent-epic-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: var(--tag-parent-fg);
+  background: var(--tag-parent-bg);
+  cursor: pointer;
+}
+
+.parent-epic-link:hover {
+  filter: brightness(1.15);
+}
+
+.id-separator {
+  color: var(--text-muted);
+  margin: 0 2px;
+}
+
 /* --- Project Colors (border-left) --- */
 .card[data-project="backlog-todo"] { border-left-color: #7cb3ff; }
 .card[data-project="server-operator"] { border-left-color: #7cffb3; }
@@ -760,6 +785,11 @@ body {
   font-size: 0.6rem;
   padding: 1px 4px;
   color: var(--text-muted);
+}
+
+.card-compact .parent-epic-link {
+  font-size: 0.6rem;
+  padding: 1px 4px;
 }
 
 /* --- 完了カラム「他N件」まとめカード --- */
@@ -1591,6 +1621,8 @@ body {
     --tag-project-fg: #1a5276;
     --tag-category-bg: #e8daef;
     --tag-category-fg: #6c3483;
+    --tag-parent-bg: #f8e8d6;
+    --tag-parent-fg: #8a5a1a;
     --compact-card-bg: #e8e9ec;
     --compact-card-hover: #dddee2;
     --drop-highlight: rgba(76, 95, 213, 0.08);
@@ -1618,6 +1650,8 @@ body {
     --tag-project-fg: #a8d8ea;
     --tag-category-bg: #2a1a3a;
     --tag-category-fg: #c8a8ea;
+    --tag-parent-bg: #3a2a1a;
+    --tag-parent-fg: #e8b87c;
     --compact-card-bg: #2e2e3e;
     --compact-card-hover: #343446;
     --drop-highlight: rgba(124, 143, 255, 0.08);
@@ -2000,6 +2034,16 @@ body {
 @keyframes ring-pulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--running-color, var(--accent)) 55%, transparent); }
   50% { box-shadow: 0 0 4px 2px color-mix(in srgb, var(--running-color, var(--accent)) 55%, transparent); }
+}
+
+/* BT-201: 完了カラムの親Epicリンクから遷移した際、対象の子タスクカードを一時的にハイライト */
+@keyframes highlight-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 60%, transparent); }
+}
+
+.card-highlight-pulse {
+  animation: highlight-pulse 0.6s ease-in-out 2;
 }
 
 /* Detail modal header spinner (placed before the ID badge, matches card list style) */
