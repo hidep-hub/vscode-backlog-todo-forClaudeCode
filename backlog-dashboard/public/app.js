@@ -3113,6 +3113,7 @@ function getOrCreateAddForm() {
           <option value="do">DO</option>
         </select>
       </div>
+      <p class="edit-task-error" id="add-task-error" style="display:none;"></p>
       <button class="add-task-submit" id="add-task-submit">追加</button>
     </div>
   `;
@@ -3179,6 +3180,11 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId) {
   titleInput.value = '';
   form.querySelector('#add-task-description').value = '';
 
+  // 前回開いた時のエラー表示を引きずらないようリセット
+  const errorEl = form.querySelector('#add-task-error');
+  errorEl.textContent = '';
+  errorEl.style.display = 'none';
+
   form.classList.add('modal-visible');
   setTimeout(() => titleInput.focus(), 100);
 }
@@ -3194,6 +3200,8 @@ async function submitAddTask() {
   const project = form.querySelector('#add-task-project').value;
   const status = form.querySelector('#add-task-status').value;
   const parentId = form.dataset.parentId || '';
+  const errorEl = form.querySelector('#add-task-error');
+  errorEl.style.display = 'none';
 
   if (!title) {
     form.querySelector('#add-task-title').focus();
@@ -3215,9 +3223,13 @@ async function submitAddTask() {
     } else {
       const err = await resp.json();
       console.error('[add-task] Failed:', err.error);
+      errorEl.textContent = `追加に失敗したよ: ${err.error || ''}`;
+      errorEl.style.display = 'block';
     }
   } catch (e) {
     console.error('[add-task] Network error:', e);
+    errorEl.textContent = 'ネットワークエラーが発生したよ';
+    errorEl.style.display = 'block';
   }
 }
 

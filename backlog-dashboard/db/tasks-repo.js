@@ -34,12 +34,19 @@ function listAll(db) {
  * counters.next_seqを払い出し、1件分インクリメントする(既存initCounter()と同じ意味づけ:
  * next_seqは「次に払い出す番号」)。counters行が無いワークスペースはエラーにする
  * (create-workspace API側でcounters行を作る責務を持つ想定、BT-193)。
+ *
+ * BT-228: next_seqが実際のtasks.seq_noの最大値に追いついていない(何らかの経緯で
+ * countersだけ古い値のまま残った)場合、その古い値をそのまま払い出すとUNIQUE制約
+ * (workspace, seq_no)に違反して追加が失敗し続ける。払い出し直前に実データの
+ * MAX(seq_no)+1と比較し、大きい方を採用して自己修復する。
  */
 function allocateSeq(db, workspace) {
   const row = db.prepare('SELECT prefix, next_seq FROM counters WHERE workspace = ?').get(workspace);
   if (!row) throw new Error(`counters行が存在しないワークスペースです: ${workspace}`);
-  db.prepare('UPDATE counters SET next_seq = next_seq + 1 WHERE workspace = ?').run(workspace);
-  return { prefix: row.prefix, seqNo: row.next_seq };
+  const maxRow = db.prepare('SELECT COALESCE(MAX(seq_no), 0) AS m FROM tasks WHERE workspace = ?').get(workspace);
+  const seqNo = Math.max(row.next_seq, maxRow.m + 1);
+  db.prepare('UPDATE counters SET next_seq = ? WHERE workspace = ?').run(seqNo + 1, workspace);
+  return { prefix: row.prefix, seqNo };
 }
 
 /**
