@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携）
 
-> 対応API version: 2.1.0（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.1.1（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## データの真実
 - タスクの真のデータは SQLite DB（`<backlogDir>/backlog.sqlite3`）。UIやAPIはその窓（BT-179でmdから移行済み）。
@@ -27,6 +27,7 @@
   - 実行後は文字化けしていないか目視確認する習慣をつける（「テストデータだから」で流さない。ユーザーに指摘されて気づいた実例あり）
 - **主要API（BT-179でDB版に刷新。`isChild`パラメータは全API廃止、`taskId`（例`BT-181`）単独で親・子どちらも指定できる）**:
   - 単体取得: `GET /api/task/:id`（BT-222）— `/api/board`の全件走査を経由せず1件だけ取得できる。返却形状は`/api/board`のitemと同じ（親を指定すると`children`/`childrenTotal`/`childrenDone`も含む）。存在しないtaskIdは404
+  - **【BT-201】`GET /api/board`のDONE列には、親Epicが未完了(`statusCode`≠`done`)のまま個別に完了した子タスクが、`parentId`/`parentTitle`付きの単独itemとしても混在する**（親側の`children`配列にも同じ子は残るため、両方から拾うとカウント二重になる点に注意。`parentId`があるitemは「親側で既にカウント済みの完了子タスクの個別表示」なので、集計時はスキップするか除外して扱うこと）
   - 状態変更: `POST /api/update-status {taskId, newStatus}` — `newStatus`はcode値 `todo`/`ready`/`do`/`done` のいずれか（**日本語ラベルではない**）
   - 今日やる: `POST /api/toggle-today {taskId, value?}` — レスポンスキーは `pinned`（旧`todayFlag`から改名）
   - 実行中: `POST /api/toggle-running {taskId, value?}`

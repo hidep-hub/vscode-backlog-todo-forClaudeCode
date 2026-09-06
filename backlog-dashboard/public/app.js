@@ -763,7 +763,7 @@ function renderBoard(data) {
       }
 
       card.classList.add('card-clickable');
-      setupCardClick(card, item);
+      setupCardClick(card, item, !!item.parentId);
 
       // 今日やるフラグ（Epic: 子の集約、単発: 自身のフラグ）
       const hasTodayFlag = isEpic ? (item.todayCount > 0) : item.todayFlag;
@@ -786,6 +786,11 @@ function renderBoard(data) {
       const id = (showField('id') && item.id && item.id !== '-') ? item.id : '';
       const completedDate = (showField('completedDate') && item.completedDate) ? `<span class="card-tag">${item.completedDate}</span>` : '';
       const category = (showField('category') && item.category && item.category !== '-') ? `<span class="card-tag category">${item.category}</span>` : '';
+
+      // 親Epicタグ（BT-201: 親が未完了のまま個別完了した子タスクを完了カラムに混在表示する分）
+      const parentTag = item.parentId
+        ? `<span class="card-tag parent-tag" title="親タスク: ${escapeHtml(item.parentTitle || '')}"><span class="material-icon icon-stacks"></span> ${escapeHtml(item.parentId)}</span>`
+        : '';
 
       // GitHub風ピルバッジ
       let badge = '';
@@ -810,7 +815,7 @@ function renderBoard(data) {
       const projectTag = showField('project') ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
       const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>' : '';
       const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
-      const metaParts = [projectTag, category, artifactIndicator, githubBadge, completedDate].filter(Boolean);
+      const metaParts = [projectTag, category, artifactIndicator, githubBadge, parentTag, completedDate].filter(Boolean);
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
 
       // ピンボタン（完了カラムには不要）
@@ -1159,6 +1164,7 @@ function buildSearchTree() {
   for (const col of currentBoardData.columns) {
     for (const item of col.items) {
       if (!item.id || item.id === '-') continue;
+      if (item.parentId) continue; // BT-201: 完了カラムに混在表示中の子タスクは親Epic側で既にカウント済み
       const proj = item.project || '-';
       if (!projectMap.has(proj)) projectMap.set(proj, { epics: new Map(), singles: [] });
       const projEntry = projectMap.get(proj);
@@ -2575,14 +2581,14 @@ function buildMiniBoard(epic) {
   });
 }
 
-function setupCardClick(card, item) {
+function setupCardClick(card, item, isChildCard = false) {
   card.addEventListener('click', (ev) => {
     if (ev.defaultPrevented) return;
     if (selectionMode) {
       toggleCardSelection(item);
       return;
     }
-    openCardDetail(item);
+    openCardDetail(item, isChildCard || null);
   });
 }
 

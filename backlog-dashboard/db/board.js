@@ -103,6 +103,9 @@ function buildBoardFromDb(db, config) {
     }
   }
 
+  // 親がまだdone未満のEpicの中で、個別に完了した子タスク(BT-201: 完了カラムに個別カードとして混在表示する分)
+  const looseCompletedChildren = [];
+
   function toItem(row) {
     const projectName = workspaceToProjectName[row.workspace] || row.workspace;
     const item = toTaskItem(row, { statusLabelMap, projectName });
@@ -125,6 +128,13 @@ function buildBoardFromDb(db, config) {
       const todayCount = children.filter(c => c.todayFlag).length;
       if (todayCount > 0) item.todayCount = todayCount;
       if (children.some(c => c.running)) item.running = true;
+      if (statusCode !== 'done') {
+        for (const child of children) {
+          if (child.statusCode === 'done') {
+            looseCompletedChildren.push({ ...child, parentId: item.id, parentTitle: item.title });
+          }
+        }
+      }
     }
     return item;
   }
@@ -134,6 +144,9 @@ function buildBoardFromDb(db, config) {
 
   const columns = (config.columns || []).map(col => {
     let items = topLevelItems.filter(item => col.match.includes(item.statusCode));
+    if (col.id === 'done') {
+      items = items.concat(looseCompletedChildren.filter(c => col.match.includes(c.statusCode)));
+    }
     const totalCount = items.length;
     if (col.compact || col.id === 'done') {
       items = items.slice().sort((a, b) => {

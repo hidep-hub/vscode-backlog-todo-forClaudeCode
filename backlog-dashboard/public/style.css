@@ -63,6 +63,8 @@
   --tag-project-fg: #a8d8ea;
   --tag-category-bg: #2a1a3a;
   --tag-category-fg: #c8a8ea;
+  --tag-parent-bg: #3a2a1a;
+  --tag-parent-fg: #e8b87c;
   --compact-card-bg: #2e2e3e;
   --compact-card-hover: #343446;
   --drop-highlight: rgba(124, 143, 255, 0.08);
@@ -94,6 +96,8 @@
   --tag-project-fg: #1a5276;
   --tag-category-bg: #e8daef;
   --tag-category-fg: #6c3483;
+  --tag-parent-bg: #f8e8d6;
+  --tag-parent-fg: #8a5a1a;
   --compact-card-bg: #e8e9ec;
   --compact-card-hover: #dddee2;
   --drop-highlight: rgba(76, 95, 213, 0.08);
@@ -688,6 +692,14 @@ body {
   background: var(--tag-category-bg);
 }
 
+.card-tag.parent-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--tag-parent-fg);
+  background: var(--tag-parent-bg);
+}
+
 /* --- Project Colors (border-left) --- */
 .card[data-project="backlog-todo"] { border-left-color: #7cb3ff; }
 .card[data-project="server-operator"] { border-left-color: #7cffb3; }
@@ -760,6 +772,10 @@ body {
   font-size: 0.6rem;
   padding: 1px 4px;
   color: var(--text-muted);
+}
+
+.card-compact .card-tag.parent-tag {
+  color: var(--tag-parent-fg);
 }
 
 /* --- 完了カラム「他N件」まとめカード --- */
@@ -1591,6 +1607,8 @@ body {
     --tag-project-fg: #1a5276;
     --tag-category-bg: #e8daef;
     --tag-category-fg: #6c3483;
+    --tag-parent-bg: #f8e8d6;
+    --tag-parent-fg: #8a5a1a;
     --compact-card-bg: #e8e9ec;
     --compact-card-hover: #dddee2;
     --drop-highlight: rgba(76, 95, 213, 0.08);
@@ -1618,6 +1636,8 @@ body {
     --tag-project-fg: #a8d8ea;
     --tag-category-bg: #2a1a3a;
     --tag-category-fg: #c8a8ea;
+    --tag-parent-bg: #3a2a1a;
+    --tag-parent-fg: #e8b87c;
     --compact-card-bg: #2e2e3e;
     --compact-card-hover: #343446;
     --drop-highlight: rgba(124, 143, 255, 0.08);
