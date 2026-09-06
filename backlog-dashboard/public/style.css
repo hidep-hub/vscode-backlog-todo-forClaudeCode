@@ -692,12 +692,25 @@ body {
   background: var(--tag-category-bg);
 }
 
-.card-tag.parent-tag {
+/* 親Epicへのリンク（BT-201: 完了カラムに混在表示された子タスクカードのヘッダーから、親Epicへジャンプ） */
+.parent-epic-link {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  padding: 1px 4px;
+  border-radius: 4px;
   color: var(--tag-parent-fg);
   background: var(--tag-parent-bg);
+  cursor: pointer;
+}
+
+.parent-epic-link:hover {
+  filter: brightness(1.15);
+}
+
+.id-separator {
+  color: var(--text-muted);
+  margin: 0 2px;
 }
 
 /* --- Project Colors (border-left) --- */
@@ -774,8 +787,9 @@ body {
   color: var(--text-muted);
 }
 
-.card-compact .card-tag.parent-tag {
-  color: var(--tag-parent-fg);
+.card-compact .parent-epic-link {
+  font-size: 0.6rem;
+  padding: 1px 4px;
 }
 
 /* --- 完了カラム「他N件」まとめカード --- */
@@ -2020,6 +2034,16 @@ body {
 @keyframes ring-pulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--running-color, var(--accent)) 55%, transparent); }
   50% { box-shadow: 0 0 4px 2px color-mix(in srgb, var(--running-color, var(--accent)) 55%, transparent); }
+}
+
+/* BT-201: 完了カラムの親Epicリンクから遷移した際、対象の子タスクカードを一時的にハイライト */
+@keyframes highlight-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 60%, transparent); }
+}
+
+.card-highlight-pulse {
+  animation: highlight-pulse 0.6s ease-in-out 2;
 }
 
 /* Detail modal header spinner (placed before the ID badge, matches card list style) */

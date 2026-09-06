@@ -27,6 +27,7 @@ let doneTodayOnly = localStorage.getItem('doneTodayOnly') === 'true'; // 完了�
 let modalParentEpic = null; // 子タスク詳細表示中の親Epic（戻る用）
 let expandedCols = new Set(); // 完了カラム等で「他N件」を展開表示中のカラムID
 let expandedMiniCols = new Set(); // ミニボードの完了カラムで「他N件」展開中のカラムID
+let pendingHighlightChildId = null; // BT-201: 親Epicリンククリック直後、ミニボードでハイライトすべき子タスクID
 let workspaceFilterMap = null; // サーバーから取得: { workspaceKey -> projectName }
 let wsDefaultFilter = ''; // URLパラメータから決まるデフォルトフィルタ（プロジェクト名）
 
@@ -787,9 +788,10 @@ function renderBoard(data) {
       const completedDate = (showField('completedDate') && item.completedDate) ? `<span class="card-tag">${item.completedDate}</span>` : '';
       const category = (showField('category') && item.category && item.category !== '-') ? `<span class="card-tag category">${item.category}</span>` : '';
 
-      // 親Epicタグ（BT-201: 親が未完了のまま個別完了した子タスクを完了カラムに混在表示する分）
-      const parentTag = item.parentId
-        ? `<span class="card-tag parent-tag" title="親タスク: ${escapeHtml(item.parentTitle || '')}"><span class="material-icon icon-stacks"></span> ${escapeHtml(item.parentId)}</span>`
+      // 親Epicへのリンク（BT-201: 親が未完了のまま個別完了した子タスクを完了カラムに混在表示する分）
+      // クリックすると親Epicの詳細（ミニボード）を開き、このカードをハイライトする
+      const parentEpicLinkHtml = item.parentId
+        ? `<span class="parent-epic-link" data-parent-id="${escapeHtml(item.parentId)}" title="親タスク: ${escapeHtml(item.parentTitle || '')}（クリックでEpic詳細へ）"><span class="material-icon icon-stacks"></span>${escapeHtml(item.parentId)}</span><span class="id-separator">|</span>`
         : '';
 
       // GitHub風ピルバッジ
@@ -810,12 +812,12 @@ function renderBoard(data) {
       // Epicハブアイコン（子タスクを束ねる親タスクの目印）
       const epicIcon = isEpic ? '<span class="epic-icon" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : '';
 
-      const idHtml = id ? `<div class="card-id">${spinnerHtml}${epicIcon}<span>${id}</span>${badge}${originIcon}</div>` : (badge || originIcon || epicIcon ? `<div class="card-id">${spinnerHtml}${epicIcon}${badge}${originIcon}</div>` : '');
+      const idHtml = id ? `<div class="card-id">${spinnerHtml}${epicIcon}${parentEpicLinkHtml}<span>${id}</span>${badge}${originIcon}</div>` : (badge || originIcon || epicIcon ? `<div class="card-id">${spinnerHtml}${epicIcon}${badge}${originIcon}</div>` : '');
       const titleHtml = showField('title') ? `<div class="card-title">${escapeHtml(item.title)}</div>` : '';
       const projectTag = showField('project') ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
       const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>' : '';
       const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
-      const metaParts = [projectTag, category, artifactIndicator, githubBadge, parentTag, completedDate].filter(Boolean);
+      const metaParts = [projectTag, category, artifactIndicator, githubBadge, completedDate].filter(Boolean);
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
 
       // ピンボタン（完了カラムには不要）
@@ -845,6 +847,22 @@ function renderBoard(data) {
       }
 
       card.innerHTML = `${pinHtml}${cardActionsHtml}${idHtml}${titleHtml}${metaHtml}`;
+
+      // 親Epicリンクのクリック（BT-201）: カード自体のクリック（子タスク詳細を開く）とは独立させ、
+      // 親Epicの詳細（ミニボード）をこのカードをハイライトした状態で開く
+      const parentEpicLinkEl = card.querySelector('.parent-epic-link');
+      if (parentEpicLinkEl) {
+        parentEpicLinkEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const epic = findItemById(item.parentId);
+          if (!epic) return;
+          expandedMiniCols.add('done'); // 完了済みの対象子タスクがlimitで隠れないようにする
+          pendingHighlightChildId = item.id;
+          openCardDetail(epic);
+        });
+      }
+
       body.appendChild(card);
     }
 
@@ -2579,6 +2597,18 @@ function buildMiniBoard(epic) {
       toggleTodayFlag(taskId, !isActive);
     });
   });
+
+  // BT-201: 完了カラムの親Epicリンクから来た場合、対象の子タスクカードをハイライト
+  if (pendingHighlightChildId) {
+    const targetId = pendingHighlightChildId;
+    pendingHighlightChildId = null;
+    const targetCard = container.querySelector(`[data-task-id="${CSS.escape(targetId)}"]`);
+    if (targetCard) {
+      targetCard.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      targetCard.classList.add('card-highlight-pulse');
+      setTimeout(() => targetCard.classList.remove('card-highlight-pulse'), 2000);
+    }
+  }
 }
 
 function setupCardClick(card, item, isChildCard = false) {
