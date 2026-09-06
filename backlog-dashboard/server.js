@@ -980,8 +980,14 @@ function serveStatic(req, res) {
         return;
       }
       try {
+        // BT-229: フロントのプロジェクト選択肢はboard.jsが返すitem.project(表示名=config.projects[].name)を
+        // そのまま渡してくることがある(例: Inboxはfile="inbox"だがname="Inbox")。file/name両方で解決してから
+        // 実際のworkspaceキー(file)に正規化する。一致しない場合は入力値をそのまま使う(未知ワークスペースは
+        // allocateSeq側の「counters行が存在しない」エラーで従来通り検出される)
+        const projectEntry = (config.projects || []).find(p => p.file === project || p.name === project);
+        const workspace = projectEntry ? projectEntry.file : (project || 'inbox');
         const created = tasksRepo.create(db, {
-          workspace: project || 'inbox',
+          workspace,
           title: title.trim(),
           status: newStatus,
           description: description || null,
