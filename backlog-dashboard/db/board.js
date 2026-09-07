@@ -103,7 +103,8 @@ function buildBoardFromDb(db, config) {
     }
   }
 
-  // 親がまだdone未満のEpicの中で、個別に完了した子タスク(BT-201: 完了カラムに個別カードとして混在表示する分)
+  // 個別に完了した子タスク(BT-201: 完了カラムに個別カードとして混在表示する分)。
+  // BT-240で親の実効ステータス条件を撤廃し、親がdone扱いになった後も子の個別完了表示を継続するようにした。
   const looseCompletedChildren = [];
 
   function toItem(row) {
@@ -128,11 +129,9 @@ function buildBoardFromDb(db, config) {
       const todayCount = children.filter(c => c.todayFlag).length;
       if (todayCount > 0) item.todayCount = todayCount;
       if (children.some(c => c.running)) item.running = true;
-      if (statusCode !== 'done') {
-        for (const child of children) {
-          if (child.statusCode === 'done') {
-            looseCompletedChildren.push({ ...child, parentId: item.id, parentTitle: item.title });
-          }
+      for (const child of children) {
+        if (child.statusCode === 'done') {
+          looseCompletedChildren.push({ ...child, parentId: item.id, parentTitle: item.title });
         }
       }
     }
