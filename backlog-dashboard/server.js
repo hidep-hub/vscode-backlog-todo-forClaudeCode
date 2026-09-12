@@ -9,6 +9,7 @@ const { spawn, execFileSync } = require('child_process');
 const githubClient = require('./github-client');
 const { getDb } = require('./db/connection');
 const { buildBoardFromDb, buildTaskDetail } = require('./db/board');
+const { buildActivity } = require('./db/activity');
 const tasksRepo = require('./db/tasks-repo');
 const { version: API_VERSION } = require('./package.json');
 
@@ -495,6 +496,16 @@ function serveStatic(req, res) {
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(task));
+    return;
+  }
+
+  // API: GET /api/activity (BT-243: task_eventsをtasksと結合し、親子関係・タイトルを補完した
+  // イベント配列を返す。検索・期間絞り込みはBT-246の担当のため、ここでは全件をoccurred_at降順で返す)
+  if (req.url === '/api/activity' && req.method === 'GET') {
+    const db = getDb(BACKLOG_DIR);
+    const activity = buildActivity(db, config);
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(activity));
     return;
   }
 
