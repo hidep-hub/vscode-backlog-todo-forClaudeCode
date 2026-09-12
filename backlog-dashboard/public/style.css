@@ -2216,6 +2216,193 @@ body {
   outline: none;
 }
 
+/* --- 履歴ダイアログ (BT-244) --- */
+.activity-btn {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.activity-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.activity-modal {
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+
+.activity-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.activity-tab {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.activity-tab:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.activity-tab.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.activity-granularity {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.activity-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.activity-placeholder {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 40px 0;
+}
+
+.activity-group-header {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.activity-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--card);
+  font-size: 0.82rem;
+}
+
+.activity-row-icon {
+  flex-shrink: 0;
+}
+
+.activity-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.activity-row-task {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-row-label {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.activity-row-change {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.activity-row-time {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-parent-link {
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--tag-project-bg);
+  color: var(--tag-project-fg);
+  cursor: pointer;
+}
+
+.activity-parent-link:hover {
+  filter: brightness(1.15);
+}
+
+.activity-epic {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+}
+
+.activity-epic-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.activity-epic-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.activity-epic-children {
+  margin-left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+
 .card-selected {
   outline: 2px solid var(--accent) !important;
   outline-offset: -2px;
