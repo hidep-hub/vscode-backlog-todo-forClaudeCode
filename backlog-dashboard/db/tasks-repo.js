@@ -13,10 +13,12 @@ function nowIso() {
  * task_eventsへ1行INSERTする(BT-241)。呼び出し元は対象のtasks更新と同一トランザクション
  * (BEGIN...COMMIT)に包むこと(docs/design/backlog-db-schema-design-epic-bt169.md決定事項:
  * 「tasks更新→task_events INSERT」の順で単一トランザクションに統一する)。
+ * occurredAtを省略すると現在時刻になる。BT-242のバックフィル移行では、過去に遡って
+ * completed_at/deleted_at当時の日時をそのまま記録するためにoccurredAtを明示指定する。
  */
-function insertEvent(db, { taskId, taskDisplayId, eventType, oldValue = null, newValue = null, actor = 'user' }) {
+function insertEvent(db, { taskId, taskDisplayId, eventType, oldValue = null, newValue = null, actor = 'user', occurredAt = null }) {
   db.prepare(`INSERT INTO task_events (task_id, task_display_id, event_type, old_value, new_value, actor, occurred_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(taskId, taskDisplayId, eventType, oldValue, newValue, actor, nowIso());
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(taskId, taskDisplayId, eventType, oldValue, newValue, actor, occurredAt || nowIso());
 }
 
 /**
@@ -453,5 +455,5 @@ module.exports = {
   getByDisplayId, listByWorkspace, listAll, allocateSeq, create, updateStatus,
   setPin, setRunning, isPinned, isRunning, updateFields, updateCommitHash, setArtifacts, softDelete,
   attachToParent, detachFromParent, reorder, moveWorkspace, getEffectiveStatus,
-  setGithubLink, getChildren, findByGithubIssueNumber, listGithubLinkedNumbers,
+  setGithubLink, getChildren, findByGithubIssueNumber, listGithubLinkedNumbers, insertEvent,
 };
