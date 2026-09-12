@@ -2223,7 +2223,7 @@ body {
   outline: none;
 }
 
-/* --- 履歴ダイアログ (BT-244) --- */
+/* --- 履歴ダイアログ (BT-244/245/246、KIRO版kiro-backlog-todoのUIに準拠) --- */
 .activity-btn {
   font-size: 0.75rem;
   padding: 4px 8px;
@@ -2240,87 +2240,61 @@ body {
   border-color: var(--accent);
 }
 
-.activity-modal {
-  max-height: 85vh;
+.activity-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--modal-overlay);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 900;
+}
+
+.activity-modal-overlay.modal-visible {
+  display: flex;
+}
+
+.activity-modal-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 96vw;
+  height: 92vh;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
 }
 
-.activity-toolbar {
+/* --- ヘッダー --- */
+.activity-modal-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 12px 0;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
   flex-wrap: wrap;
 }
 
-.activity-tabs {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.activity-tab {
-  font-size: 0.75rem;
-  padding: 4px 10px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
+.activity-modal-header h3 {
+  font-size: 1rem;
   white-space: nowrap;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
 }
 
-.activity-tab:hover {
-  color: var(--text);
-  border-color: var(--accent);
-}
-
-.activity-tab.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
-}
-
-.activity-granularity {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 0.8rem;
-}
-
-/* --- 検索・期間絞り込み (BT-246) --- */
-.activity-filter-row {
+.activity-header-controls {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 12px;
   flex-wrap: wrap;
-}
-
-.activity-search-input {
-  flex: 1 1 200px;
-  min-width: 140px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 0.82rem;
-}
-
-.activity-project-select {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 0.8rem;
-  flex-shrink: 0;
 }
 
 .activity-date-range {
@@ -2343,159 +2317,7 @@ body {
   font-size: 0.8rem;
 }
 
-.activity-filter-clear {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  padding: 5px 10px;
-  border-radius: 6px;
-  font-size: 0.78rem;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s, color 0.15s;
-}
-
-.activity-filter-clear:hover {
-  background: var(--card);
-  color: var(--text);
-}
-
-.activity-count-label {
-  margin-left: auto;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.activity-body {
-  flex: 1;
-  overflow-y: auto;
-  min-height: 200px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.activity-body[hidden] {
-  display: none;
-}
-
-.activity-placeholder {
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  text-align: center;
-  padding: 40px 0;
-}
-
-.activity-group-header {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--border);
-}
-
-.activity-group-body {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.activity-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: var(--card);
-  font-size: 0.82rem;
-}
-
-.activity-row-icon {
-  flex-shrink: 0;
-}
-
-.activity-row-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.activity-row-task {
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.activity-row-label {
-  color: var(--text-muted);
-  font-size: 0.75rem;
-}
-
-.activity-row-change {
-  color: var(--text-muted);
-  font-size: 0.75rem;
-}
-
-.activity-row-time {
-  flex-shrink: 0;
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.activity-parent-link {
-  font-size: 0.72rem;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--tag-project-bg);
-  color: var(--tag-project-fg);
-  cursor: pointer;
-}
-
-.activity-parent-link:hover {
-  filter: brightness(1.15);
-}
-
-.activity-epic {
-  border-left: 3px solid var(--accent);
-  padding-left: 10px;
-}
-
-.activity-epic-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.activity-epic-count {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.activity-epic-children {
-  margin-left: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-left: 10px;
-  border-left: 2px solid var(--border);
-}
-
-/* --- グラフ表示 (BT-245) --- */
-.activity-toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
+.activity-granularity,
 .activity-viewmode,
 .activity-chart-tabs {
   display: flex;
@@ -2504,6 +2326,7 @@ body {
   overflow: hidden;
 }
 
+.activity-granularity[hidden],
 .activity-chart-tabs[hidden] {
   display: none;
 }
@@ -2533,10 +2356,498 @@ body {
   color: #fff;
 }
 
+.activity-collapse-all-btn {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.activity-collapse-all-btn:hover:not(:disabled) {
+  background: var(--card-hover);
+  color: var(--text);
+}
+
+.activity-collapse-all-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.activity-reload-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.activity-reload-btn:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+
+.activity-modal-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+.activity-modal-close:hover {
+  color: var(--text);
+}
+
+/* --- 種別タブ + WSチップ + 検索 --- */
+.activity-filters {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.activity-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.activity-tab {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 10px 14px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.activity-tab:hover {
+  color: var(--text);
+}
+
+.activity-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.activity-tab-count {
+  font-size: 0.72rem;
+  background: var(--card);
+  color: var(--text-muted);
+  border-radius: 9px;
+  padding: 1px 6px;
+}
+
+.activity-tab.active .activity-tab-count {
+  background: var(--accent);
+  color: #fff;
+}
+
+.activity-ws-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+}
+
+.activity-ws-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text-muted);
+  padding: 3px 10px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.activity-ws-chip:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+
+.activity-ws-chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--drop-highlight);
+}
+
+.activity-chip-count {
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
+.activity-search-input {
+  margin-left: auto;
+  flex: 0 1 220px;
+  min-width: 140px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+/* --- 本体 --- */
+.activity-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 20px 24px;
+  min-height: 0;
+}
+
+.activity-body[hidden] {
+  display: none;
+}
+
+.activity-loading,
+.activity-error,
+.activity-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.activity-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--card);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* --- タイムライン --- */
+.activity-timeline {
+  position: relative;
+}
+
+.activity-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 14px 0 2px;
+  padding: 7px 6px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.activity-group:first-child .activity-group-header {
+  margin-top: 2px;
+}
+
+.activity-group-body {
+  position: relative;
+  padding-left: 44px;
+  padding-top: 4px;
+  padding-bottom: 8px;
+}
+
+.activity-group-body::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 0;
+  bottom: 10px;
+  width: 2px;
+  background: var(--border);
+}
+
+.activity-group-header:hover .activity-group-date {
+  color: var(--accent);
+}
+
+.activity-group-toggle {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0 2px;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.activity-group.group-collapsed .activity-group-date {
+  color: var(--text-muted);
+}
+
+.activity-group.group-collapsed .activity-group-header {
+  margin: 2px 0;
+}
+
+.activity-group-date {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.activity-group-summary {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.activity-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.activity-row:hover {
+  background: var(--card);
+}
+
+.activity-row-clickable {
+  cursor: pointer;
+}
+
+.activity-dot {
+  position: absolute;
+  left: -44px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--surface);
+  background: var(--card);
+  color: var(--text-muted);
+}
+
+.activity-dot .ui-icon svg,
+.activity-dot svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.activity-dot-completed {
+  background: var(--badge-done-bg);
+  color: var(--badge-done-fg);
+}
+
+.activity-dot-deleted {
+  background: rgba(229, 115, 115, 0.16);
+  color: #e57373;
+}
+
+.activity-dot-other {
+  background: var(--tag-category-bg);
+  color: var(--tag-category-fg);
+}
+
+.activity-dot-epic {
+  background: var(--drop-highlight);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.activity-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-row-line1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  min-width: 0;
+}
+
+.activity-row-line2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.activity-type-label {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.activity-row-completed .activity-type-label {
+  color: var(--badge-done-fg);
+  border-color: var(--badge-done-fg);
+}
+
+.activity-row-deleted .activity-type-label {
+  color: #e57373;
+  border-color: #e57373;
+}
+
+.activity-row-other .activity-type-label {
+  color: var(--tag-category-fg);
+  border-color: var(--tag-category-fg);
+}
+
+.activity-row-epic .activity-type-label {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.activity-ws {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  background: var(--tag-project-bg);
+  color: var(--tag-project-fg);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.activity-id {
+  flex-shrink: 0;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.activity-title {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-epic-count {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: var(--accent);
+  background: var(--drop-highlight);
+  border-radius: 9px;
+  padding: 1px 8px;
+}
+
+.activity-tag {
+  font-size: 0.7rem;
+  background: var(--tag-category-bg);
+  color: var(--tag-category-fg);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.activity-parent {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.7rem;
+  color: var(--accent);
+  background: var(--drop-highlight);
+  border-radius: 4px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+
+.activity-parent:hover {
+  text-decoration: underline;
+}
+
+.activity-parent svg {
+  width: 11px;
+  height: 11px;
+  display: block;
+}
+
+.activity-time {
+  flex-shrink: 0;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  min-width: 42px;
+  text-align: right;
+}
+
+/* --- EPICでまとめた子タスクのtree --- */
+.activity-epic-block {
+  margin-bottom: 2px;
+}
+
+.activity-children {
+  margin-left: 4px;
+  padding-left: 22px;
+  border-left: 1px dashed var(--border);
+}
+
+.activity-child-row {
+  min-height: 34px;
+  padding: 3px 10px;
+}
+
+.activity-child-row .activity-dot {
+  left: -33px;
+  width: 20px;
+  height: 20px;
+  border-width: 2px;
+}
+
+.activity-child-row .activity-dot svg {
+  width: 11px;
+  height: 11px;
+}
+
+.activity-child-row .activity-row-line1 {
+  font-size: 0.8rem;
+}
+
+/* --- グラフ表示 (BT-245) --- */
 .activity-chart-body {
   flex: 1;
   overflow: auto;
-  min-height: 200px;
+  padding: 20px 24px 24px;
+  min-height: 0;
+}
+
+.activity-chart-body[hidden] {
+  display: none;
 }
 
 .activity-chart-scroll {
