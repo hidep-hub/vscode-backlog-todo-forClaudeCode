@@ -10,6 +10,16 @@ function nowIso() {
 }
 
 /**
+ * task_eventsへ1行INSERTする(BT-241)。呼び出し元は対象のtasks更新と同一トランザクション
+ * (BEGIN...COMMIT)に包むこと(docs/design/backlog-db-schema-design-epic-bt169.md決定事項:
+ * 「tasks更新→task_events INSERT」の順で単一トランザクションに統一する)。
+ */
+function insertEvent(db, { taskId, taskDisplayId, eventType, oldValue = null, newValue = null, actor = 'user' }) {
+  db.prepare(`INSERT INTO task_events (task_id, task_display_id, event_type, old_value, new_value, actor, occurred_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(taskId, taskDisplayId, eventType, oldValue, newValue, actor, nowIso());
+}
+
+/**
  * displayId(例 "BT-181")から内部行を1件取得する。無ければnull。
  */
 function getByDisplayId(db, displayId) {
@@ -70,45 +80,98 @@ function create(db, { workspace, title, status, category = null, description = n
   const maxSort = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM tasks').get().m;
   const now = nowIso();
 
-  const result = db.prepare(`INSERT INTO tasks
-    (workspace, seq_no, display_id, parent_id, title, status, category, description, assignee,
-     start_date, due_date, github_issue_number, github_issue_url, sort_order,
-     created_at, created_by, updated_at, updated_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    effectiveWorkspace, seqNo, displayId, parentRow ? parentRow.id : null, title, status, category, description,
-    assignee, startDate, dueDate, githubIssueNumber, githubIssueUrl, maxSort + 1, now, createdBy, now, createdBy
-  );
+  let result;
+  db.exec('BEGIN');
+  try {
+    result = db.prepare(`INSERT INTO tasks
+      (workspace, seq_no, display_id, parent_id, title, status, category, description, assignee,
+       start_date, due_date, github_issue_number, github_issue_url, sort_order,
+       created_at, created_by, updated_at, updated_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      effectiveWorkspace, seqNo, displayId, parentRow ? parentRow.id : null, title, status, category, description,
+      assignee, startDate, dueDate, githubIssueNumber, githubIssueUrl, maxSort + 1, now, createdBy, now, createdBy
+    );
+    insertEvent(db, { taskId: result.lastInsertRowid, taskDisplayId: displayId, eventType: 'created', actor: createdBy });
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
 
   return getByDisplayId(db, displayId) || { id: result.lastInsertRowid, display_id: displayId };
 }
 
+/**
+ * ステータスを更新する。実際に値が変化した場合のみtask_eventsにstatus_changedを記録する
+ * (同じステータスへの再設定はイベントとして残さない、BT-241決定)。
+ */
 function updateStatus(db, displayId, newStatus) {
+  const existing = getByDisplayId(db, displayId);
   const now = nowIso();
   const completedAt = newStatus === 'done' ? now : null;
-  db.prepare('UPDATE tasks SET status = ?, completed_at = ?, updated_at = ?, updated_by = ? WHERE display_id = ?')
-    .run(newStatus, completedAt, now, 'user', displayId);
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE tasks SET status = ?, completed_at = ?, updated_at = ?, updated_by = ? WHERE display_id = ?')
+      .run(newStatus, completedAt, now, 'user', displayId);
+    if (existing && existing.status !== newStatus) {
+      insertEvent(db, {
+        taskId: existing.id, taskDisplayId: displayId, eventType: 'status_changed',
+        oldValue: existing.status, newValue: newStatus, actor: 'user',
+      });
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
   return getByDisplayId(db, displayId);
 }
 
+/**
+ * pin(今日やる)フラグを設定する。実際に状態が変化した場合のみtask_eventsに
+ * pinned/unpinnedを記録する(既にpin済みへの再pin等はイベントを残さない、BT-241決定)。
+ */
 function setPin(db, workspace, displayId, value) {
   const task = getByDisplayId(db, displayId);
   if (!task) throw new Error(`タスクが見つかりません: ${displayId}`);
-  if (value) {
-    const exists = db.prepare('SELECT 1 FROM pins WHERE workspace = ? AND task_id = ?').get(workspace, task.id);
-    if (!exists) db.prepare('INSERT INTO pins (workspace, task_id, pinned_at) VALUES (?, ?, ?)').run(workspace, task.id, nowIso());
-  } else {
-    db.prepare('DELETE FROM pins WHERE workspace = ? AND task_id = ?').run(workspace, task.id);
+  db.exec('BEGIN');
+  try {
+    const exists = !!db.prepare('SELECT 1 FROM pins WHERE workspace = ? AND task_id = ?').get(workspace, task.id);
+    if (value && !exists) {
+      db.prepare('INSERT INTO pins (workspace, task_id, pinned_at) VALUES (?, ?, ?)').run(workspace, task.id, nowIso());
+      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'pinned', actor: 'user' });
+    } else if (!value && exists) {
+      db.prepare('DELETE FROM pins WHERE workspace = ? AND task_id = ?').run(workspace, task.id);
+      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'unpinned', actor: 'user' });
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
   }
 }
 
+/**
+ * 実行中フラグを設定する。実際に状態が変化した場合のみtask_eventsに
+ * running_started/running_stoppedを記録する(BT-241決定、setPinと同じ考え方)。
+ */
 function setRunning(db, workspace, displayId, value) {
   const task = getByDisplayId(db, displayId);
   if (!task) throw new Error(`タスクが見つかりません: ${displayId}`);
-  if (value) {
-    const exists = db.prepare('SELECT 1 FROM running_tasks WHERE workspace = ? AND task_id = ?').get(workspace, task.id);
-    if (!exists) db.prepare('INSERT INTO running_tasks (workspace, task_id, started_at) VALUES (?, ?, ?)').run(workspace, task.id, nowIso());
-  } else {
-    db.prepare('DELETE FROM running_tasks WHERE workspace = ? AND task_id = ?').run(workspace, task.id);
+  db.exec('BEGIN');
+  try {
+    const exists = !!db.prepare('SELECT 1 FROM running_tasks WHERE workspace = ? AND task_id = ?').get(workspace, task.id);
+    if (value && !exists) {
+      db.prepare('INSERT INTO running_tasks (workspace, task_id, started_at) VALUES (?, ?, ?)').run(workspace, task.id, nowIso());
+      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'running_started', actor: 'user' });
+    } else if (!value && exists) {
+      db.prepare('DELETE FROM running_tasks WHERE workspace = ? AND task_id = ?').run(workspace, task.id);
+      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'running_stopped', actor: 'user' });
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
   }
 }
 
@@ -150,6 +213,8 @@ function setArtifacts(db, displayId, artifacts) {
 
 /**
  * title/description/category/assignee/startDate/dueDateのうち渡されたものだけ更新する。
+ * assigneeが渡され、かつ実際に値が変化した場合のみtask_eventsにassignedを記録する
+ * (title等だけの編集ではイベントを残さない、BT-241決定)。
  */
 function updateFields(db, displayId, fields) {
   const allowed = { title: 'title', description: 'description', category: 'category', assignee: 'assignee', startDate: 'start_date', dueDate: 'due_date' };
@@ -162,9 +227,28 @@ function updateFields(db, displayId, fields) {
     }
   }
   if (sets.length === 0) return getByDisplayId(db, displayId);
+
+  const existing = getByDisplayId(db, displayId);
+  const assigneeChanged = Object.prototype.hasOwnProperty.call(fields, 'assignee')
+    && existing && existing.assignee !== fields.assignee;
+
   sets.push('updated_at = ?', 'updated_by = ?');
   values.push(nowIso(), 'user');
-  db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE display_id = ?`).run(...values, displayId);
+
+  db.exec('BEGIN');
+  try {
+    db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE display_id = ?`).run(...values, displayId);
+    if (assigneeChanged) {
+      insertEvent(db, {
+        taskId: existing.id, taskDisplayId: displayId, eventType: 'assigned',
+        oldValue: existing.assignee, newValue: fields.assignee, actor: 'user',
+      });
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
   return getByDisplayId(db, displayId);
 }
 
@@ -186,8 +270,16 @@ function softDelete(db, displayId) {
     throw err;
   }
   const now = nowIso();
-  db.prepare('UPDATE tasks SET deleted_at = ?, updated_at = ?, updated_by = ? WHERE display_id = ?')
-    .run(now, now, 'user', displayId);
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE tasks SET deleted_at = ?, updated_at = ?, updated_by = ? WHERE display_id = ?')
+      .run(now, now, 'user', displayId);
+    insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'deleted', actor: 'user' });
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
 }
 
 /**
