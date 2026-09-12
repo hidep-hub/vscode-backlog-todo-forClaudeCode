@@ -2295,6 +2295,10 @@ body {
   gap: 16px;
 }
 
+.activity-body[hidden] {
+  display: none;
+}
+
 .activity-placeholder {
   color: var(--text-muted);
   font-size: 0.85rem;
@@ -2401,6 +2405,150 @@ body {
   gap: 6px;
   padding-left: 10px;
   border-left: 2px solid var(--border);
+}
+
+/* --- グラフ表示 (BT-245) --- */
+.activity-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.activity-viewmode,
+.activity-chart-tabs {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.activity-chart-tabs[hidden] {
+  display: none;
+}
+
+.activity-gran-btn {
+  border: none;
+  background: var(--card);
+  color: var(--text-muted);
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.activity-gran-btn:last-child {
+  border-right: none;
+}
+
+.activity-gran-btn:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+
+.activity-gran-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.activity-chart-body {
+  flex: 1;
+  overflow: auto;
+  min-height: 200px;
+}
+
+.activity-chart-scroll {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.activity-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 12px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.activity-chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.activity-chart-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.activity-heatmap-svg text.activity-heatmap-label {
+  fill: var(--text-muted);
+  font-size: 9px;
+}
+
+.activity-heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.activity-heatmap-legend-cell {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  display: inline-block;
+}
+
+.activity-throughput-svg text.activity-throughput-total {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.activity-throughput-svg text.activity-throughput-label {
+  fill: var(--text-muted);
+  font-size: 10px;
+}
+
+.activity-composition-wrap {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.activity-composition-svg text.activity-composition-total-num {
+  fill: var(--text);
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.activity-composition-svg text.activity-composition-total-label {
+  fill: var(--text-muted);
+  font-size: 11px;
+}
+
+.activity-composition-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.activity-composition-count {
+  margin-left: 8px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
 }
 
 .card-selected {
