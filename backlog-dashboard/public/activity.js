@@ -1,9 +1,10 @@
 'use strict';
 
-// 履歴ダイアログ(BT-244)。BT-243のGET /api/activityを日/週/月グルーピング +
-// EPIC(親タスク)配下の完了子タスクまとめ表示で描画する。
-// 検索・期間絞り込み・ヘッダー起動ボタンの本実装はBT-246の担当(このファイルでは
-// 暫定でヘッダーに直接ボタンを置き、openActivityView()を呼ぶだけにしている)。
+// 履歴ダイアログ(BT-244/245/246)。BT-243のGET /api/activityを日/週/月グルーピング +
+// EPIC(親タスク)配下の完了子タスクまとめ表示のタイムライン(BT-244)、ヒートマップ/
+// スループット/構成比のグラフ(BT-245)、タイトル・ID検索+期間絞り込み(BT-246)で描画する。
+// 検索・期間絞り込みはAPI側で未対応(BT-243時点で全件返却のみ)のため、フロント側で
+// activityAllEventsに対してフィルタする(現状のイベント量ならこれで十分な性能)。
 
 const ACTIVITY_TYPE_ORDER = [
   'created', 'status_changed', 'pinned', 'unpinned',
@@ -59,6 +60,9 @@ let activityCurrentType = 'all';
 let activityCurrentGranularity = 'day';
 let activityViewMode = 'timeline'; // timeline | chart
 let activityChartType = 'heatmap'; // heatmap | throughput | composition
+let activitySearchQuery = '';
+let activityDateFrom = ''; // 'YYYY-MM-DD' or ''
+let activityDateTo = '';
 
 function getOrCreateActivityModal() {
   if (activityModalEl) return activityModalEl;
@@ -85,6 +89,16 @@ function getOrCreateActivityModal() {
             <option value="month">月別</option>
           </select>
         </div>
+      </div>
+      <div class="activity-filter-row">
+        <input type="search" class="activity-search-input" id="activity-search" placeholder="タイトル・IDで検索">
+        <span class="activity-date-range">
+          <input type="date" id="activity-date-from" title="期間の開始日">
+          <span class="activity-date-range-sep">〜</span>
+          <input type="date" id="activity-date-to" title="期間の終了日">
+        </span>
+        <button type="button" class="activity-filter-clear" id="activity-filter-clear">条件クリア</button>
+        <span class="activity-count-label" id="activity-count-label"></span>
       </div>
       <div class="activity-body" id="activity-body">
         <p class="activity-placeholder">読み込み中...</p>
@@ -121,8 +135,51 @@ function getOrCreateActivityModal() {
       renderActivityBody();
     });
   });
+  activityModalEl.querySelector('#activity-search').addEventListener('input', (e) => {
+    activitySearchQuery = e.target.value.trim();
+    renderActivityBody();
+  });
+  activityModalEl.querySelector('#activity-date-from').addEventListener('change', (e) => {
+    activityDateFrom = e.target.value;
+    renderActivityBody();
+  });
+  activityModalEl.querySelector('#activity-date-to').addEventListener('change', (e) => {
+    activityDateTo = e.target.value;
+    renderActivityBody();
+  });
+  activityModalEl.querySelector('#activity-filter-clear').addEventListener('click', () => {
+    activitySearchQuery = '';
+    activityDateFrom = '';
+    activityDateTo = '';
+    activityModalEl.querySelector('#activity-search').value = '';
+    activityModalEl.querySelector('#activity-date-from').value = '';
+    activityModalEl.querySelector('#activity-date-to').value = '';
+    renderActivityBody();
+  });
 
   return activityModalEl;
+}
+
+// タブ・検索語・期間の全条件を適用した後のイベント配列を返す。
+function filterActivityEvents() {
+  let result = activityCurrentType === 'all'
+    ? activityAllEvents
+    : activityAllEvents.filter(ev => ev.eventType === activityCurrentType);
+
+  if (activitySearchQuery) {
+    const q = activitySearchQuery.toLowerCase();
+    result = result.filter(ev =>
+      (ev.taskId && ev.taskId.toLowerCase().includes(q))
+      || (ev.taskTitle && ev.taskTitle.toLowerCase().includes(q))
+    );
+  }
+  if (activityDateFrom) {
+    result = result.filter(ev => activityDateOnly(ev.occurredAt) >= activityDateFrom);
+  }
+  if (activityDateTo) {
+    result = result.filter(ev => activityDateOnly(ev.occurredAt) <= activityDateTo);
+  }
+  return result;
 }
 
 // グラフ種別・表示モードに応じて「グラフ種別タブ」「日/週/月セレクタ」の要不要を切り替える。
@@ -245,9 +302,9 @@ function buildActivityRenderUnits(events) {
 function renderActivityBody() {
   const bodyEl = activityModalEl.querySelector('#activity-body');
   const chartBodyEl = activityModalEl.querySelector('#activity-chart-body');
-  const filtered = activityCurrentType === 'all'
-    ? activityAllEvents
-    : activityAllEvents.filter(ev => ev.eventType === activityCurrentType);
+  const filtered = filterActivityEvents();
+  activityModalEl.querySelector('#activity-count-label').textContent =
+    `表示 ${filtered.length}件 / 全 ${activityAllEvents.length}件`;
 
   if (activityViewMode === 'chart') {
     bodyEl.hidden = true;

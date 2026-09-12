@@ -2286,6 +2286,70 @@ body {
   font-size: 0.8rem;
 }
 
+/* --- 検索・期間絞り込み (BT-246) --- */
+.activity-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.activity-search-input {
+  flex: 1 1 200px;
+  min-width: 140px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.activity-date-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.activity-date-range input[type="date"] {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.activity-date-range-sep {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.activity-filter-clear {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.activity-filter-clear:hover {
+  background: var(--card);
+  color: var(--text);
+}
+
+.activity-count-label {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 .activity-body {
   flex: 1;
   overflow-y: auto;
