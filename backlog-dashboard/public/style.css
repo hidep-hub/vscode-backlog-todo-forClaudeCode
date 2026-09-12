@@ -1896,6 +1896,13 @@ body {
   background: var(--card-today-bg);
 }
 
+/* 履歴(activity.js)からEpicミニボードを開いた際にハイライトする子タスク(BT-246) */
+.card-activity-highlight {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 4px rgba(124, 143, 255, 0.2);
+}
+
 /* Pin toggle button */
 .today-pin-btn {
   position: absolute;
@@ -2304,6 +2311,16 @@ body {
   background: var(--surface);
   color: var(--text);
   font-size: 0.82rem;
+}
+
+.activity-project-select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.8rem;
+  flex-shrink: 0;
 }
 
 .activity-date-range {

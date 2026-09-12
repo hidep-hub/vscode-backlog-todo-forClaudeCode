@@ -1538,6 +1538,7 @@ async function toggleTodayFlag(taskId, value) {
 // --- Card Detail Modal ---
 let modalEl = null;
 let currentModalItemId = null;
+let activityHighlightTaskIds = null; // 履歴(activity.js)からEpicを開いた際にハイライトする子タスクIDのSet
 
 function getOrCreateModal() {
   if (modalEl) return modalEl;
@@ -1567,6 +1568,7 @@ function closeModal() {
     modalEl.classList.remove('modal-visible');
     currentModalItemId = null;
     modalParentEpic = null;
+    activityHighlightTaskIds = null;
     closeChildModal();
   }
 }
@@ -1599,6 +1601,12 @@ function openCardDetail(item, parentEpic = null) {
     modal.classList.add('modal-visible');
     renderModalContent(item);
   }
+}
+
+// 履歴(activity.js)からEpicを開く専用入口。指定した子タスクIDをミニボードでハイライトする(BT-246)。
+function openEpicWithHighlight(epicItem, highlightTaskIds) {
+  activityHighlightTaskIds = new Set(highlightTaskIds);
+  openCardDetail(epicItem);
 }
 
 function getOrCreateChildModal() {
@@ -2404,6 +2412,7 @@ function buildMiniBoard(epic) {
       card.className = 'card card-child card-draggable';
       if (child.todayFlag) card.classList.add('card-today');
       if (child.running) card.classList.add('is-running');
+      if (activityHighlightTaskIds && activityHighlightTaskIds.has(child.id)) card.classList.add('card-activity-highlight');
       card.dataset.project = epic.project;
       card.setAttribute('draggable', 'true');
       card.dataset.taskId = child.id;

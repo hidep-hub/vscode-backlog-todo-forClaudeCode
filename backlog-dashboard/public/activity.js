@@ -63,6 +63,7 @@ let activityChartType = 'heatmap'; // heatmap | throughput | composition
 let activitySearchQuery = '';
 let activityDateFrom = ''; // 'YYYY-MM-DD' or ''
 let activityDateTo = '';
+let activityCurrentProject = ''; // '' = All Projects
 
 function getOrCreateActivityModal() {
   if (activityModalEl) return activityModalEl;
@@ -91,6 +92,9 @@ function getOrCreateActivityModal() {
         </div>
       </div>
       <div class="activity-filter-row">
+        <select class="activity-project-select" id="activity-project-select">
+          <option value="">All Projects</option>
+        </select>
         <input type="search" class="activity-search-input" id="activity-search" placeholder="タイトル・IDで検索">
         <span class="activity-date-range">
           <input type="date" id="activity-date-from" title="期間の開始日">
@@ -135,6 +139,10 @@ function getOrCreateActivityModal() {
       renderActivityBody();
     });
   });
+  activityModalEl.querySelector('#activity-project-select').addEventListener('change', (e) => {
+    activityCurrentProject = e.target.value;
+    renderActivityBody();
+  });
   activityModalEl.querySelector('#activity-search').addEventListener('input', (e) => {
     activitySearchQuery = e.target.value.trim();
     renderActivityBody();
@@ -151,21 +159,38 @@ function getOrCreateActivityModal() {
     activitySearchQuery = '';
     activityDateFrom = '';
     activityDateTo = '';
+    activityCurrentProject = '';
     activityModalEl.querySelector('#activity-search').value = '';
     activityModalEl.querySelector('#activity-date-from').value = '';
     activityModalEl.querySelector('#activity-date-to').value = '';
+    activityModalEl.querySelector('#activity-project-select').value = '';
     renderActivityBody();
   });
 
   return activityModalEl;
 }
 
-// タブ・検索語・期間の全条件を適用した後のイベント配列を返す。
+// activityAllEventsに登場するプロジェクト名を拾って、プロジェクト絞り込みセレクタの
+// 選択肢を作る(常に先頭は「All Projects」)。
+function renderActivityProjectOptions() {
+  const selectEl = activityModalEl.querySelector('#activity-project-select');
+  const projects = [...new Set(activityAllEvents.map(ev => ev.project).filter(Boolean))].sort();
+  const current = activityCurrentProject;
+  selectEl.innerHTML = '<option value="">All Projects</option>'
+    + projects.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  selectEl.value = projects.includes(current) ? current : '';
+  activityCurrentProject = selectEl.value;
+}
+
+// タブ・プロジェクト・検索語・期間の全条件を適用した後のイベント配列を返す。
 function filterActivityEvents() {
   let result = activityCurrentType === 'all'
     ? activityAllEvents
     : activityAllEvents.filter(ev => ev.eventType === activityCurrentType);
 
+  if (activityCurrentProject) {
+    result = result.filter(ev => ev.project === activityCurrentProject);
+  }
   if (activitySearchQuery) {
     const q = activitySearchQuery.toLowerCase();
     result = result.filter(ev =>
@@ -215,6 +240,7 @@ async function openActivityView() {
     if (!res.ok) throw new Error((data && data.error) || '取得に失敗しました');
     activityAllEvents = data;
     renderActivityTabs();
+    renderActivityProjectOptions();
     updateActivityControlsVisibility();
     renderActivityBody();
   } catch (err) {
@@ -270,20 +296,13 @@ function activityGroupLabel(key, granularity) {
   return `${y}年${m}月${dd}日`;
 }
 
-// 同一グループ内で同じ親を持つ完了(done)子タスクが2件以上あれば、
-// 親タスクの下にまとめてぶら下げる(EPIC分の子タスク完了をひとかたまりで見せる)。
+// 同一グループ内で完了(done)した子タスクは、1件でも必ず親(EPIC)の下にまとめてぶら下げる
+// (GitHubのコミットタイムラインでPRマージの下にコミットがまとまるのと同じ見え方にする)。
 function buildActivityRenderUnits(events) {
-  const doneChildCountByParent = {};
-  for (const ev of events) {
-    if (ev.eventType === 'status_changed' && ev.newValue === 'done' && ev.parentId) {
-      doneChildCountByParent[ev.parentId] = (doneChildCountByParent[ev.parentId] || 0) + 1;
-    }
-  }
   const units = [];
   const epicUnitByParent = {};
   for (const ev of events) {
-    const isEpicChild = ev.eventType === 'status_changed' && ev.newValue === 'done'
-      && ev.parentId && doneChildCountByParent[ev.parentId] >= 2;
+    const isEpicChild = ev.eventType === 'status_changed' && ev.newValue === 'done' && ev.parentId;
     if (isEpicChild) {
       let unit = epicUnitByParent[ev.parentId];
       if (!unit) {
@@ -344,17 +363,24 @@ function renderActivityBody() {
   bodyEl.querySelectorAll('.activity-parent-link').forEach(el => {
     el.addEventListener('click', () => {
       const item = findItemById(el.dataset.parentId);
-      if (item) openCardDetail(item);
+      if (!item) return;
+      const highlightIds = (el.dataset.highlightIds || '').split(',').filter(Boolean);
+      if (highlightIds.length > 0 && typeof openEpicWithHighlight === 'function') {
+        openEpicWithHighlight(item, highlightIds);
+      } else {
+        openCardDetail(item);
+      }
     });
   });
 }
 
 function renderActivityUnit(unit) {
   if (unit.type === 'epic') {
+    const highlightIds = unit.children.map(c => c.taskId).join(',');
     return `
       <div class="activity-epic">
         <div class="activity-epic-header">
-          <span class="activity-parent-link" data-parent-id="${escapeHtml(unit.parentId)}">${escapeHtml(unit.parentId)} ${escapeHtml(unit.parentTitle || '')}</span>
+          <span class="activity-parent-link" data-parent-id="${escapeHtml(unit.parentId)}" data-highlight-ids="${escapeHtml(highlightIds)}">${escapeHtml(unit.parentId)} ${escapeHtml(unit.parentTitle || '')}</span>
           <span class="activity-epic-count">子タスク完了 ${unit.children.length}件</span>
         </div>
         <div class="activity-epic-children">
@@ -370,7 +396,7 @@ function renderActivityRow(ev) {
   const icon = ACTIVITY_TYPE_ICON[ev.eventType] || '•';
   const time = formatActivityTime(ev.occurredAt);
   const parentBadge = ev.parentId
-    ? `<span class="activity-parent-link" data-parent-id="${escapeHtml(ev.parentId)}">${escapeHtml(ev.parentId)}</span>`
+    ? `<span class="activity-parent-link" data-parent-id="${escapeHtml(ev.parentId)}" data-highlight-ids="${escapeHtml(ev.taskId)}">${escapeHtml(ev.parentId)}</span>`
     : '';
   return `
     <div class="activity-row">
