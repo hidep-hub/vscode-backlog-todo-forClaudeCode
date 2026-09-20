@@ -43,6 +43,9 @@ function toTaskItem(row, { statusLabelMap, projectName }) {
     completedDate: toDateOnly(row.completed_at),
     completedTs: toTimeOnly(row.completed_at),
     origin: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    updatedBy: row.updated_by,
     artifacts: deliverables.length ? deliverables.map(d => d.path).filter(Boolean) : undefined,
   };
 }
