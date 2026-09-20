@@ -1015,6 +1015,26 @@ function openChildCardEditDirect(childWithProject, epic) {
   enterEditMode(childWithProject, body, false, openChildModal);
 }
 
+// 情報セクション（担当・日付・トラッキング情報）のHTML生成。
+// 単発/子/EPICの3種で別々に組んでいたものをBT-261で1箇所に統一。
+function buildMetaHtml(item) {
+  const metaParts = [];
+  if (item.assignee) metaParts.push(`<li><strong>担当:</strong> ${escapeHtml(item.assignee)}</li>`);
+  if (item.startDate) metaParts.push(`<li><strong>開始日:</strong> ${escapeHtml(item.startDate)}</li>`);
+  if (item.dueDate) metaParts.push(`<li><strong>期日:</strong> ${escapeHtml(item.dueDate)}</li>`);
+  if (item.completedDate) metaParts.push(`<li><strong>完了日:</strong> ${escapeHtml(item.completedDate)}</li>`);
+  if (item.createdAt) metaParts.push(`<li><strong>作成日:</strong> ${escapeHtml(formatDateTimeJst(item.createdAt))}</li>`);
+  if (item.updatedAt) metaParts.push(`<li><strong>更新日:</strong> ${escapeHtml(formatDateTimeJst(item.updatedAt))}</li>`);
+  if (item.updatedBy) metaParts.push(`<li><strong>更新者:</strong> ${escapeHtml(item.updatedBy)}</li>`);
+  return metaParts.length > 0 ? `<div class="detail-section"><h4>情報</h4><ul class="detail-meta">${metaParts.join('')}</ul></div>` : '';
+}
+
+// 詳細モーダル本体を「左3/4:説明」「右1/4:情報+成果物」の横長2カラムにまとめる（BT-261）
+function buildDetailColumnsHtml(mainHtml, sideHtml) {
+  const side = sideHtml ? `<div class="detail-side">${sideHtml}</div>` : '';
+  return `<div class="detail-layout"><div class="detail-main">${mainHtml}</div>${side}</div>`;
+}
+
 function buildArtifactsHtml(item) {
   if (!item.artifacts || item.artifacts.length === 0) return '';
   const workspaceMap = currentBoardData && currentBoardData.workspaceMap || {};
@@ -1024,7 +1044,7 @@ function buildArtifactsHtml(item) {
     const fullPath = wsPath ? (wsPath + '/' + art.replace(/\\/g, '/')) : art;
     return `<li class="artifact-item"><code>${escaped}</code> <button class="artifact-copy-btn" data-path="${escapeHtml(fullPath)}" title="パスをコピー"><span class="material-icon icon-content-copy"></span></button></li>`;
   }).join('');
-  return `<div class="detail-section"><h4>成果物</h4><ul class="detail-artifacts">${artifactItems}</ul></div>`;
+  return `<div class="detail-section detail-artifacts-block"><h4>成果物</h4><ul class="detail-artifacts">${artifactItems}</ul></div>`;
 }
 
 // ボタン群を1つのflex-wrapグループにまとめる（BT-166: ペア単位のflex:1をやめ、
@@ -1321,6 +1341,16 @@ function getTodayJST() {
   return jst.toISOString().slice(0, 10);
 }
 
+// created_at/updated_at(UTC ISO文字列)をJSTの "YYYY-MM-DD HH:mm" 表示に変換する（BT-261）
+function formatDateTimeJst(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const jst = new Date(d.getTime() + (d.getTimezoneOffset() + 540) * 60000);
+  const s = jst.toISOString();
+  return `${s.slice(0, 10)} ${s.slice(11, 16)}`;
+}
+
 // 説明テキストを適度に改行して表示用HTMLにする
 function formatDescription(desc) {
   if (!desc) return '';
@@ -1336,7 +1366,7 @@ function formatDescription(desc) {
 // 説明欄のHTML生成（BT-080: 長い説明は2行に折りたたみ、▼で展開できるようにする）
 function buildDescriptionSectionHtml(description) {
   if (!description) return '';
-  return `<div class="detail-section"><h4>説明</h4><div class="description-collapsible"><p class="description-text">${formatDescription(description)}</p><button type="button" class="description-toggle-btn" hidden>▼ もっと見る</button></div></div>`;
+  return `<div class="detail-section detail-description-section"><h4>説明</h4><div class="description-collapsible"><p class="description-text">${formatDescription(description)}</p><button type="button" class="description-toggle-btn" hidden>▼ もっと見る</button></div></div>`;
 }
 
 // 説明欄の折りたたみトグルを初期化する（BT-080）。2行に収まる場合はボタンを出さない
@@ -1656,12 +1686,7 @@ function openChildModal(item) {
   // 成果物セクション
   const artifactsHtml = buildArtifactsHtml(item);
 
-  const metaParts = [];
-  if (item.assignee) metaParts.push(`<li><strong>担当:</strong> ${escapeHtml(item.assignee)}</li>`);
-  if (item.startDate) metaParts.push(`<li><strong>開始日:</strong> ${escapeHtml(item.startDate)}</li>`);
-  if (item.dueDate) metaParts.push(`<li><strong>期日:</strong> ${escapeHtml(item.dueDate)}</li>`);
-  if (item.completedDate) metaParts.push(`<li><strong>完了日:</strong> ${escapeHtml(item.completedDate)}</li>`);
-  const metaHtml = metaParts.length > 0 ? `<div class="detail-section"><h4>情報</h4><ul class="detail-meta">${metaParts.join('')}</ul></div>` : '';
+  const metaHtml = buildMetaHtml(item);
 
   const detailSpinner = item.running ? '<span class="running-spinner detail-spinner"></span>' : '';
 
@@ -1690,17 +1715,20 @@ function openChildModal(item) {
   // ワークスペース移管ボタン（BT-063）
   const moveActionHtml = buildMoveActionHtml(item);
 
-  body.innerHTML = `
+  const headerHtml = `
     <div class="detail-header">
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
       ${statusBadge}
       ${project}${category}${githubBadge}
     </div>
     <h3 class="detail-title">${escapeHtml(item.title)}</h3>
-    ${desc}
-    ${artifactsHtml}
-    ${metaHtml}
     ${actionsRow(editBtnHtml, deleteBtnHtml, workspaceActionHtml, moveActionHtml, detachBtn, githubLinkBtnHtml, githubCreateBtnHtml)}
+    ${desc}
+  `;
+  const sideHtml = `${metaHtml}${artifactsHtml}`;
+
+  body.innerHTML = `
+    ${buildDetailColumnsHtml(headerHtml, sideHtml)}
   `;
 
   // 親から外すボタンのイベント
@@ -2200,12 +2228,7 @@ function renderModalContent(item) {
   // 成果物セクション
   const artifactsHtml = buildArtifactsHtml(item);
 
-  const metaParts = [];
-  if (item.assignee) metaParts.push(`<li><strong>担当:</strong> ${escapeHtml(item.assignee)}</li>`);
-  if (item.startDate) metaParts.push(`<li><strong>開始日:</strong> ${escapeHtml(item.startDate)}</li>`);
-  if (item.dueDate) metaParts.push(`<li><strong>期日:</strong> ${escapeHtml(item.dueDate)}</li>`);
-  if (item.completedDate) metaParts.push(`<li><strong>完了日:</strong> ${escapeHtml(item.completedDate)}</li>`);
-  const metaHtml = metaParts.length > 0 ? `<div class="detail-section"><h4>情報</h4><ul class="detail-meta">${metaParts.join('')}</ul></div>` : '';
+  const metaHtml = buildMetaHtml(item);
 
   let miniBoard = '';
   if (isEpic) {
@@ -2244,7 +2267,7 @@ function renderModalContent(item) {
   // ワークスペース移管ボタン（BT-063: 子ありEpicはサーバー側でも拒否されるため出さない）
   const moveActionHtml = (!isEpic && item.statusCode !== 'done') ? buildMoveActionHtml(item) : '';
 
-  body.innerHTML = `
+  const headerHtml = `
     <div class="detail-header">
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
       ${statusBadge}
@@ -2252,10 +2275,13 @@ function renderModalContent(item) {
       ${project}${category}${githubBadge}
     </div>
     <h3 class="detail-title">${escapeHtml(item.title)}</h3>
-    ${desc}
-    ${artifactsHtml}
-    ${metaHtml}
     ${actionsRow(editBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml)}
+    ${desc}
+  `;
+  const sideHtml = `${metaHtml}${artifactsHtml}`;
+
+  body.innerHTML = `
+    ${buildDetailColumnsHtml(headerHtml, sideHtml)}
     ${miniBoard}
   `;
 
