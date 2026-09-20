@@ -30,7 +30,7 @@
   - 状態変更: `POST /api/update-status {taskId, newStatus}` — `newStatus`はcode値 `todo`/`ready`/`do`/`done` のいずれか（**日本語ラベルではない**）
   - 今日やる: `POST /api/toggle-today {taskId, value?}` — レスポンスキーは `pinned`
   - 実行中: `POST /api/toggle-running {taskId, value?}`
-  - 追加: `POST /api/add-task {title, project?, status?, origin?, parentId?, description?}`
+  - 追加: `POST /api/add-task {title, project?, status?, origin?, parentId?, description?, assignee?, startDate?, dueDate?}`（BT-263で担当/開始日/期日にも対応。登録フォームで最初から入力できる）
     - `status`省略時は`todo`
     - **【重要】`project`にはprefix（例`"BT"`）ではなくconfig.jsonの`projects[].file`値（例`"backlog-todo"`）を渡すこと（BT-129）**。prefixを渡すと該当プロジェクトが解決できず、デフォルト（`inbox`等）に採番されてしまう。追加後は必ず期待したプレフィクスでID発行されたか確認する
   - 更新: `POST /api/update-task {taskId, title?, description?, category?, assignee?, startDate?, dueDate?}` — 渡したフィールドのみ更新

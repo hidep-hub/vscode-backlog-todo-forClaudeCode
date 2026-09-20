@@ -1575,7 +1575,7 @@ function getOrCreateModal() {
   modalEl = document.createElement('div');
   modalEl.className = 'modal-overlay';
   modalEl.innerHTML = `
-    <div class="modal-content">
+    <div class="modal-content detail-modal-content">
       <button class="modal-close">&times;</button>
       <div class="modal-body"></div>
     </div>
@@ -1646,7 +1646,7 @@ function getOrCreateChildModal() {
   el.id = 'child-modal-overlay';
   el.className = 'modal-overlay child-modal-overlay';
   el.innerHTML = `
-    <div class="modal-content child-modal-content">
+    <div class="modal-content child-modal-content detail-modal-content">
       <button class="modal-close" id="child-modal-close">&times;</button>
       <div class="modal-body"></div>
     </div>
@@ -3159,30 +3159,48 @@ function getOrCreateAddForm() {
   addFormEl = document.createElement('div');
   addFormEl.className = 'modal-overlay';
   addFormEl.innerHTML = `
-    <div class="modal-content add-task-modal">
+    <div class="modal-content add-task-modal add-task-form-wide">
       <button class="modal-close" id="add-form-close">&times;</button>
       <h3 class="add-form-title">タスク追加</h3>
-      <div class="settings-group">
-        <label>タイトル</label>
-        <input type="text" id="add-task-title" placeholder="やりたいことを一言で">
-      </div>
-      <div class="settings-group">
-        <label>説明（任意）</label>
-        <textarea id="add-task-description" rows="4" placeholder="補足があれば"></textarea>
-      </div>
-      <div class="settings-group">
-        <label>ワークスペース</label>
-        <select id="add-task-project">
-          <option value="inbox">未ワークスペース (Inbox)</option>
-        </select>
-      </div>
-      <div class="settings-group">
-        <label>ステータス</label>
-        <select id="add-task-status">
-          <option value="todo">TODO</option>
-          <option value="ready">READY</option>
-          <option value="do">DO</option>
-        </select>
+      <div class="detail-layout">
+        <div class="detail-main">
+          <div class="settings-group">
+            <label>タイトル</label>
+            <input type="text" id="add-task-title" placeholder="やりたいことを一言で">
+          </div>
+          <div class="settings-group">
+            <label>説明（任意）</label>
+            <textarea id="add-task-description" rows="4" placeholder="補足があれば"></textarea>
+          </div>
+        </div>
+        <div class="detail-side">
+          <div class="settings-group">
+            <label>ワークスペース</label>
+            <select id="add-task-project">
+              <option value="inbox">未ワークスペース (Inbox)</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label>ステータス</label>
+            <select id="add-task-status">
+              <option value="todo">TODO</option>
+              <option value="ready">READY</option>
+              <option value="do">DO</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label>担当（任意）</label>
+            <input type="text" id="add-task-assignee" placeholder="担当者">
+          </div>
+          <div class="settings-group">
+            <label>開始日（任意）</label>
+            <input type="date" id="add-task-start-date">
+          </div>
+          <div class="settings-group">
+            <label>期日（任意）</label>
+            <input type="date" id="add-task-due-date">
+          </div>
+        </div>
       </div>
       <p class="edit-task-error" id="add-task-error" style="display:none;"></p>
       <button class="add-task-submit" id="add-task-submit">追加</button>
@@ -3246,10 +3264,13 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId) {
     form.querySelector('#add-task-status').value = defaultStatus;
   }
 
-  // タイトル・説明をクリア＆フォーカス
+  // タイトル・説明・担当・日付をクリア＆フォーカス（BT-263）
   const titleInput = form.querySelector('#add-task-title');
   titleInput.value = '';
   form.querySelector('#add-task-description').value = '';
+  form.querySelector('#add-task-assignee').value = '';
+  form.querySelector('#add-task-start-date').value = '';
+  form.querySelector('#add-task-due-date').value = '';
 
   // 前回開いた時のエラー表示を引きずらないようリセット
   const errorEl = form.querySelector('#add-task-error');
@@ -3270,6 +3291,9 @@ async function submitAddTask() {
   const description = form.querySelector('#add-task-description').value.trim();
   const project = form.querySelector('#add-task-project').value;
   const status = form.querySelector('#add-task-status').value;
+  const assignee = form.querySelector('#add-task-assignee').value.trim();
+  const startDate = form.querySelector('#add-task-start-date').value;
+  const dueDate = form.querySelector('#add-task-due-date').value;
   const parentId = form.dataset.parentId || '';
   const errorEl = form.querySelector('#add-task-error');
   errorEl.style.display = 'none';
@@ -3282,6 +3306,9 @@ async function submitAddTask() {
   try {
     const body = { title, project, status, origin: 'user' };
     if (description) body.description = description;
+    if (assignee) body.assignee = assignee;
+    if (startDate) body.startDate = startDate;
+    if (dueDate) body.dueDate = dueDate;
     if (parentId) body.parentId = parentId;
 
     const resp = await fetch('/api/add-task', {
