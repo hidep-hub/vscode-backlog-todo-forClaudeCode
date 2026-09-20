@@ -991,9 +991,10 @@ function serveStatic(req, res) {
 
   // API: POST /api/add-task (BT-190: DB版。statusはstatus code(todo/ready/do/done)を受け取る。
   // projectはconfig.projects[].file値(workspace)。parentIdを渡すと子タスクとして作成され、
-  // その場合workspaceは親のworkspaceに強制される(isChild廃止、BT-187))
+  // その場合workspaceは親のworkspaceに強制される(isChild廃止、BT-187)。
+  // assignee/startDate/dueDateは任意(BT-263: 登録フォームで最初から入力できるようにするため追加))
   if (req.url === '/api/add-task' && req.method === 'POST') {
-    readRequestBody(req).then(({ title, project, status, origin, parentId, description }) => {
+    readRequestBody(req).then(({ title, project, status, origin, parentId, description, assignee, startDate, dueDate }) => {
       if (!title || !title.trim()) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'title is required' }));
@@ -1019,6 +1020,9 @@ function serveStatic(req, res) {
           title: title.trim(),
           status: newStatus,
           description: description || null,
+          assignee: assignee || null,
+          startDate: startDate || null,
+          dueDate: dueDate || null,
           parentDisplayId: parentId || null,
           createdBy: origin || 'user',
         });

@@ -966,14 +966,16 @@ body {
 
 /* 単発/子タスクの詳細は、説明欄だけを内部スクロールにして
    ヘッダー/タイトル/アクション/右カラムは常に見える状態を保つ（BT-261）。
-   EPIC(modal-wide)はmini-boardを含み縦に伸びる想定のため対象外、従来通りモーダル全体スクロール。 */
-.modal-content:not(.modal-wide) {
+   EPIC(modal-wide)はmini-boardを含み縦に伸びる想定のため対象外、従来通りモーダル全体スクロール。
+   対象は.detail-modal-content(詳細/子詳細モーダル)のみに限定する。他の.modal-content利用先
+   (削除確認/GitHubリンク/親ピッカー/検索/タスク追加/ワークスペース作成)には影響させない(BT-263で発覚した副作用の修正)。 */
+.modal-content.detail-modal-content:not(.modal-wide) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.modal-content:not(.modal-wide) .modal-body {
+.modal-content.detail-modal-content:not(.modal-wide) .modal-body {
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -981,37 +983,37 @@ body {
   flex-direction: column;
 }
 
-.modal-content:not(.modal-wide) .detail-layout {
+.modal-content.detail-modal-content:not(.modal-wide) .detail-layout {
   flex: 1;
   min-height: 0;
   overflow: hidden;
   align-items: stretch;
 }
 
-.modal-content:not(.modal-wide) .detail-main {
+.modal-content.detail-modal-content:not(.modal-wide) .detail-main {
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
-.modal-content:not(.modal-wide) .detail-main > *:not(.detail-description-section) {
+.modal-content.detail-modal-content:not(.modal-wide) .detail-main > *:not(.detail-description-section) {
   flex-shrink: 0;
 }
 
-.modal-content:not(.modal-wide) .detail-description-section {
+.modal-content.detail-modal-content:not(.modal-wide) .detail-description-section {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
 }
 
-.modal-content:not(.modal-wide) .detail-description-section .description-collapsible {
+.modal-content.detail-modal-content:not(.modal-wide) .detail-description-section .description-collapsible {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
 
-.modal-content:not(.modal-wide) .detail-side {
+.modal-content.detail-modal-content:not(.modal-wide) .detail-side {
   overflow-y: auto;
   min-height: 0;
 }
@@ -1791,6 +1793,12 @@ body {
 /* --- Add Task Form (Modal) --- */
 .add-task-modal {
   max-width: 380px;
+}
+
+/* タスク追加フォームのみ詳細モーダルと同じ横長幅にする（BT-263）。
+   ワークスペース作成フォーム(getOrCreateWorkspaceCreateForm)は.add-task-modalを共有しているため対象外。 */
+.add-task-modal.add-task-form-wide {
+  max-width: 760px;
 }
 
 .add-form-title {
