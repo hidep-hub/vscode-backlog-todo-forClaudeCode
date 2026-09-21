@@ -593,6 +593,7 @@ function connect() {
       if (data.projects) updateProjectFilter(data.projects);
       renderBoard(currentBoardData);
       refreshModalIfOpen();
+      refreshPlanBoardIfOpen();
     } catch (e) {
       console.error('[app] Failed to parse message:', e);
     }
@@ -1870,6 +1871,14 @@ function openPlanBoard() {
 function closePlanBoard() {
   const overlay = document.getElementById('plan-board-overlay');
   if (overlay) overlay.classList.remove('active');
+}
+
+// WS経由のボード更新受信時、週次計画ビューが開いていれば最新データで再描画する
+// (ドロップ直後のrenderPlanBoard()はupdate-task完了直後でまだlastBoardDataが古いままのため、
+//  WS更新が届いたこのタイミングで改めて描画し直すことで実際の反映を保証する)
+function refreshPlanBoardIfOpen() {
+  const overlay = document.getElementById('plan-board-overlay');
+  if (overlay && overlay.classList.contains('active')) renderPlanBoard();
 }
 
 // --- Today Flag Toggle ---
