@@ -3300,7 +3300,7 @@ body {
 .plan-board-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 14px;
 }
 
@@ -3308,6 +3308,7 @@ body {
   font-size: 1rem;
   color: var(--text);
   margin: 0;
+  flex: 1;
 }
 
 .plan-board-close {
@@ -3333,8 +3334,8 @@ body {
 
 .plan-col {
   flex: 1;
-  min-width: 200px;
-  max-width: 280px;
+  min-width: 220px;
+  max-width: 320px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -3367,8 +3368,10 @@ body {
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
   min-height: 0;
+  box-sizing: border-box;
 }
 
 .plan-col-body.drop-over {
@@ -3387,18 +3390,40 @@ body {
 }
 
 .plan-epic-group {
-  background: var(--card);
-  border-radius: 6px;
-  padding: 6px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.plan-epic-group:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
 .plan-epic-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 6px;
-  cursor: grab;
+  padding: 4px 2px;
+  cursor: pointer;
   border-radius: 4px;
+}
+
+.plan-epic-header:hover {
+  background: var(--card-hover);
+}
+
+.plan-epic-handle {
+  color: var(--text-muted);
+  cursor: grab;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.plan-epic-handle:hover {
+  color: var(--text);
+  background: var(--card);
 }
 
 .plan-epic-header .card-id {
@@ -3412,7 +3437,7 @@ body {
 
 .plan-epic-header .count {
   font-size: 0.65rem;
-  background: var(--surface);
+  background: var(--card);
   padding: 1px 6px;
   border-radius: 10px;
   color: var(--text-muted);
@@ -3422,14 +3447,20 @@ body {
   color: var(--text-muted);
   font-size: 0.7rem;
   width: 12px;
-  cursor: pointer;
 }
 
 .plan-epic-children {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 6px;
-  padding-left: 10px;
+  margin-top: 4px;
+  padding-left: 16px;
   border-left: 2px solid var(--border);
+  margin-left: 8px;
+}
+
+.card-tag.due-badge {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  background: transparent;
 }

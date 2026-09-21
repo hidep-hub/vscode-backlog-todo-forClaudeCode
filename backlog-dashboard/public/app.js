@@ -823,7 +823,8 @@ function renderBoard(data) {
       const projectTag = showField('project') ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
       const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>' : '';
       const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
-      const metaParts = [projectTag, category, artifactIndicator, githubBadge, completedDate].filter(Boolean);
+      const dueBadge = item.dueDate ? `<span class="card-tag due-badge">${planFormatDueBadge(item.dueDate)}</span>` : '';
+      const metaParts = [projectTag, category, artifactIndicator, githubBadge, dueBadge, completedDate].filter(Boolean);
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
 
       // ピンボタン（完了カラムには不要）
@@ -1555,14 +1556,13 @@ async function updateStatus(taskId, newStatus) {
 }
 
 // --- 週次計画ビュー (BT-264) ---
-const PLAN_BUCKETS = [
-  { id: 'todo', label: 'TODO' },
-  { id: 'overdue', label: '遅延' },
-  { id: 'thisWeek', label: '今週' },
-  { id: 'nextWeek', label: '来週' },
-  { id: 'nextNextWeek', label: '再来週' },
-  { id: 'later', label: 'それ以降' },
-];
+const PLAN_WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
+
+function planFormatDueBadge(dueDate) {
+  if (!dueDate) return '';
+  const d = new Date(dueDate + 'T00:00:00');
+  return `${d.getMonth() + 1}/${d.getDate()}(${PLAN_WEEKDAY_JA[d.getDay()]})`;
+}
 
 function planGetMonday(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
@@ -1585,6 +1585,21 @@ function planAddDays(d, n) {
   return nd;
 }
 
+// weeksOffset: 今週=0, 来週=1, それ以降(ドロップ時の基準週)=2
+const PLAN_WEEKS_OFFSET = { thisWeek: 0, nextWeek: 1, later: 2 };
+
+function planBucketDef() {
+  const todayMonday = planGetMonday(getTodayJST());
+  const sundayOf = (weeksOffset) => planFormatYmd(planAddDays(todayMonday, weeksOffset * 7 + 6)).slice(5).replace('-', '/');
+  return [
+    { id: 'todo', label: 'TODO' },
+    { id: 'overdue', label: '遅延' },
+    { id: 'thisWeek', label: `今週(${sundayOf(0)})` },
+    { id: 'nextWeek', label: `来週(${sundayOf(1)})` },
+    { id: 'later', label: 'それ以降' },
+  ];
+}
+
 function planBucketForDueDate(dueDate) {
   if (!dueDate) return 'todo';
   const todayMonday = planGetMonday(getTodayJST());
@@ -1593,20 +1608,19 @@ function planBucketForDueDate(dueDate) {
   if (weeksDiff < 0) return 'overdue';
   if (weeksDiff === 0) return 'thisWeek';
   if (weeksDiff === 1) return 'nextWeek';
-  if (weeksDiff === 2) return 'nextNextWeek';
   return 'later';
 }
 
-// ドロップ先バケットに対応する期日（週の日曜日）。TODO/遅延はドロップ非対応でnull。
+// ドロップ先バケットに対応する期日（週の日曜日）。TODO(=クリア)/遅延(非対応)はnull。
+// 「それ以降」は境界がないため、暫定でPLAN_WEEKS_OFFSET.later週の日曜日に固定する。
 function planDueDateForBucket(bucketId) {
-  const weeksOffsetMap = { thisWeek: 0, nextWeek: 1, nextNextWeek: 2, later: 3 };
-  if (!(bucketId in weeksOffsetMap)) return null;
+  if (!(bucketId in PLAN_WEEKS_OFFSET)) return null;
   const todayMonday = planGetMonday(getTodayJST());
-  const monday = planAddDays(todayMonday, weeksOffsetMap[bucketId] * 7);
+  const monday = planAddDays(todayMonday, PLAN_WEEKS_OFFSET[bucketId] * 7);
   return planFormatYmd(planAddDays(monday, 6));
 }
 
-// メインボードの全カラムからトップレベルitemを収集（parentId付き=完了子タスクの重複表示はスキップ）
+// メインボードの全カラムからトップレベルitemを収集（parentId付き=完了子タスクの重複表示はスキップ、フィルタはヘッダーのワークスペース選択に追従）
 function planCollectItems() {
   if (!lastBoardData || !lastBoardData.columns) return [];
   const result = [];
@@ -1615,6 +1629,7 @@ function planCollectItems() {
     for (const item of col.items) {
       if (!item.id || item.id === '-') continue;
       if (item.parentId) continue; // 親側children配列で既にカウント済み
+      if (currentFilter && item.project !== currentFilter) continue;
       if (seen.has(item.id)) continue;
       seen.add(item.id);
       result.push(item);
@@ -1623,9 +1638,9 @@ function planCollectItems() {
   return result;
 }
 
-function planBuildBuckets() {
+function planBuildBuckets(bucketDefs) {
   const buckets = {};
-  for (const b of PLAN_BUCKETS) buckets[b.id] = { singles: [], epicGroups: new Map() };
+  for (const b of bucketDefs) buckets[b.id] = { singles: [], epicGroups: new Map() };
 
   for (const item of planCollectItems()) {
     const isEpic = (item.children && item.children.length > 0) || item.childrenTotal > 0;
@@ -1669,7 +1684,8 @@ function planBuildCard(item, bucketId) {
   card.className = 'card plan-card' + (isDone ? ' plan-card-done' : '');
   card.dataset.taskId = item.id;
   const spinner = item.running ? '<span class="running-spinner"></span>' : '';
-  card.innerHTML = `<div class="card-id">${spinner}${escapeHtml(item.id)}</div><div class="card-title">${escapeHtml(item.title)}</div>`;
+  const dueBadge = item.dueDate ? `<div class="card-meta"><span class="card-tag due-badge">${planFormatDueBadge(item.dueDate)}</span></div>` : '';
+  card.innerHTML = `<div class="card-id">${spinner}${escapeHtml(item.id)}</div><div class="card-title">${escapeHtml(item.title)}</div>${dueBadge}`;
 
   if (!isDone) {
     card.setAttribute('draggable', 'true');
@@ -1698,16 +1714,18 @@ function planBuildEpicGroup(group, bucketId) {
 
   const header = document.createElement('div');
   header.className = 'plan-epic-header';
-  header.setAttribute('draggable', 'true');
-  header.innerHTML = `<span class="plan-epic-toggle">${isExpanded ? '▾' : '▸'}</span><span class="card-id">${escapeHtml(group.epic.id)}</span><span class="card-title">${escapeHtml(group.epic.title)}</span><span class="count">${group.children.length}</span>`;
+  header.innerHTML = `<span class="plan-epic-handle" title="ドラッグでこのEPICの子タスクをまとめて移動">≡</span><span class="plan-epic-toggle">${isExpanded ? '▾' : '▸'}</span><span class="card-id">${escapeHtml(group.epic.id)}</span><span class="card-title">${escapeHtml(group.epic.title)}</span><span class="count">${group.children.length}</span>`;
 
-  header.querySelector('.plan-epic-toggle').addEventListener('click', (e) => {
-    e.stopPropagation();
+  header.addEventListener('click', (e) => {
+    if (e.target.closest('.plan-epic-handle')) return;
     if (planCollapsedGroups.has(key)) planCollapsedGroups.delete(key); else planCollapsedGroups.add(key);
     renderPlanBoard();
   });
 
-  header.addEventListener('dragstart', (e) => {
+  const handle = header.querySelector('.plan-epic-handle');
+  handle.setAttribute('draggable', 'true');
+  handle.addEventListener('dragstart', (e) => {
+    e.stopPropagation();
     const targetIds = group.children.filter(c => c.statusCode !== 'done').map(c => c.id);
     if (targetIds.length === 0) { e.preventDefault(); return; }
     planDragData = { kind: 'group', epicId: group.epic.id, childIds: targetIds };
@@ -1715,7 +1733,7 @@ function planBuildEpicGroup(group, bucketId) {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', group.epic.id);
   });
-  header.addEventListener('dragend', () => {
+  handle.addEventListener('dragend', () => {
     header.classList.remove('card-dragging');
     planDragData = null;
   });
@@ -1764,10 +1782,11 @@ function planSetupDropZone(bodyEl, bucketId) {
 function renderPlanBoard() {
   const container = document.getElementById('plan-board-columns');
   if (!container) return;
-  const buckets = planBuildBuckets();
+  const bucketDefs = planBucketDef();
+  const buckets = planBuildBuckets(bucketDefs);
   container.innerHTML = '';
 
-  for (const b of PLAN_BUCKETS) {
+  for (const b of bucketDefs) {
     const bucket = buckets[b.id];
     const totalCount = bucket.singles.length + Array.from(bucket.epicGroups.values()).reduce((s, g) => s + g.children.length, 0);
 
@@ -1798,6 +1817,7 @@ function getOrCreatePlanBoardModal() {
     <div class="plan-board-panel">
       <div class="plan-board-header">
         <h3>📅 週次計画</h3>
+        <select class="filter-select" id="plan-board-project-filter" title="Workspace filter"></select>
         <button class="plan-board-close" id="plan-board-close">&times;</button>
       </div>
       <div class="plan-board-columns" id="plan-board-columns"></div>
@@ -1806,11 +1826,23 @@ function getOrCreatePlanBoardModal() {
   document.body.appendChild(overlay);
   overlay.querySelector('#plan-board-close').addEventListener('click', closePlanBoard);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closePlanBoard(); });
+  overlay.querySelector('#plan-board-project-filter').addEventListener('change', (e) => {
+    currentFilter = e.target.value;
+    setSessionFilter(currentFilter);
+    if (projectFilterEl) projectFilterEl.value = currentFilter;
+    if (currentBoardData) renderBoard(currentBoardData);
+    renderPlanBoard();
+  });
   return overlay;
 }
 
 function openPlanBoard() {
   const overlay = getOrCreatePlanBoardModal();
+  const sel = overlay.querySelector('#plan-board-project-filter');
+  if (sel && projectFilterEl) {
+    sel.innerHTML = projectFilterEl.innerHTML;
+    sel.value = currentFilter;
+  }
   overlay.classList.add('active');
   renderPlanBoard();
 }
@@ -2745,6 +2777,9 @@ function buildMiniBoard(epic) {
       }
       if (child.githubIssueNumber) {
         mParts.push(renderGithubIssueBadge(child.githubIssueNumber, child.githubIssueUrl));
+      }
+      if (child.dueDate) {
+        mParts.push(`<span class="card-tag due-badge">${planFormatDueBadge(child.dueDate)}</span>`);
       }
       if (child.completedDate) {
         mParts.push(`<span class="card-tag completed-date" title="完了日">${escapeHtml(child.completedDate)}</span>`);
