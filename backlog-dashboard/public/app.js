@@ -4,6 +4,7 @@ const boardEl = document.getElementById('board');
 const statusEl = document.getElementById('status');
 const projectFilterEl = document.getElementById('project-filter');
 const searchBtn = document.getElementById('search-btn');
+const planBtn = document.getElementById('plan-btn');
 const themeSelectEl = document.getElementById('theme-select');
 const githubImportBtn = document.getElementById('github-import-btn');
 const headerLogoEl = document.getElementById('header-logo');
@@ -30,6 +31,10 @@ let expandedMiniCols = new Set(); // ミニボードの完了カラムで「他N
 let pendingHighlightChildId = null; // BT-201: 親Epicリンククリック直後、ミニボードでハイライトすべき子タスクID
 let workspaceFilterMap = null; // サーバーから取得: { workspaceKey -> projectName }
 let wsDefaultFilter = ''; // URLパラメータから決まるデフォルトフィルタ（プロジェクト名）
+
+// --- 週次計画ビュー (BT-264) ---
+let planDragData = null; // { kind: 'single', id } | { kind: 'group', epicId, childIds: [] }
+let planCollapsedGroups = new Set(); // 折りたたみ中のEPICグループキー('epicId_bucketId')
 
 // --- 複数選択→親付け (BT-034) ---
 let selectionMode = false;
@@ -510,6 +515,7 @@ if (projectBadgesEl) {
 
 // --- Search Modal ---
 searchBtn.addEventListener('click', openSearchModal);
+planBtn.addEventListener('click', openPlanBoard);
 
 // ショートカット: "/" または Ctrl+K（Mac: Cmd+K）で検索ダイアログを開く
 document.addEventListener('keydown', (e) => {
@@ -587,6 +593,7 @@ function connect() {
       if (data.projects) updateProjectFilter(data.projects);
       renderBoard(currentBoardData);
       refreshModalIfOpen();
+      refreshPlanBoardIfOpen();
     } catch (e) {
       console.error('[app] Failed to parse message:', e);
     }
@@ -817,7 +824,8 @@ function renderBoard(data) {
       const projectTag = showField('project') ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
       const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>' : '';
       const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
-      const metaParts = [projectTag, category, artifactIndicator, githubBadge, completedDate].filter(Boolean);
+      const dueBadge = item.dueDate ? `<span class="card-tag due-badge">${planFormatDueBadge(item.dueDate)}</span>` : '';
+      const metaParts = [projectTag, category, artifactIndicator, githubBadge, dueBadge, completedDate].filter(Boolean);
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
 
       // ピンボタン（完了カラムには不要）
@@ -1546,6 +1554,331 @@ async function updateStatus(taskId, newStatus) {
   } catch (e) {
     console.error('[dnd] Network error:', e);
   }
+}
+
+// --- 週次計画ビュー (BT-264) ---
+const PLAN_WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
+
+function planFormatDueBadge(dueDate) {
+  if (!dueDate) return '';
+  const d = new Date(dueDate + 'T00:00:00');
+  return `${d.getMonth() + 1}/${d.getDate()}(${PLAN_WEEKDAY_JA[d.getDay()]})`;
+}
+
+function planGetMonday(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay(); // 0=Sun .. 6=Sat
+  const diff = (day === 0 ? -6 : 1 - day);
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function planFormatYmd(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function planAddDays(d, n) {
+  const nd = new Date(d);
+  nd.setDate(nd.getDate() + n);
+  return nd;
+}
+
+// weeksOffset: 今週=0, 来週=1, それ以降(ドロップ時の基準週)=2
+const PLAN_WEEKS_OFFSET = { thisWeek: 0, nextWeek: 1, later: 2 };
+
+function planBucketDef() {
+  const todayMonday = planGetMonday(getTodayJST());
+  const mondayOf = (weeksOffset) => planFormatYmd(planAddDays(todayMonday, weeksOffset * 7)).slice(5).replace('-', '/');
+  return [
+    { id: 'todo', label: 'TODO' },
+    { id: 'overdue', label: '遅延' },
+    { id: 'thisWeek', label: `今週(${mondayOf(0)})` },
+    { id: 'nextWeek', label: `来週(${mondayOf(1)})` },
+    { id: 'later', label: 'それ以降' },
+  ];
+}
+
+function planBucketForDueDate(dueDate) {
+  if (!dueDate) return 'todo';
+  const todayMonday = planGetMonday(getTodayJST());
+  const dueMonday = planGetMonday(dueDate);
+  const weeksDiff = Math.round((dueMonday - todayMonday) / (7 * 86400000));
+  if (weeksDiff < 0) return 'overdue';
+  if (weeksDiff === 0) return 'thisWeek';
+  if (weeksDiff === 1) return 'nextWeek';
+  return 'later';
+}
+
+// ドロップ先バケットに対応する期日（週の日曜日）。TODO(=クリア)/遅延(非対応)はnull。
+// 「それ以降」は境界がないため、暫定でPLAN_WEEKS_OFFSET.later週の日曜日に固定する。
+function planDueDateForBucket(bucketId) {
+  if (!(bucketId in PLAN_WEEKS_OFFSET)) return null;
+  const todayMonday = planGetMonday(getTodayJST());
+  const monday = planAddDays(todayMonday, PLAN_WEEKS_OFFSET[bucketId] * 7);
+  return planFormatYmd(planAddDays(monday, 6));
+}
+
+// メインボードの全カラムからトップレベルitemを収集（parentId付き=完了子タスクの重複表示はスキップ、フィルタはヘッダーのワークスペース選択に追従）
+function planCollectItems() {
+  if (!lastBoardData || !lastBoardData.columns) return [];
+  const result = [];
+  const seen = new Set();
+  for (const col of lastBoardData.columns) {
+    for (const item of col.items) {
+      if (!item.id || item.id === '-') continue;
+      if (item.parentId) continue; // 親側children配列で既にカウント済み
+      if (currentFilter && item.project !== currentFilter) continue;
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      result.push(item);
+    }
+  }
+  return result;
+}
+
+function planBuildBuckets(bucketDefs) {
+  const buckets = {};
+  for (const b of bucketDefs) buckets[b.id] = { singles: [], epicGroups: new Map() };
+
+  for (const item of planCollectItems()) {
+    const isEpic = (item.children && item.children.length > 0) || item.childrenTotal > 0;
+    if (isEpic) {
+      for (const child of (item.children || [])) {
+        const bucketId = planBucketForDueDate(child.dueDate);
+        if (bucketId === 'todo' && child.statusCode === 'done') continue; // 完了済みは期日未設定のままTODOに残さない
+        let group = buckets[bucketId].epicGroups.get(item.id);
+        if (!group) {
+          group = { epic: item, children: [] };
+          buckets[bucketId].epicGroups.set(item.id, group);
+        }
+        group.children.push(child);
+      }
+    } else {
+      const bucketId = planBucketForDueDate(item.dueDate);
+      if (bucketId === 'todo' && item.statusCode === 'done') continue;
+      buckets[bucketId].singles.push(item);
+    }
+  }
+  return buckets;
+}
+
+async function planUpdateDueDate(taskId, dueDate) {
+  try {
+    const resp = await fetch('/api/update-task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId, dueDate: dueDate || '' }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      console.error('[plan] update-task failed:', err.error);
+    }
+  } catch (e) {
+    console.error('[plan] Network error:', e);
+  }
+}
+
+function planBuildCard(item, bucketId, parentEpic = null) {
+  const isDone = item.statusCode === 'done';
+  const card = document.createElement('div');
+  card.className = 'card plan-card' + (isDone ? ' plan-card-done' : '');
+  card.dataset.taskId = item.id;
+  const spinner = item.running ? '<span class="running-spinner"></span>' : '';
+  const dueBadge = item.dueDate ? `<div class="card-meta"><span class="card-tag due-badge">${planFormatDueBadge(item.dueDate)}</span></div>` : '';
+  card.innerHTML = `<div class="card-id">${spinner}${escapeHtml(item.id)}</div><div class="card-title">${escapeHtml(item.title)}</div>${dueBadge}`;
+
+  if (!isDone) {
+    card.setAttribute('draggable', 'true');
+    card.classList.add('card-draggable');
+    card.addEventListener('dragstart', (e) => {
+      planDragData = { kind: 'single', id: item.id };
+      card.classList.add('card-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', item.id);
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('card-dragging');
+      planDragData = null;
+    });
+  }
+
+  card.addEventListener('click', () => {
+    if (parentEpic) {
+      // 子タスク: EPICボード(ミニボード)を開き、この子タスクをハイライト
+      expandedMiniCols.add('done');
+      pendingHighlightChildId = item.id;
+      openCardDetail(parentEpic);
+    } else {
+      openCardDetail(item);
+    }
+  });
+  return card;
+}
+
+function planBuildEpicGroup(group, bucketId) {
+  const key = group.epic.id + '_' + bucketId;
+  const isExpanded = !planCollapsedGroups.has(key);
+  const wrap = document.createElement('div');
+  wrap.className = 'plan-epic-group';
+
+  const header = document.createElement('div');
+  header.className = 'plan-epic-header';
+  header.innerHTML = `<span class="plan-epic-handle" title="ドラッグでこのEPICの子タスクをまとめて移動">≡</span><span class="plan-epic-toggle">${isExpanded ? '▾' : '▸'}</span><div class="plan-epic-header-text"><div class="plan-epic-header-row1"><span class="card-id">${escapeHtml(group.epic.id)}</span><span class="count">${group.children.length}</span></div><div class="card-title">${escapeHtml(group.epic.title)}</div></div>`;
+
+  header.addEventListener('click', (e) => {
+    if (e.target.closest('.plan-epic-handle')) return;
+    if (planCollapsedGroups.has(key)) planCollapsedGroups.delete(key); else planCollapsedGroups.add(key);
+    renderPlanBoard();
+  });
+
+  const handle = header.querySelector('.plan-epic-handle');
+  handle.setAttribute('draggable', 'true');
+  handle.addEventListener('dragstart', (e) => {
+    e.stopPropagation();
+    const targetIds = group.children.filter(c => c.statusCode !== 'done').map(c => c.id);
+    if (targetIds.length === 0) { e.preventDefault(); return; }
+    planDragData = { kind: 'group', epicId: group.epic.id, childIds: targetIds };
+    header.classList.add('card-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', group.epic.id);
+  });
+  handle.addEventListener('dragend', () => {
+    header.classList.remove('card-dragging');
+    planDragData = null;
+  });
+
+  const childrenEl = document.createElement('div');
+  childrenEl.className = 'plan-epic-children';
+  childrenEl.style.display = isExpanded ? '' : 'none';
+  for (const child of group.children) {
+    childrenEl.appendChild(planBuildCard(child, bucketId, group.epic));
+  }
+
+  wrap.appendChild(header);
+  wrap.appendChild(childrenEl);
+  return wrap;
+}
+
+function planSetupDropZone(bodyEl, bucketId) {
+  const canDrop = bucketId !== 'overdue'; // 遅延列への期日設定は未定義のため今回は非対応
+
+  bodyEl.addEventListener('dragover', (e) => {
+    if (!planDragData || !canDrop) return;
+    e.preventDefault();
+    bodyEl.classList.add('drop-over');
+  });
+  bodyEl.addEventListener('dragleave', (e) => {
+    if (!bodyEl.contains(e.relatedTarget)) bodyEl.classList.remove('drop-over');
+  });
+  bodyEl.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    bodyEl.classList.remove('drop-over');
+    if (!planDragData || !canDrop) { planDragData = null; return; }
+
+    const newDue = planDueDateForBucket(bucketId); // TODO列はnull(=クリア)
+    const drag = planDragData;
+    planDragData = null;
+
+    if (drag.kind === 'single') {
+      await planUpdateDueDate(drag.id, newDue);
+    } else if (drag.kind === 'group') {
+      await Promise.all(drag.childIds.map(id => planUpdateDueDate(id, newDue)));
+    }
+    renderPlanBoard();
+  });
+}
+
+function renderPlanBoard() {
+  const container = document.getElementById('plan-board-columns');
+  if (!container) return;
+
+  // EPIC開閉トグル等での再描画時に、列のスクロール位置が先頭に飛ばないよう保持する
+  const scrollPositions = {};
+  container.querySelectorAll('.plan-col-body[data-bucket-id]').forEach(el => {
+    scrollPositions[el.dataset.bucketId] = el.scrollTop;
+  });
+
+  const bucketDefs = planBucketDef();
+  const buckets = planBuildBuckets(bucketDefs);
+  container.innerHTML = '';
+
+  for (const b of bucketDefs) {
+    const bucket = buckets[b.id];
+    const totalCount = bucket.singles.length + Array.from(bucket.epicGroups.values()).reduce((s, g) => s + g.children.length, 0);
+
+    const colEl = document.createElement('div');
+    colEl.className = 'plan-col';
+    colEl.innerHTML = `<div class="plan-col-header"><span>${b.label}</span><span class="count">${totalCount}</span></div><div class="plan-col-body" data-bucket-id="${b.id}"></div>`;
+    const body = colEl.querySelector('.plan-col-body');
+    planSetupDropZone(body, b.id);
+
+    for (const item of bucket.singles) {
+      body.appendChild(planBuildCard(item, b.id));
+    }
+    for (const group of bucket.epicGroups.values()) {
+      body.appendChild(planBuildEpicGroup(group, b.id));
+    }
+
+    container.appendChild(colEl);
+    // scrollTopはDOM接続後でないと反映されない(接続前は高さが確定せず0にクランプされる)
+    if (scrollPositions[b.id] != null) body.scrollTop = scrollPositions[b.id];
+  }
+}
+
+function getOrCreatePlanBoardModal() {
+  let overlay = document.getElementById('plan-board-overlay');
+  if (overlay) return overlay;
+  overlay = document.createElement('div');
+  overlay.id = 'plan-board-overlay';
+  overlay.className = 'plan-board-overlay';
+  overlay.innerHTML = `
+    <div class="plan-board-panel">
+      <div class="plan-board-header">
+        <h3>📅 週次計画</h3>
+        <select class="filter-select" id="plan-board-project-filter" title="Workspace filter"></select>
+        <button class="plan-board-close" id="plan-board-close">&times;</button>
+      </div>
+      <div class="plan-board-columns" id="plan-board-columns"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#plan-board-close').addEventListener('click', closePlanBoard);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closePlanBoard(); });
+  overlay.querySelector('#plan-board-project-filter').addEventListener('change', (e) => {
+    currentFilter = e.target.value;
+    setSessionFilter(currentFilter);
+    if (projectFilterEl) projectFilterEl.value = currentFilter;
+    if (currentBoardData) renderBoard(currentBoardData);
+    renderPlanBoard();
+  });
+  return overlay;
+}
+
+function openPlanBoard() {
+  const overlay = getOrCreatePlanBoardModal();
+  const sel = overlay.querySelector('#plan-board-project-filter');
+  if (sel && projectFilterEl) {
+    sel.innerHTML = projectFilterEl.innerHTML;
+    sel.value = currentFilter;
+  }
+  overlay.classList.add('active');
+  renderPlanBoard();
+}
+
+function closePlanBoard() {
+  const overlay = document.getElementById('plan-board-overlay');
+  if (overlay) overlay.classList.remove('active');
+}
+
+// WS経由のボード更新受信時、週次計画ビューが開いていれば最新データで再描画する
+// (ドロップ直後のrenderPlanBoard()はupdate-task完了直後でまだlastBoardDataが古いままのため、
+//  WS更新が届いたこのタイミングで改めて描画し直すことで実際の反映を保証する)
+function refreshPlanBoardIfOpen() {
+  const overlay = document.getElementById('plan-board-overlay');
+  if (overlay && overlay.classList.contains('active')) renderPlanBoard();
 }
 
 // --- Today Flag Toggle ---
@@ -2473,6 +2806,9 @@ function buildMiniBoard(epic) {
       }
       if (child.githubIssueNumber) {
         mParts.push(renderGithubIssueBadge(child.githubIssueNumber, child.githubIssueUrl));
+      }
+      if (child.dueDate) {
+        mParts.push(`<span class="card-tag due-badge">${planFormatDueBadge(child.dueDate)}</span>`);
       }
       if (child.completedDate) {
         mParts.push(`<span class="card-tag completed-date" title="完了日">${escapeHtml(child.completedDate)}</span>`);
