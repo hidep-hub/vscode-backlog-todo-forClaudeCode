@@ -3276,7 +3276,7 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 2000;
+  z-index: 950; /* タスク詳細等の.modal-overlay(1000)より低くし、計画ビューの上に重ねて表示できるようにする */
   backdrop-filter: blur(2px);
 }
 

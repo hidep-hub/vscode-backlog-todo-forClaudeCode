@@ -1647,6 +1647,7 @@ function planBuildBuckets(bucketDefs) {
     if (isEpic) {
       for (const child of (item.children || [])) {
         const bucketId = planBucketForDueDate(child.dueDate);
+        if (bucketId === 'todo' && child.statusCode === 'done') continue; // 完了済みは期日未設定のままTODOに残さない
         let group = buckets[bucketId].epicGroups.get(item.id);
         if (!group) {
           group = { epic: item, children: [] };
@@ -1656,6 +1657,7 @@ function planBuildBuckets(bucketDefs) {
       }
     } else {
       const bucketId = planBucketForDueDate(item.dueDate);
+      if (bucketId === 'todo' && item.statusCode === 'done') continue;
       buckets[bucketId].singles.push(item);
     }
   }
@@ -1678,7 +1680,7 @@ async function planUpdateDueDate(taskId, dueDate) {
   }
 }
 
-function planBuildCard(item, bucketId) {
+function planBuildCard(item, bucketId, parentEpic = null) {
   const isDone = item.statusCode === 'done';
   const card = document.createElement('div');
   card.className = 'card plan-card' + (isDone ? ' plan-card-done' : '');
@@ -1702,7 +1704,16 @@ function planBuildCard(item, bucketId) {
     });
   }
 
-  card.addEventListener('click', () => openCardDetail(item));
+  card.addEventListener('click', () => {
+    if (parentEpic) {
+      // 子タスク: EPICボード(ミニボード)を開き、この子タスクをハイライト
+      expandedMiniCols.add('done');
+      pendingHighlightChildId = item.id;
+      openCardDetail(parentEpic);
+    } else {
+      openCardDetail(item);
+    }
+  });
   return card;
 }
 
@@ -1742,7 +1753,7 @@ function planBuildEpicGroup(group, bucketId) {
   childrenEl.className = 'plan-epic-children';
   childrenEl.style.display = isExpanded ? '' : 'none';
   for (const child of group.children) {
-    childrenEl.appendChild(planBuildCard(child, bucketId));
+    childrenEl.appendChild(planBuildCard(child, bucketId, group.epic));
   }
 
   wrap.appendChild(header);
