@@ -1590,12 +1590,12 @@ const PLAN_WEEKS_OFFSET = { thisWeek: 0, nextWeek: 1, later: 2 };
 
 function planBucketDef() {
   const todayMonday = planGetMonday(getTodayJST());
-  const sundayOf = (weeksOffset) => planFormatYmd(planAddDays(todayMonday, weeksOffset * 7 + 6)).slice(5).replace('-', '/');
+  const mondayOf = (weeksOffset) => planFormatYmd(planAddDays(todayMonday, weeksOffset * 7)).slice(5).replace('-', '/');
   return [
     { id: 'todo', label: 'TODO' },
     { id: 'overdue', label: '遅延' },
-    { id: 'thisWeek', label: `今週(${sundayOf(0)})` },
-    { id: 'nextWeek', label: `来週(${sundayOf(1)})` },
+    { id: 'thisWeek', label: `今週(${mondayOf(0)})` },
+    { id: 'nextWeek', label: `来週(${mondayOf(1)})` },
     { id: 'later', label: 'それ以降' },
   ];
 }
@@ -1725,7 +1725,7 @@ function planBuildEpicGroup(group, bucketId) {
 
   const header = document.createElement('div');
   header.className = 'plan-epic-header';
-  header.innerHTML = `<span class="plan-epic-handle" title="ドラッグでこのEPICの子タスクをまとめて移動">≡</span><span class="plan-epic-toggle">${isExpanded ? '▾' : '▸'}</span><span class="card-id">${escapeHtml(group.epic.id)}</span><span class="card-title">${escapeHtml(group.epic.title)}</span><span class="count">${group.children.length}</span>`;
+  header.innerHTML = `<span class="plan-epic-handle" title="ドラッグでこのEPICの子タスクをまとめて移動">≡</span><span class="plan-epic-toggle">${isExpanded ? '▾' : '▸'}</span><div class="plan-epic-header-text"><div class="plan-epic-header-row1"><span class="card-id">${escapeHtml(group.epic.id)}</span><span class="count">${group.children.length}</span></div><div class="card-title">${escapeHtml(group.epic.title)}</div></div>`;
 
   header.addEventListener('click', (e) => {
     if (e.target.closest('.plan-epic-handle')) return;
@@ -1793,6 +1793,13 @@ function planSetupDropZone(bodyEl, bucketId) {
 function renderPlanBoard() {
   const container = document.getElementById('plan-board-columns');
   if (!container) return;
+
+  // EPIC開閉トグル等での再描画時に、列のスクロール位置が先頭に飛ばないよう保持する
+  const scrollPositions = {};
+  container.querySelectorAll('.plan-col-body[data-bucket-id]').forEach(el => {
+    scrollPositions[el.dataset.bucketId] = el.scrollTop;
+  });
+
   const bucketDefs = planBucketDef();
   const buckets = planBuildBuckets(bucketDefs);
   container.innerHTML = '';
@@ -1803,7 +1810,7 @@ function renderPlanBoard() {
 
     const colEl = document.createElement('div');
     colEl.className = 'plan-col';
-    colEl.innerHTML = `<div class="plan-col-header"><span>${b.label}</span><span class="count">${totalCount}</span></div><div class="plan-col-body"></div>`;
+    colEl.innerHTML = `<div class="plan-col-header"><span>${b.label}</span><span class="count">${totalCount}</span></div><div class="plan-col-body" data-bucket-id="${b.id}"></div>`;
     const body = colEl.querySelector('.plan-col-body');
     planSetupDropZone(body, b.id);
 
@@ -1815,6 +1822,8 @@ function renderPlanBoard() {
     }
 
     container.appendChild(colEl);
+    // scrollTopはDOM接続後でないと反映されない(接続前は高さが確定せず0にクランプされる)
+    if (scrollPositions[b.id] != null) body.scrollTop = scrollPositions[b.id];
   }
 }
 
