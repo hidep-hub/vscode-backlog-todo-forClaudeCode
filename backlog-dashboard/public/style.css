@@ -38,6 +38,11 @@
 .material-icon.icon-lock-open     { -webkit-mask-image: url('icons/lock_open.svg'); mask-image: url('icons/lock_open.svg'); }
 .material-icon.icon-stacks        { -webkit-mask-image: url('icons/stacks.svg'); mask-image: url('icons/stacks.svg'); }
 .material-icon.icon-content-copy  { -webkit-mask-image: url('icons/content_copy.svg'); mask-image: url('icons/content_copy.svg'); }
+.material-icon.icon-check         { -webkit-mask-image: url('icons/check.svg'); mask-image: url('icons/check.svg'); }
+.material-icon.icon-close         { -webkit-mask-image: url('icons/close.svg'); mask-image: url('icons/close.svg'); }
+.material-icon.icon-calendar-month{ -webkit-mask-image: url('icons/calendar_month.svg'); mask-image: url('icons/calendar_month.svg'); }
+.material-icon.icon-history       { -webkit-mask-image: url('icons/history.svg'); mask-image: url('icons/history.svg'); }
+.material-icon.icon-psychiatry    { -webkit-mask-image: url('icons/psychiatry.svg'); mask-image: url('icons/psychiatry.svg'); }
 
 /* --- Theme Variables --- */
 :root,
@@ -1955,7 +1960,7 @@ body {
 }
 
 
-/* --- Today Flag (📌 ピン) --- */
+/* --- Today Flag (ピン) --- */
 :root,
 [data-theme="dark"] {
   --card-today-bg: #3a2a2a;
@@ -2265,7 +2270,7 @@ body {
   line-height: 1.5;
 }
 
-.done-today-empty-emoji {
+.done-today-empty-icon {
   font-size: 1.4rem;
 }
 
@@ -2286,7 +2291,7 @@ body {
   gap: 4px;
 }
 
-.done-today-empty-mini .done-today-empty-emoji {
+.done-today-empty-mini .done-today-empty-icon {
   font-size: 1.1rem;
 }
 
