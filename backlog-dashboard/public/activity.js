@@ -93,6 +93,24 @@ const ACTIVITY_EVENT_LABEL = {
   deleted: '削除',
 };
 
+const ACTIVITY_AGENT_META = {
+  codex: { label: 'Codex', icon: 'codex-icon.svg' },
+  'claude-code': { label: 'Claude Code', icon: 'claude-icon.png' },
+  user: { label: 'User', icon: 'icons/person.svg' },
+};
+
+function activityAgentMeta(actor) {
+  return ACTIVITY_AGENT_META[actor] || { label: actor || 'User', icon: 'icons/person.svg' };
+}
+
+function activityAgentHtml(actor) {
+  const meta = activityAgentMeta(actor);
+  return `<span class="activity-agent" title="${escapeHtml(meta.label)}">
+    <img src="${meta.icon}" alt="" aria-hidden="true">
+    <span>${escapeHtml(meta.label)}</span>
+  </span>`;
+}
+
 // --- KIRO版のICONS_SVGから、履歴ビューで使うものだけ移植 (app.js/kiro-backlog-todo由来) ---
 const ACTIVITY_ICONS_SVG = {
   history: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21q-3.45 0-6.012-2.288T3.05 13h2.025q.35 2.6 2.313 4.3T12 19q2.925 0 4.963-2.037T19 12t-2.037-4.963T12 5q-1.725 0-3.225.8T6.25 8H9v2H3V4h2v2.35q1.275-1.6 3.113-2.475T12 3q1.875 0 3.513.713t2.85 1.925t1.925 2.85T21 12t-.712 3.513t-1.925 2.85t-2.85 1.925T12 21m2.8-4.8L11 12.4V7h2v4.6l3.2 3.2z"/></svg>',
@@ -172,6 +190,7 @@ function normalizeActivityEvent(raw) {
     eventLabel: raw.eventLabel || ACTIVITY_EVENT_LABEL[raw.eventType] || raw.eventType,
     oldValue: raw.oldValue,
     newValue: raw.newValue,
+    actor: raw.actor || 'user',
     date: activityLocalDateStr(raw.occurredAt),
     ts: raw.occurredAt,
   };
@@ -477,6 +496,7 @@ function buildActivityRowEl(ev, opts = {}) {
   const idHtml = `<span class="activity-id">${escapeHtml(ev.id || '-')}</span>`;
   const wsHtml = (!opts.hideProject && ev.project) ? `<span class="activity-ws">${escapeHtml(ev.project)}</span>` : '';
   const typeHtml = `<span class="activity-type-label">${escapeHtml(meta.label)}</span>`;
+  const agentHtml = activityAgentHtml(ev.actor);
 
   const parentHtml = (!opts.isChildRow && ev.isChild && ev.parentId)
     ? `<span class="activity-parent" data-parent-id="${escapeHtml(ev.parentId)}" data-child-id="${escapeHtml(ev.id || '')}" title="${escapeHtml(ev.parentTitle || ev.parentId)}">${activityIconHtml('stacks')}${escapeHtml(ev.parentId)}</span>`
@@ -489,7 +509,7 @@ function buildActivityRowEl(ev, opts = {}) {
     <span class="activity-dot activity-dot-${meta.cls}" aria-hidden="true">${activityIconHtml(meta.icon)}</span>
     <div class="activity-row-main">
       <div class="activity-row-line1">
-        ${typeHtml}${wsHtml}${idHtml}
+        ${typeHtml}${agentHtml}${wsHtml}${idHtml}
         <span class="activity-title">${escapeHtml(ev.title || '')}</span>
       </div>
       <div class="activity-row-line2">${parentHtml}${changeHtml}</div>

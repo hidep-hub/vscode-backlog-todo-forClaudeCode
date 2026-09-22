@@ -9,6 +9,12 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function normalizeActor(actor) {
+  if (typeof actor !== 'string') return 'user';
+  const normalized = actor.trim();
+  return normalized ? normalized.slice(0, 64) : 'user';
+}
+
 /**
  * task_eventsへ1行INSERTする(BT-241)。呼び出し元は対象のtasks更新と同一トランザクション
  * (BEGIN...COMMIT)に包むこと(docs/design/backlog-db-schema-design-epic-bt169.md決定事項:
@@ -107,18 +113,19 @@ function create(db, { workspace, title, status, category = null, description = n
  * ステータスを更新する。実際に値が変化した場合のみtask_eventsにstatus_changedを記録する
  * (同じステータスへの再設定はイベントとして残さない、BT-241決定)。
  */
-function updateStatus(db, displayId, newStatus) {
+function updateStatus(db, displayId, newStatus, actor = 'user') {
   const existing = getByDisplayId(db, displayId);
   const now = nowIso();
+  const actionActor = normalizeActor(actor);
   const completedAt = newStatus === 'done' ? now : null;
   db.exec('BEGIN');
   try {
     db.prepare('UPDATE tasks SET status = ?, completed_at = ?, updated_at = ?, updated_by = ? WHERE display_id = ?')
-      .run(newStatus, completedAt, now, 'user', displayId);
+      .run(newStatus, completedAt, now, actionActor, displayId);
     if (existing && existing.status !== newStatus) {
       insertEvent(db, {
         taskId: existing.id, taskDisplayId: displayId, eventType: 'status_changed',
-        oldValue: existing.status, newValue: newStatus, actor: 'user',
+        oldValue: existing.status, newValue: newStatus, actor: actionActor,
       });
     }
     db.exec('COMMIT');
@@ -133,18 +140,19 @@ function updateStatus(db, displayId, newStatus) {
  * pin(今日やる)フラグを設定する。実際に状態が変化した場合のみtask_eventsに
  * pinned/unpinnedを記録する(既にpin済みへの再pin等はイベントを残さない、BT-241決定)。
  */
-function setPin(db, workspace, displayId, value) {
+function setPin(db, workspace, displayId, value, actor = 'user') {
   const task = getByDisplayId(db, displayId);
+  const actionActor = normalizeActor(actor);
   if (!task) throw new Error(`タスクが見つかりません: ${displayId}`);
   db.exec('BEGIN');
   try {
     const exists = !!db.prepare('SELECT 1 FROM pins WHERE workspace = ? AND task_id = ?').get(workspace, task.id);
     if (value && !exists) {
       db.prepare('INSERT INTO pins (workspace, task_id, pinned_at) VALUES (?, ?, ?)').run(workspace, task.id, nowIso());
-      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'pinned', actor: 'user' });
+      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'pinned', actor: actionActor });
     } else if (!value && exists) {
       db.prepare('DELETE FROM pins WHERE workspace = ? AND task_id = ?').run(workspace, task.id);
-      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'unpinned', actor: 'user' });
+      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'unpinned', actor: actionActor });
     }
     db.exec('COMMIT');
   } catch (e) {
@@ -157,18 +165,29 @@ function setPin(db, workspace, displayId, value) {
  * 実行中フラグを設定する。実際に状態が変化した場合のみtask_eventsに
  * running_started/running_stoppedを記録する(BT-241決定、setPinと同じ考え方)。
  */
-function setRunning(db, workspace, displayId, value) {
+function setRunning(db, workspace, displayId, value, actor = 'user') {
   const task = getByDisplayId(db, displayId);
+  const actionActor = normalizeActor(actor);
+  const now = nowIso();
   if (!task) throw new Error(`タスクが見つかりません: ${displayId}`);
   db.exec('BEGIN');
   try {
     const exists = !!db.prepare('SELECT 1 FROM running_tasks WHERE workspace = ? AND task_id = ?').get(workspace, task.id);
     if (value && !exists) {
-      db.prepare('INSERT INTO running_tasks (workspace, task_id, started_at) VALUES (?, ?, ?)').run(workspace, task.id, nowIso());
-      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'running_started', actor: 'user' });
+      db.prepare('INSERT INTO running_tasks (workspace, task_id, started_at) VALUES (?, ?, ?)').run(workspace, task.id, now);
+      db.prepare('INSERT INTO task_execution_sessions (task_id, agent_id, started_at) VALUES (?, ?, ?)')
+        .run(task.id, actionActor, now);
+      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'running_started', actor: actionActor, occurredAt: now });
     } else if (!value && exists) {
       db.prepare('DELETE FROM running_tasks WHERE workspace = ? AND task_id = ?').run(workspace, task.id);
-      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'running_stopped', actor: 'user' });
+      db.prepare(`UPDATE task_execution_sessions
+        SET stopped_at = ?, stopped_by = ?
+        WHERE id = (
+          SELECT id FROM task_execution_sessions
+          WHERE task_id = ? AND stopped_at IS NULL
+          ORDER BY started_at DESC, id DESC LIMIT 1
+        )`).run(now, actionActor, task.id);
+      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'running_stopped', actor: actionActor, occurredAt: now });
     }
     db.exec('COMMIT');
   } catch (e) {
@@ -455,5 +474,5 @@ module.exports = {
   getByDisplayId, listByWorkspace, listAll, allocateSeq, create, updateStatus,
   setPin, setRunning, isPinned, isRunning, updateFields, updateCommitHash, setArtifacts, softDelete,
   attachToParent, detachFromParent, reorder, moveWorkspace, getEffectiveStatus,
-  setGithubLink, getChildren, findByGithubIssueNumber, listGithubLinkedNumbers, insertEvent,
+  setGithubLink, getChildren, findByGithubIssueNumber, listGithubLinkedNumbers, insertEvent, normalizeActor,
 };

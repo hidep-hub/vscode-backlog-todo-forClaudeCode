@@ -756,7 +756,8 @@ function collectRunningTasks(data) {
   if (!data || !data.columns) return result;
   for (const col of data.columns) {
     for (const item of col.items) {
-      if (item.running && !seen.has(item.id)) {
+      const parentOnlyMirrorsChild = item.running && !item.agentId && (item.children || []).some(child => child.running);
+      if (item.running && !parentOnlyMirrorsChild && !seen.has(item.id)) {
         seen.add(item.id);
         result.push({ item, parentEpic: null });
       }
@@ -771,23 +772,42 @@ function collectRunningTasks(data) {
   return result;
 }
 
+const RUNNING_AGENT_META = {
+  codex: { label: 'Codex', icon: 'codex-icon.svg' },
+  'claude-code': { label: 'Claude Code', icon: 'claude-icon.png' },
+  user: { label: 'User', icon: 'icons/person.svg' },
+};
+
+function runningAgentMeta(agentId) {
+  return RUNNING_AGENT_META[agentId] || { label: agentId || 'User', icon: 'icons/person.svg' };
+}
+
 function renderRunningStrip(data) {
-  const el = document.getElementById('running-strip-chips');
-  const iconEl = document.getElementById('running-strip-icon');
+  const el = document.getElementById('running-strip-agents');
   if (!el) return;
   const running = collectRunningTasks(data);
-  if (iconEl) iconEl.classList.toggle('spinning', running.length > 0);
-  if (!running.length) {
-    el.innerHTML = '<span class="running-strip-empty">進行中のタスクはなし</span>';
-    return;
+  const agents = ['codex', 'claude-code'];
+  for (const { item } of running) {
+    const agentId = item.agentId || 'user';
+    if (!agents.includes(agentId)) agents.push(agentId);
   }
-  el.innerHTML = running.map(({ item }, idx) => `
-    <span class="running-chip" data-idx="${idx}" title="${escapeHtml(item.title)}">
-      <span class="running-spinner"></span>
-      <span class="running-chip-id">${escapeHtml(item.id)}</span>
-      <span class="running-chip-title">${escapeHtml(item.title)}</span>
-    </span>
-  `).join('');
+  const indexByTaskId = new Map(running.map((entry, index) => [entry.item.id, index]));
+  el.innerHTML = agents.map(agentId => {
+    const meta = runningAgentMeta(agentId);
+    const tasks = running.filter(({ item }) => (item.agentId || 'user') === agentId);
+    const spins = tasks.length > 0 && agentId !== 'user';
+    const chips = tasks.map(({ item }) => `
+      <button type="button" class="running-chip" data-idx="${indexByTaskId.get(item.id)}" title="${escapeHtml(item.title)}">
+        <span class="running-spinner"></span>
+        <span class="running-chip-id">${escapeHtml(item.id)}</span>
+        <span class="running-chip-title">${escapeHtml(item.title)}</span>
+      </button>
+    `).join('');
+    return `<section class="running-agent${tasks.length ? ' is-running' : ''}" data-agent="${escapeHtml(agentId)}" style="--running-count:${Math.max(tasks.length, 1)}" aria-label="${escapeHtml(meta.label)}: ${tasks.length} running tasks">
+      <img class="running-agent-icon${spins ? ' spinning' : ''}" src="${meta.icon}" alt="${escapeHtml(meta.label)}" title="${escapeHtml(meta.label)}">
+      <div class="running-agent-chips">${chips}</div>
+    </section>`;
+  }).join('');
   el.querySelectorAll('.running-chip').forEach((chipEl) => {
     const idx = parseInt(chipEl.dataset.idx, 10);
     chipEl.addEventListener('click', () => {

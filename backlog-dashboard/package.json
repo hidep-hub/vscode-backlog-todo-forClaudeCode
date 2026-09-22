@@ -1,10 +1,11 @@
 {
   "name": "backlog-dashboard",
-  "version": "2.1.6",
+  "version": "2.1.7",
   "description": "バックログかんばんダッシュボード - mdファイルをリアルタイムにかんばんボード表示",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "test": "node --test",
     "db:import": "node db/import-from-md.js",
     "db:export": "node db/export.js"
   },
