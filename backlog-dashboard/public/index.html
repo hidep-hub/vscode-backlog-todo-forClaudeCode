@@ -60,9 +60,10 @@
           <option value="system">System</option>
         </select>
       </div>
-      <div class="settings-group">
-        <label>Accent Color</label>
-        <input type="color" id="settings-accent" value="#7c8fff">
+      <div class="settings-group workspace-theme-settings" id="settings-workspace-theme" hidden>
+        <label id="settings-workspace-theme-label">Workspace Theme</label>
+        <p class="settings-theme-hint">プリセットまたはカスタム色を選ぶと、このワークスペースだけに保存されます。</p>
+        <div class="theme-preset-grid" id="theme-preset-grid"></div>
       </div>
       <div class="settings-group settings-group-github">
         <label>GitHub連携（ワークスペース単位）</label>

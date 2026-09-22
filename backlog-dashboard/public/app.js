@@ -12,7 +12,9 @@ const settingsBtn = document.getElementById('settings-btn');
 const settingsOverlay = document.getElementById('settings-overlay');
 const settingsClose = document.getElementById('settings-close');
 const settingsThemeEl = document.getElementById('settings-theme');
-const settingsAccentEl = document.getElementById('settings-accent');
+const workspaceThemeSettingsEl = document.getElementById('settings-workspace-theme');
+const workspaceThemeLabelEl = document.getElementById('settings-workspace-theme-label');
+const themePresetGridEl = document.getElementById('theme-preset-grid');
 const settingsGithubProjectEl = document.getElementById('settings-github-project');
 const settingsGithubRepoUrlEl = document.getElementById('settings-github-repo-url');
 const settingsGithubTokenEl = document.getElementById('settings-github-token');
@@ -82,7 +84,63 @@ function resolveWsDefault(filterMap) {
   return filterMap[key] || '';
 }
 
-// --- Settings (persisted to localStorage) ---
+// --- Theme settings (BT-285, persisted to localStorage) ---
+const THEME_PRESETS = {
+  'light-blue':    { label: 'Light Blue', mode: 'light', accent: '#0b6fa4' },
+  'light-teal':    { label: 'Light Teal', mode: 'light', accent: '#0f766e' },
+  'light-indigo':  { label: 'Light Indigo', mode: 'light', accent: '#4f46e5' },
+  'light-plum':    { label: 'Light Plum', mode: 'light', accent: '#9333ea' },
+  'light-forest':  { label: 'Light Forest', mode: 'light', accent: '#15803d' },
+  'light-crimson': { label: 'Light Crimson', mode: 'light', accent: '#be123c' },
+  'light-slate':   { label: 'Light Slate', mode: 'light', accent: '#475569' },
+  'dark-blue':     { label: 'Dark Blue', mode: 'dark', accent: '#38bdf8' },
+  'dark-teal':     { label: 'Dark Teal', mode: 'dark', accent: '#2dd4bf' },
+  'dark-violet':   { label: 'Dark Violet', mode: 'dark', accent: '#a78bfa' },
+  'dark-amber':    { label: 'Dark Amber', mode: 'dark', accent: '#fbbf24' },
+  'dark-rose':     { label: 'Dark Rose', mode: 'dark', accent: '#fb7185' },
+  'dark-lime':     { label: 'Dark Lime', mode: 'dark', accent: '#a3e635' },
+  'dark-slate':    { label: 'Dark Slate', mode: 'dark', accent: '#94a3b8' },
+};
+
+function mixColors(first, second, amount) {
+  const hex = value => value.replace('#', '').match(/.{2}/g).map(part => parseInt(part, 16));
+  const [r1, g1, b1] = hex(first); const [r2, g2, b2] = hex(second);
+  const component = (a, b) => Math.round(a + (b - a) * amount).toString(16).padStart(2, '0');
+  return `#${component(r1, r2)}${component(g1, g2)}${component(b1, b2)}`;
+}
+
+function buildThemePalette(mode, accent) {
+  const dark = mode === 'dark';
+  const base = dark ? '#101722' : '#f6f8fc';
+  const surfaceBase = dark ? '#172231' : '#ffffff';
+  const cardBase = dark ? '#1e2c3e' : '#eef3f9';
+  const text = dark ? '#e8f1fa' : '#17212b';
+  const muted = dark ? '#9eb0c3' : '#607080';
+  const blend = (color, amount) => mixColors(base, color, amount);
+  return {
+    '--bg': blend(accent, dark ? .10 : .025),
+    '--surface': mixColors(surfaceBase, accent, dark ? .12 : .025),
+    '--card': mixColors(cardBase, accent, dark ? .14 : .06),
+    '--card-hover': mixColors(cardBase, accent, dark ? .24 : .14),
+    '--text': text, '--text-muted': muted, '--accent': accent,
+    '--border': blend(accent, dark ? .25 : .18),
+    '--badge-done-bg': dark ? '#17382d' : '#d9f1e1', '--badge-done-fg': dark ? '#7cdea4' : '#17733c',
+    '--badge-progress-bg': dark ? '#3b3517' : '#fff3cf', '--badge-progress-fg': dark ? '#e5cd75' : '#805e00',
+    '--badge-numerator-bg': blend(accent, dark ? .24 : .16), '--badge-denominator-bg': blend(accent, dark ? .10 : .04),
+    '--modal-overlay': dark ? 'rgba(4, 9, 16, .68)' : 'rgba(18, 32, 48, .32)',
+    '--tag-project-bg': blend(accent, dark ? .18 : .12), '--tag-project-fg': dark ? '#b8e4ff' : '#185c80',
+    '--tag-category-bg': dark ? '#302443' : '#eee4f8', '--tag-category-fg': dark ? '#ddc5ff' : '#68418e',
+    '--tag-parent-bg': dark ? '#42351f' : '#f8ead9', '--tag-parent-fg': dark ? '#ffd78c' : '#82531a',
+    '--compact-card-bg': mixColors(cardBase, accent, dark ? .10 : .04),
+    '--compact-card-hover': mixColors(cardBase, accent, dark ? .18 : .11),
+    '--drop-highlight': `${accent}1f`, '--btn-add-fg': dark ? '#7cdea4' : '#17733c',
+    '--btn-add-bg': dark ? 'rgba(124, 222, 164, .12)' : 'rgba(23, 115, 60, .10)',
+    '--btn-neutral-fg': muted, '--btn-neutral-bg': dark ? 'rgba(158, 176, 195, .12)' : 'rgba(96, 112, 128, .08)',
+    '--btn-danger-fg': dark ? '#ff8c8c' : '#bd3030', '--btn-danger-bg': dark ? 'rgba(255, 140, 140, .12)' : 'rgba(189, 48, 48, .10)',
+    '--brand': accent, '--brand-fg': dark ? '#101722' : '#ffffff', '--brand-fg-soft': dark ? 'rgba(16, 23, 34, .72)' : 'rgba(255, 255, 255, .72)',
+  };
+}
+
 function loadSettings() {
   try {
     const raw = localStorage.getItem('backlog-dashboard-settings');
@@ -94,26 +152,99 @@ function saveSettings(settings) {
   localStorage.setItem('backlog-dashboard-settings', JSON.stringify(settings));
 }
 
-function applySettings() {
+function normalizedSettings() {
   const settings = loadSettings();
-  const theme = settings.theme || 'dark';
-  const accent = settings.accent || '#7c8fff';
+  if (!['dark', 'light', 'system'].includes(settings.theme)) settings.theme = 'system';
+  if (!settings.workspaceThemes || typeof settings.workspaceThemes !== 'object') settings.workspaceThemes = {};
+  if (!settings.workspaceThemeEnabled || typeof settings.workspaceThemeEnabled !== 'object') settings.workspaceThemeEnabled = {};
+  return settings;
+}
 
-  document.documentElement.setAttribute('data-theme', theme);
-  document.documentElement.style.setProperty('--accent', accent);
+function activeWorkspace() {
+  const paths = (currentBoardData && currentBoardData.workspaceMap) || {};
+  return currentFilter && paths[currentFilter] ? currentFilter : '';
+}
 
-  themeSelectEl.value = theme;
-  settingsThemeEl.value = theme;
-  settingsAccentEl.value = accent;
+function systemMode() {
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function effectiveTheme(settings) {
+  const workspace = activeWorkspace();
+  if (workspace && settings.workspaceThemeEnabled[workspace] && settings.workspaceThemes[workspace]) {
+    return { selection: 'workspace', ...settings.workspaceThemes[workspace] };
+  }
+  const mode = settings.theme === 'system' ? systemMode() : settings.theme;
+  return { selection: settings.theme, preset: `${mode}-blue` };
+}
+
+function applyPalette(theme) {
+  const preset = theme.preset && THEME_PRESETS[theme.preset];
+  const mode = preset ? preset.mode : (theme.mode || systemMode());
+  const accent = preset ? preset.accent : (theme.custom || '#38bdf8');
+  document.documentElement.setAttribute('data-theme', mode);
+  for (const [name, value] of Object.entries(buildThemePalette(mode, accent))) document.documentElement.style.setProperty(name, value);
+}
+
+function syncThemeOptions(settings, effective) {
+  const workspace = activeWorkspace();
+  for (const select of [themeSelectEl, settingsThemeEl]) {
+    const prior = select.querySelector('option[value="workspace"]');
+    if (workspace && !prior) select.appendChild(new Option('Workspace', 'workspace'));
+    if (!workspace && prior) prior.remove();
+    select.value = effective.selection;
+  }
+}
+
+function applySettings() {
+  const settings = normalizedSettings();
+  const effective = effectiveTheme(settings);
+  applyPalette(effective);
+  syncThemeOptions(settings, effective);
+  renderWorkspaceThemeSettings(settings, activeWorkspace());
+}
+
+function selectTheme(selection) {
+  const settings = normalizedSettings();
+  const workspace = activeWorkspace();
+  if (selection === 'workspace') {
+    if (!workspace) return;
+    settingsOverlay.classList.add('settings-visible');
+    renderWorkspaceThemeSettings(settings, workspace);
+    return;
+  }
+  settings.theme = selection;
+  if (workspace) settings.workspaceThemeEnabled[workspace] = false;
+  saveSettings(settings);
+  applySettings();
+}
+
+function renderWorkspaceThemeSettings(settings, workspace) {
+  if (!workspace) { workspaceThemeSettingsEl.hidden = true; return; }
+  workspaceThemeSettingsEl.hidden = false;
+  workspaceThemeLabelEl.textContent = `${workspace} Theme`;
+  const saved = settings.workspaceThemes[workspace] || {};
+  themePresetGridEl.innerHTML = Object.entries(THEME_PRESETS).map(([name, preset]) => `
+    <button type="button" class="theme-preset${saved.preset === name ? ' is-selected' : ''}" data-preset="${name}" style="--preset-accent:${preset.accent}">
+      <span class="theme-preset-swatch"></span>${preset.label}
+    </button>`).join('') + `
+    <label class="theme-custom-color">Custom <input type="color" id="workspace-custom-accent" value="${saved.custom || '#38bdf8'}"></label>`;
+  themePresetGridEl.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => {
+    const next = normalizedSettings();
+    next.workspaceThemes[workspace] = { preset: button.dataset.preset };
+    next.workspaceThemeEnabled[workspace] = true;
+    saveSettings(next); applySettings();
+  }));
+  themePresetGridEl.querySelector('#workspace-custom-accent').addEventListener('input', event => {
+    const next = normalizedSettings();
+    next.workspaceThemes[workspace] = { custom: event.target.value, mode: systemMode() };
+    next.workspaceThemeEnabled[workspace] = true;
+    saveSettings(next); applySettings();
+  });
 }
 
 // --- Theme & Settings UI ---
-themeSelectEl.addEventListener('change', () => {
-  const settings = loadSettings();
-  settings.theme = themeSelectEl.value;
-  saveSettings(settings);
-  applySettings();
-});
+themeSelectEl.addEventListener('change', () => selectTheme(themeSelectEl.value));
 
 settingsBtn.addEventListener('click', () => {
   settingsOverlay.classList.add('settings-visible');
@@ -130,17 +261,11 @@ settingsOverlay.addEventListener('click', (e) => {
 });
 
 settingsThemeEl.addEventListener('change', () => {
-  const settings = loadSettings();
-  settings.theme = settingsThemeEl.value;
-  saveSettings(settings);
-  applySettings();
+  selectTheme(settingsThemeEl.value);
 });
 
-settingsAccentEl.addEventListener('input', () => {
-  const settings = loadSettings();
-  settings.accent = settingsAccentEl.value;
-  saveSettings(settings);
-  applySettings();
+if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (normalizedSettings().theme === 'system') applySettings();
 });
 
 // --- GitHub連携設定 (BT-077) ---
@@ -495,6 +620,7 @@ headerLogoEl.addEventListener('click', async () => {
 // --- Project Filter ---
 projectFilterEl.addEventListener('change', () => {
   currentFilter = projectFilterEl.value;
+  applySettings();
   setSessionFilter(currentFilter); // ユーザー操作を記憶
   if (currentBoardData) renderBoard(currentBoardData);
 });
@@ -508,6 +634,7 @@ if (projectBadgesEl) {
     const proj = badge.dataset.project;
     currentFilter = (currentFilter === proj) ? '' : proj; // 同じバッジ再クリックで解除
     projectFilterEl.value = currentFilter;
+    applySettings();
     setSessionFilter(currentFilter);
     if (currentBoardData) renderBoard(currentBoardData);
   });
@@ -591,6 +718,7 @@ function connect() {
       }
 
       if (data.projects) updateProjectFilter(data.projects);
+      applySettings();
       renderBoard(currentBoardData);
       refreshModalIfOpen();
       refreshPlanBoardIfOpen();
