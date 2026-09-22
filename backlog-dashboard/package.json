@@ -1,6 +1,6 @@
 {
   "name": "backlog-dashboard",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "バックログかんばんダッシュボード - mdファイルをリアルタイムにかんばんボード表示",
   "main": "server.js",
   "scripts": {
