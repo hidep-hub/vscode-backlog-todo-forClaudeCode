@@ -351,7 +351,7 @@ function buildBacklogLinkedTitle(taskId, title) {
  */
 function appendBacklogFooter(body, taskId) {
   const base = (body || '').trim();
-  const footer = `${BACKLOG_FOOTER_SEPARATOR}\n🔖 Backlog: ${taskId}`;
+  const footer = `${BACKLOG_FOOTER_SEPARATOR}\nBacklog: ${taskId}`;
   return base ? `${base}\n\n${footer}` : footer;
 }
 

@@ -879,7 +879,7 @@ function renderBoard(data) {
       if (items.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'done-today-empty';
-        empty.innerHTML = `<span class="done-today-empty-emoji">🌱</span><span>今日の達成はまだないよ<br>ひとつ片付けてこ！</span>`;
+        empty.innerHTML = `<span class="material-icon icon-psychiatry done-today-empty-icon"></span><span>今日の達成はまだないよ<br>ひとつ片付けてこ！</span>`;
         body.appendChild(empty);
       }
     } else if (isCompact) {
@@ -1123,18 +1123,21 @@ async function openTaskWorkspace(taskId, btnEl) {
 }
 
 function setupArtifactCopyButtons(container) {
+  const copyIcon = '<span class="material-icon icon-content-copy"></span>';
+  const successIcon = '<span class="material-icon icon-check"></span>';
+  const errorIcon = '<span class="material-icon icon-close"></span>';
   container.querySelectorAll('.artifact-copy-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const pathText = btn.dataset.path;
       navigator.clipboard.writeText(pathText).then(() => {
-        btn.textContent = '✓';
+        btn.innerHTML = successIcon;
         btn.classList.add('copied');
-        setTimeout(() => { btn.innerHTML = '&#128203;'; btn.classList.remove('copied'); }, 1500);
+        setTimeout(() => { btn.innerHTML = copyIcon; btn.classList.remove('copied'); }, 1500);
       }).catch(() => {
         // fallback
-        btn.textContent = '✗';
-        setTimeout(() => { btn.innerHTML = '&#128203;'; }, 1500);
+        btn.innerHTML = errorIcon;
+        setTimeout(() => { btn.innerHTML = copyIcon; }, 1500);
       });
     });
   });
@@ -1837,7 +1840,7 @@ function getOrCreatePlanBoardModal() {
   overlay.innerHTML = `
     <div class="plan-board-panel">
       <div class="plan-board-header">
-        <h3>📅 週次計画</h3>
+        <h3><span class="material-icon icon-calendar-month"></span> 週次計画</h3>
         <select class="filter-select" id="plan-board-project-filter" title="Workspace filter"></select>
         <button class="plan-board-close" id="plan-board-close">&times;</button>
       </div>
@@ -2895,7 +2898,7 @@ function buildMiniBoard(epic) {
     if (miniDoneTodayActive && matchedChildren.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'done-today-empty done-today-empty-mini';
-      empty.innerHTML = `<span class="done-today-empty-emoji">🌱</span><span>今日はまだ</span>`;
+      empty.innerHTML = `<span class="material-icon icon-psychiatry done-today-empty-icon"></span><span>今日はまだ</span>`;
       body.appendChild(empty);
     }
 
