@@ -940,7 +940,7 @@ function renderBoard(data) {
       const showField = (name) => fields.includes(name);
 
       const id = (showField('id') && item.id && item.id !== '-') ? item.id : '';
-      const completedDate = (showField('completedDate') && item.completedDate) ? `<span class="card-tag">${item.completedDate}</span>` : '';
+      const completedDate = (showField('completedDate') && item.completedDate) ? renderCompletedDateBadge(item.completedDate) : '';
       const category = (showField('category') && item.category && item.category !== '-') ? `<span class="card-tag category">${item.category}</span>` : '';
 
       // 親Epicへのリンク（BT-201: 親が未完了のまま個別完了した子タスクを完了カラムに混在表示する分）
@@ -972,7 +972,7 @@ function renderBoard(data) {
       const projectTag = showField('project') ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
       const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>' : '';
       const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
-      const dueBadge = item.dueDate ? `<span class="card-tag due-badge">${planFormatDueBadge(item.dueDate)}</span>` : '';
+      const dueBadge = item.dueDate ? renderDueDateBadge(item.dueDate) : '';
       const metaParts = [projectTag, category, artifactIndicator, githubBadge, dueBadge, completedDate].filter(Boolean);
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
 
@@ -1724,6 +1724,15 @@ function planFormatDueBadge(dueDate) {
   return `${d.getMonth() + 1}/${d.getDate()}(${PLAN_WEEKDAY_JA[d.getDay()]})`;
 }
 
+function renderDueDateBadge(dueDate) {
+  const label = planFormatDueBadge(dueDate);
+  return `<span class="card-tag due-badge" title="期日"><span class="material-icon icon-timer"></span><span>${escapeHtml(label)}</span></span>`;
+}
+
+function renderCompletedDateBadge(completedDate) {
+  return `<span class="card-tag completed-date" title="完了日"><span class="material-icon icon-check-box"></span><span>${escapeHtml(completedDate)}</span></span>`;
+}
+
 function planGetMonday(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
   const day = d.getDay(); // 0=Sun .. 6=Sat
@@ -1846,7 +1855,7 @@ function planBuildCard(item, bucketId, parentEpic = null) {
   card.className = 'card plan-card' + (isDone ? ' plan-card-done' : '');
   card.dataset.taskId = item.id;
   const spinner = item.running ? '<span class="running-spinner"></span>' : '';
-  const dueBadge = item.dueDate ? `<div class="card-meta"><span class="card-tag due-badge">${planFormatDueBadge(item.dueDate)}</span></div>` : '';
+  const dueBadge = item.dueDate ? `<div class="card-meta">${renderDueDateBadge(item.dueDate)}</div>` : '';
   card.innerHTML = `<div class="card-id">${spinner}${escapeHtml(item.id)}</div><div class="card-title">${escapeHtml(item.title)}</div>${dueBadge}`;
 
   if (!isDone) {
@@ -3049,10 +3058,10 @@ function buildMiniBoard(epic) {
         mParts.push(renderGithubIssueBadge(child.githubIssueNumber, child.githubIssueUrl));
       }
       if (child.dueDate) {
-        mParts.push(`<span class="card-tag due-badge">${planFormatDueBadge(child.dueDate)}</span>`);
+        mParts.push(renderDueDateBadge(child.dueDate));
       }
       if (child.completedDate) {
-        mParts.push(`<span class="card-tag completed-date" title="完了日">${escapeHtml(child.completedDate)}</span>`);
+        mParts.push(renderCompletedDateBadge(child.completedDate));
       }
       const mHtml = mParts.length > 0 ? `<div class="card-meta">${mParts.join('')}</div>` : '';
 
