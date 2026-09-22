@@ -1357,9 +1357,17 @@ function formatDateTimeJst(iso) {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const jst = new Date(d.getTime() + (d.getTimezoneOffset() + 540) * 60000);
-  const s = jst.toISOString();
-  return `${s.slice(0, 10)} ${s.slice(11, 16)}`;
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(d);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}`;
 }
 
 // 説明テキストを適度に改行して表示用HTMLにする
