@@ -2149,16 +2149,51 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
   const descField = isArchivedSingle
     ? `<div class="detail-section"><p class="archived-note">完了済みタスクのため説明は編集できないよ</p></div>`
     : `<div class="settings-group"><label>説明</label><textarea id="edit-task-description" rows="6" placeholder="説明を入力">${escapeHtml(descValue)}</textarea></div>`;
+  const projects = (currentBoardData && currentBoardData.projects) || [];
+  const projectOptions = projects.map(project =>
+    `<option value="${escapeHtml(project)}"${project === item.project ? ' selected' : ''}>${escapeHtml(project)}</option>`
+  ).join('');
 
   body.innerHTML = `
     <div class="detail-header">
       <span class="detail-id">${escapeHtml(item.id || '-')}</span>
     </div>
-    <div class="settings-group">
-      <label>タイトル</label>
-      <input type="text" id="edit-task-title" value="${escapeHtml(item.title)}">
+    <div class="detail-layout edit-task-layout">
+      <div class="detail-main">
+        <div class="settings-group">
+          <label>タイトル</label>
+          <input type="text" id="edit-task-title" value="${escapeHtml(item.title)}">
+        </div>
+        ${descField}
+      </div>
+      <div class="detail-side">
+        <div class="settings-group">
+          <label>ワークスペース</label>
+          <select id="edit-task-project">${projectOptions}</select>
+        </div>
+        <div class="settings-group">
+          <label>ステータス</label>
+          <select id="edit-task-status">
+            <option value="todo"${item.statusCode === 'todo' ? ' selected' : ''}>TODO</option>
+            <option value="ready"${item.statusCode === 'ready' ? ' selected' : ''}>READY</option>
+            <option value="do"${item.statusCode === 'do' ? ' selected' : ''}>DO</option>
+            <option value="done"${item.statusCode === 'done' ? ' selected' : ''}>DONE</option>
+          </select>
+        </div>
+        <div class="settings-group">
+          <label>担当（任意）</label>
+          <input type="text" id="edit-task-assignee" placeholder="担当者" value="${escapeHtml(item.assignee || '')}">
+        </div>
+        <div class="settings-group">
+          <label>開始日（任意）</label>
+          <input type="date" id="edit-task-start-date" value="${escapeHtml(item.startDate || '')}">
+        </div>
+        <div class="settings-group">
+          <label>期日（任意）</label>
+          <input type="date" id="edit-task-due-date" value="${escapeHtml(item.dueDate || '')}">
+        </div>
+      </div>
     </div>
-    ${descField}
     <p class="edit-task-error" style="display:none;"></p>
     <div class="edit-form-actions">
       <button class="add-task-submit" id="edit-task-save">保存</button>
@@ -2168,6 +2203,11 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
 
   const titleInput = body.querySelector('#edit-task-title');
   const descInput = body.querySelector('#edit-task-description');
+  const projectInput = body.querySelector('#edit-task-project');
+  const statusInput = body.querySelector('#edit-task-status');
+  const assigneeInput = body.querySelector('#edit-task-assignee');
+  const startDateInput = body.querySelector('#edit-task-start-date');
+  const dueDateInput = body.querySelector('#edit-task-due-date');
   const errorEl = body.querySelector('.edit-task-error');
   const saveBtn = body.querySelector('#edit-task-save');
   const cancelBtn = body.querySelector('#edit-task-cancel');
@@ -2182,7 +2222,13 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
       return;
     }
 
-    const payload = { taskId: item.id, title: newTitle };
+    const payload = {
+      taskId: item.id,
+      title: newTitle,
+      assignee: assigneeInput.value.trim(),
+      startDate: startDateInput.value,
+      dueDate: dueDateInput.value,
+    };
     if (descInput) payload.description = descInput.value;
 
     try {
@@ -2197,8 +2243,44 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
         errorEl.style.display = 'block';
         return;
       }
+      if (statusInput.value !== item.statusCode) {
+        const statusResp = await fetch('/api/update-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskId: item.id, newStatus: statusInput.value }),
+        });
+        const statusData = await statusResp.json();
+        if (!statusResp.ok) {
+          errorEl.textContent = `ステータス更新に失敗したよ: ${statusData.error || ''}`;
+          errorEl.style.display = 'block';
+          return;
+        }
+      }
+      let updatedId = item.id;
+      if (projectInput.value !== item.project) {
+        const projectFileMap = (currentBoardData && currentBoardData.projectFileMap) || {};
+        const targetFile = projectFileMap[projectInput.value] || projectInput.value;
+        const moveResp = await fetch('/api/move-task', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskId: item.id, targetFile }),
+        });
+        const moveData = await moveResp.json();
+        if (!moveResp.ok) {
+          errorEl.textContent = `ワークスペース移動に失敗したよ: ${moveData.error || ''}`;
+          errorEl.style.display = 'block';
+          return;
+        }
+        updatedId = moveData.newId;
+      }
       item.title = newTitle;
       if (descInput) item.description = descInput.value;
+      item.assignee = assigneeInput.value.trim() || null;
+      item.startDate = startDateInput.value || null;
+      item.dueDate = dueDateInput.value || null;
+      item.statusCode = statusInput.value;
+      item.id = updatedId;
+      item.project = projectInput.value;
       renderFn(item);
     } catch (e) {
       console.error('[edit] Network error:', e);
