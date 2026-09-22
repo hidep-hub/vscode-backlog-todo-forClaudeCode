@@ -301,17 +301,66 @@ body {
   order: 2;
 }
 
-.running-strip-icon {
-  width: 16px;
-  height: 16px;
+.running-strip-agents {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  min-width: 0;
+  width: 100%;
+}
+
+.running-agent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.running-agent.is-running {
+  /* 同時実行数に比例して、チップを表示するAIの幅を配分する。 */
+  flex: var(--running-count, 1) 1 0;
+}
+
+.running-agent + .running-agent {
+  border-left: 1px solid color-mix(in srgb, var(--brand-fg) 30%, transparent);
+  padding-left: 10px;
+}
+
+.running-agent-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
   flex-shrink: 0;
 }
 
-.running-strip-icon.spinning {
+.running-agent-icon.spinning {
   animation: spin 1.5s linear infinite;
 }
 
-.running-strip-chips {
+/* Agent identities: Codex's denser mark needs a little more optical size. */
+.running-agent[data-agent="codex"] .running-agent-icon {
+  width: 30px;
+  height: 30px;
+}
+
+.running-agent img[src="codex-icon.svg"],
+.activity-agent img[src="codex-icon.svg"] {
+  filter: brightness(0) saturate(100%) invert(67%) sepia(44%) saturate(649%) hue-rotate(184deg) brightness(101%) contrast(97%);
+}
+
+.running-agent img[src="claude-icon.png"],
+.activity-agent img[src="claude-icon.png"] {
+  filter: brightness(0) saturate(100%) invert(69%) sepia(89%) saturate(1540%) hue-rotate(341deg) brightness(102%) contrast(101%);
+}
+
+.running-agent img[src="icons/person.svg"],
+.activity-agent img[src="icons/person.svg"] {
+  filter: brightness(0) invert(1);
+}
+
+.running-agent-chips {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -343,6 +392,7 @@ body {
   max-width: 220px;
   overflow: hidden;
   transition: border-color 0.15s ease;
+  font-family: inherit;
 }
 
 .running-chip:hover {
@@ -2827,6 +2877,24 @@ body {
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 1px 5px;
+}
+
+.activity-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px 1px 3px;
+}
+
+.activity-agent img {
+  width: 12px;
+  height: 12px;
+  object-fit: contain;
 }
 
 .activity-row-completed .activity-type-label {

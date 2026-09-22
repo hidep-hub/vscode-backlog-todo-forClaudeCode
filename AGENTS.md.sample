@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・Codex向け）
 
-> 対応API version: 2.1.5（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.1.7（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## データの真実
 - タスクの真のデータは SQLite DB（`<backlogDir>/backlog.sqlite3`）。UIやAPIはその窓（BT-179でmdから移行済み）。
@@ -27,9 +27,10 @@
   - 単体取得: `GET /api/task/:id`（BT-222）— `/api/board`の全件走査を経由せず1件だけ取得できる。返却形状は`/api/board`のitemと同じ（親を指定すると`children`/`childrenTotal`/`childrenDone`も含む）。存在しないtaskIdは404
   - 履歴取得: `GET /api/activity`（BT-243、履歴機能EPIC BT-199配下）— `task_events`を`tasks`/`event_types`と結合し、`taskId`/`taskTitle`/`eventType`/`eventLabel`/`oldValue`/`newValue`/`actor`/`occurredAt`/`parentId`/`parentTitle`を持つイベント配列を`occurred_at`降順で返す。検索・期間絞り込みクエリは未対応（BT-246で追加予定）で、常に全件を返す
   - **【BT-201, BT-240で親のstatus条件を撤廃】`GET /api/board`のDONE列には、完了した子タスクが親の完了/未完了に関わらず`parentId`/`parentTitle`付きの単独itemとしても混在する**（親側の`children`配列にも同じ子は残るため、両方から拾うとカウント二重になる点に注意。`parentId`があるitemは「親側で既にカウント済みの完了子タスクの個別表示」なので、集計時はスキップするか除外して扱うこと）
-  - 状態変更: `POST /api/update-status {taskId, newStatus}` — `newStatus`はcode値 `todo`/`ready`/`do`/`done` のいずれか（**日本語ラベルではない**）
-  - 今日やる: `POST /api/toggle-today {taskId, value?}` — レスポンスキーは `pinned`
-  - 実行中: `POST /api/toggle-running {taskId, value?}`
+  - 状態変更: `POST /api/update-status {taskId, newStatus, actor?}` — `newStatus`はcode値 `todo`/`ready`/`do`/`done` のいずれか（**日本語ラベルではない**）
+  - 今日やる: `POST /api/toggle-today {taskId, value?, actor?}` — レスポンスキーは `pinned`
+  - 実行中: `POST /api/toggle-running {taskId, value?, actor?}`
+  - **AI実行者の記録（BT-281）**: AIエージェントが上記3 APIを操作する際は、自身の識別子を`actor`へ必ず渡す（Codexは`"codex"`、Claude Codeは`"claude-code"`）。未指定時は後方互換として`"user"`になる。`toggle-running`のONで実行セッションを開始し、OFFまたは`done`で終了する。開始AI・停止AIは履歴へ永続記録される。
   - 追加: `POST /api/add-task {title, project?, status?, origin?, parentId?, description?, assignee?, startDate?, dueDate?}`（BT-263で担当/開始日/期日にも対応。登録フォームで最初から入力できる）
     - `status`省略時は`todo`
     - **【重要】`project`にはprefix（例`"BT"`）ではなくconfig.jsonの`projects[].file`値（例`"backlog-todo"`）を渡すこと（BT-129）**。prefixを渡すと該当プロジェクトが解決できず、デフォルト（`inbox`等）に採番されてしまう。追加後は必ず期待したプレフィクスでID発行されたか確認する
@@ -70,10 +71,10 @@
 
 ## タスクID指定で始めるときの必須アクション（最初の応答で）
 1. `GET /api/task/:id`（BT-222）でそのタスクの説明欄を読む — `/api/board`の全件取得から探す遠回りはしない
-2. 即座に 状態を `todo`→`do` に変更（`update-status {taskId, newStatus:"do"}`）
-3. 即座に 実行中フラグON（`toggle-running {taskId, value:true}`）
+2. 即座に 状態を `todo`→`do` に変更（`update-status {taskId, newStatus:"do", actor:"<自分のAI識別子>"}`）
+3. 即座に 実行中フラグON（`toggle-running {taskId, value:true, actor:"<自分のAI識別子>"}`）
 4. 説明欄に引き継ぎファイルパスがあれば自動で読み込みコンテキスト復元（`docs/plan`, `docs/report` 配下が置き場所の慣例）
-- 完了時: `newStatus`を`"done"`に。pin（今日やる）/running（実行中）解除・完了日時記録はAPIが自動処理する（下記「完了時の自動処理」参照）
+- 完了時: `newStatus`を`"done"`にする際も`actor:"<自分のAI識別子>"`を渡す。pin（今日やる）/running（実行中）解除・完了日時記録はAPIが自動処理する（下記「完了時の自動処理」参照）
 
 ## 作業内容の記録ルール（説明欄への追記、BT-262で明文化）
 - タスクについて「対象範囲・方針に合意した」「重要な判断を下した」「作業を実施・完了した」いずれかのタイミングで、その内容を`update-task`の`description`で説明欄に書き込むこと。会話ログにしか残らず、説明欄が空欄・着手前の内容のまま放置される状態を作らない。

@@ -513,7 +513,7 @@ function serveStatic(req, res) {
   // 受け取る。isChildパラメータは廃止(BT-187)。完了時の自動処理(BT-179で移植):
   // pin/running解除、コミットハッシュ紐付け、GitHub連携完了時同期(旧BT-119相当)
   if (req.url === '/api/update-status' && req.method === 'POST') {
-    readRequestBody(req).then(({ taskId, newStatus }) => {
+    readRequestBody(req).then(({ taskId, newStatus, actor }) => {
       if (!taskId || !newStatus) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'taskId and newStatus are required' }));
@@ -537,15 +537,16 @@ function serveStatic(req, res) {
       const project = isCompleting ? (config.projects || []).find(p => p.file === existing.workspace) : null;
       const commitHashes = isCompleting ? getCommitHashesForTask(project && project.workspace, taskId) : [];
 
-      tasksRepo.updateStatus(db, taskId, newStatus);
+      const actionActor = tasksRepo.normalizeActor(actor);
+      tasksRepo.updateStatus(db, taskId, newStatus, actionActor);
       if (isCompleting) {
         if (commitHashes.length > 0) tasksRepo.updateCommitHash(db, taskId, commitHashes);
-        tasksRepo.setPin(db, existing.workspace, taskId, false);
-        tasksRepo.setRunning(db, existing.workspace, taskId, false);
+        tasksRepo.setPin(db, existing.workspace, taskId, false, actionActor);
+        tasksRepo.setRunning(db, existing.workspace, taskId, false, actionActor);
       }
 
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ ok: true }));
+      res.end(JSON.stringify({ ok: true, actor: actionActor }));
       broadcast(buildBoard());
 
       if (isCompleting && existing.github_issue_number && project) {
@@ -587,7 +588,7 @@ function serveStatic(req, res) {
   // API: POST /api/toggle-today (BT-189: DB版。isChildパラメータは廃止(BT-187)、
   // レスポンスキーもtodayFlag→pinnedに改名)
   if (req.url === '/api/toggle-today' && req.method === 'POST') {
-    readRequestBody(req).then(({ taskId, value }) => {
+    readRequestBody(req).then(({ taskId, value, actor }) => {
       if (!taskId) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'taskId is required' }));
@@ -601,9 +602,10 @@ function serveStatic(req, res) {
         return;
       }
       const pinned = value !== false;
-      tasksRepo.setPin(db, existing.workspace, taskId, pinned);
+      const actionActor = tasksRepo.normalizeActor(actor);
+      tasksRepo.setPin(db, existing.workspace, taskId, pinned, actionActor);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ ok: true, taskId, pinned }));
+      res.end(JSON.stringify({ ok: true, taskId, pinned, actor: actionActor }));
       broadcast(buildBoard());
     }).catch(e => {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -614,7 +616,7 @@ function serveStatic(req, res) {
 
   // API: POST /api/toggle-running (BT-189: DB版。isChildパラメータは廃止(BT-187))
   if (req.url === '/api/toggle-running' && req.method === 'POST') {
-    readRequestBody(req).then(({ taskId, value }) => {
+    readRequestBody(req).then(({ taskId, value, actor }) => {
       if (!taskId) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'taskId is required' }));
@@ -628,9 +630,10 @@ function serveStatic(req, res) {
         return;
       }
       const running = value !== false;
-      tasksRepo.setRunning(db, existing.workspace, taskId, running);
+      const actionActor = tasksRepo.normalizeActor(actor);
+      tasksRepo.setRunning(db, existing.workspace, taskId, running, actionActor);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ ok: true, taskId, running }));
+      res.end(JSON.stringify({ ok: true, taskId, running, actor: actionActor }));
       broadcast(buildBoard());
     }).catch(e => {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });

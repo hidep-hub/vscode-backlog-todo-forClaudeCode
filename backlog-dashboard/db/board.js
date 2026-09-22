@@ -93,6 +93,12 @@ function buildBoardFromDb(db, config) {
   }
   const pinnedTaskIds = new Set(db.prepare('SELECT task_id FROM pins').all().map(r => r.task_id));
   const runningTaskIds = new Set(db.prepare('SELECT task_id FROM running_tasks').all().map(r => r.task_id));
+  const activeAgentByTaskId = new Map(
+    db.prepare(`SELECT task_id, agent_id FROM task_execution_sessions
+      WHERE stopped_at IS NULL ORDER BY started_at DESC, id DESC`).all()
+      .reverse()
+      .map(row => [row.task_id, row.agent_id])
+  );
 
   for (const row of allRows) row.__deliverables = deliverablesByTaskId[row.id] || [];
 
@@ -118,11 +124,13 @@ function buildBoardFromDb(db, config) {
       const childItem = toTaskItem(childRow, { statusLabelMap, projectName });
       childItem.todayFlag = pinnedTaskIds.has(childRow.id);
       childItem.running = runningTaskIds.has(childRow.id);
+      childItem.agentId = activeAgentByTaskId.get(childRow.id) || null;
       return childItem;
     });
     item.children = children;
     item.todayFlag = pinnedTaskIds.has(row.id);
     item.running = runningTaskIds.has(row.id);
+    item.agentId = activeAgentByTaskId.get(row.id) || null;
     if (childRows.length > 0) {
       item.childrenTotal = childRows.length;
       item.childrenDone = childRows.filter(c => c.status === 'done').length;
@@ -234,16 +242,25 @@ function buildTaskDetail(db, config, displayId) {
 
   const pinnedTaskIds = new Set(db.prepare(`SELECT task_id FROM pins WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
   const runningTaskIds = new Set(db.prepare(`SELECT task_id FROM running_tasks WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
+  const activeAgentByTaskId = new Map(
+    db.prepare(`SELECT task_id, agent_id FROM task_execution_sessions
+      WHERE task_id IN (${placeholders}) AND stopped_at IS NULL
+      ORDER BY started_at DESC, id DESC`).all(...relevantIds)
+      .reverse()
+      .map(row => [row.task_id, row.agent_id])
+  );
 
   const projectName = workspaceToProjectName[row.workspace] || row.workspace;
   const item = toTaskItem(row, { statusLabelMap, projectName });
   item.todayFlag = pinnedTaskIds.has(row.id);
   item.running = runningTaskIds.has(row.id);
+  item.agentId = activeAgentByTaskId.get(row.id) || null;
 
   const children = childRows.map(childRow => {
     const childItem = toTaskItem(childRow, { statusLabelMap, projectName });
     childItem.todayFlag = pinnedTaskIds.has(childRow.id);
     childItem.running = runningTaskIds.has(childRow.id);
+    childItem.agentId = activeAgentByTaskId.get(childRow.id) || null;
     return childItem;
   });
   item.children = children;

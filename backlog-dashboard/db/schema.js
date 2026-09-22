@@ -66,6 +66,16 @@ const DDL = [
     task_id INTEGER NOT NULL REFERENCES tasks(id),
     started_at TEXT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS task_execution_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    agent_id TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    stopped_at TEXT NULL,
+    stopped_by TEXT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_task_execution_sessions_active
+    ON task_execution_sessions(task_id, stopped_at)`,
   `CREATE TABLE IF NOT EXISTS task_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL REFERENCES tasks(id),
@@ -111,6 +121,15 @@ function createSchema(db) {
   db.exec('BEGIN');
   try {
     for (const stmt of DDL) db.exec(stmt);
+
+    // BT-281: existing running tasks become open user sessions on first upgrade.
+    db.exec(`INSERT INTO task_execution_sessions (task_id, agent_id, started_at)
+      SELECT rt.task_id, 'user', rt.started_at
+      FROM running_tasks rt
+      WHERE NOT EXISTS (
+        SELECT 1 FROM task_execution_sessions tes
+        WHERE tes.task_id = rt.task_id AND tes.stopped_at IS NULL
+      )`);
 
     const insertStatus = db.prepare(
       'INSERT OR IGNORE INTO statuses (code, label, icon, color, sort_order) VALUES (?, ?, NULL, NULL, ?)'
