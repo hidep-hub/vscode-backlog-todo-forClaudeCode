@@ -43,6 +43,8 @@
 .material-icon.icon-calendar-month{ -webkit-mask-image: url('icons/calendar_month.svg'); mask-image: url('icons/calendar_month.svg'); }
 .material-icon.icon-history       { -webkit-mask-image: url('icons/history.svg'); mask-image: url('icons/history.svg'); }
 .material-icon.icon-psychiatry    { -webkit-mask-image: url('icons/psychiatry.svg'); mask-image: url('icons/psychiatry.svg'); }
+.material-icon.icon-timer         { -webkit-mask-image: url('icons/timer.svg'); mask-image: url('icons/timer.svg'); }
+.material-icon.icon-check-box     { -webkit-mask-image: url('icons/check_box.svg'); mask-image: url('icons/check_box.svg'); }
 
 /* --- Theme Variables --- */
 :root,
@@ -3576,4 +3578,13 @@ body {
   color: var(--accent);
   border: 1px solid var(--accent);
   background: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.card-tag.completed-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
