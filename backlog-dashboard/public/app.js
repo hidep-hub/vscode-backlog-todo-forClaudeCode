@@ -777,8 +777,10 @@ function collectRunningTasks(data) {
   if (!data || !data.columns) return result;
   for (const col of data.columns) {
     for (const item of col.items) {
-      const parentOnlyMirrorsChild = item.running && !item.agentId && (item.children || []).some(child => child.running);
-      if (item.running && !parentOnlyMirrorsChild && !seen.has(item.id)) {
+      // EPICのrunningは子タスクの状態を集約して表示するためのもの。
+      // フッダーには実際に作業中の子タスクだけを出し、EPIC自体は出さない。
+      const isEpic = (item.children || []).length > 0;
+      if (item.running && !isEpic && !seen.has(item.id)) {
         seen.add(item.id);
         result.push({ item, parentEpic: null });
       }
