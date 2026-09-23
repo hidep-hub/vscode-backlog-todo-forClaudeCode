@@ -810,7 +810,7 @@ function renderRunningStrip(data) {
   const el = document.getElementById('running-strip-agents');
   if (!el) return;
   const running = collectRunningTasks(data);
-  const agents = ['codex', 'claude-code'];
+  const agents = ['codex', 'claude-code', 'kiro'];
   for (const { item } of running) {
     const agentId = item.agentId || 'user';
     if (!agents.includes(agentId)) agents.push(agentId);
