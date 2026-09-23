@@ -1,3 +1,7 @@
+---
+inclusion: always
+---
+
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
 > 対応API version: 2.1.8（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
@@ -123,3 +127,20 @@
 - **【重要】config.jsonの`columns[].match`（ステータス値の正当性チェックに直結）を変更する場合、対応するコード（server.js）変更と同時に行うこと**。config.jsonは`fs.watch`でホットリロードされる（保存後300msデバウンスで自動反映）ため、コード側が新しいステータス値の集合に対応していない状態で保存すると、保存した瞬間に書き込み系APIが軒並み400エラーになる
 - 書き換え前に .bak を取り、切り戻し手順を用意する
 - API/コマンド実行後は結果を確認してから成功/失敗を報告する（推測で言わない）
+
+
+---
+
+## Kiro固有の設定
+
+- このファイルは共通正本 `AGENTS.md.sample` の本文をそのまま複製し、Kiro固有の追記だけを末尾に加えたものである。共通ルールを変更したら、必ず両方を同期する。
+- Kiroのグローバル配置先は `~/.kiro/steering/backlog-hub-rules.md`。`scripts/install-kiro-backlog.ps1` は既存の配置先をバックアップしてから更新する。
+- KiroカスタムエージェントはSteeringとSkillを自動読込しない。必要なら`resources`へ次を加える。
+
+```json
+[
+  "file://.kiro/steering/**/*.md",
+  "skill://.kiro/skills/**/SKILL.md"
+]
+```
+
