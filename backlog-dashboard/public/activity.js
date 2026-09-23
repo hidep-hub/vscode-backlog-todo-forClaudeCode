@@ -96,6 +96,7 @@ const ACTIVITY_EVENT_LABEL = {
 const ACTIVITY_AGENT_META = {
   codex: { label: 'Codex', icon: 'codex-icon.svg' },
   'claude-code': { label: 'Claude Code', icon: 'claude-icon.png' },
+  kiro: { label: 'Kiro', icon: 'kiro-run-icon.png' },
   user: { label: 'User', icon: 'icons/person.svg' },
 };
 
