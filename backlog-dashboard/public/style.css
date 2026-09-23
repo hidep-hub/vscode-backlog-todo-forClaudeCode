@@ -1058,13 +1058,13 @@ body {
    EPIC(modal-wide)はmini-boardを含み縦に伸びる想定のため対象外、従来通りモーダル全体スクロール。
    対象は.detail-modal-content(詳細/子詳細モーダル)のみに限定する。他の.modal-content利用先
    (削除確認/GitHubリンク/親ピッカー/検索/タスク追加/ワークスペース作成)には影響させない(BT-263で発覚した副作用の修正)。 */
-.modal-content.detail-modal-content:not(.modal-wide) {
+.modal-content.detail-modal-content {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.modal-content.detail-modal-content:not(.modal-wide) .modal-body {
+.modal-content.detail-modal-content .modal-body {
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -1072,39 +1072,33 @@ body {
   flex-direction: column;
 }
 
-.modal-content.detail-modal-content:not(.modal-wide) .detail-layout {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  align-items: stretch;
-}
-
-.modal-content.detail-modal-content:not(.modal-wide) .detail-main {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.modal-content.detail-modal-content:not(.modal-wide) .detail-main > *:not(.detail-description-section) {
+.modal-content.detail-modal-content .detail-fixed-layout {
   flex-shrink: 0;
 }
 
-.modal-content.detail-modal-content:not(.modal-wide) .detail-description-section {
+.modal-content.detail-modal-content .detail-scroll-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.detail-scroll-layout {
   display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
+  gap: 24px;
+  align-items: flex-start;
 }
 
-.modal-content.detail-modal-content:not(.modal-wide) .detail-description-section .description-collapsible {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+.detail-scroll-main {
+  flex: 3;
+  min-width: 0;
 }
 
-.modal-content.detail-modal-content:not(.modal-wide) .detail-side {
-  overflow-y: auto;
-  min-height: 0;
+.detail-scroll-side {
+  flex: 1;
+  min-width: 180px;
+  border-left: 1px solid var(--border);
+  padding-left: 20px;
 }
 
 @keyframes modalSlideIn {
@@ -1200,11 +1194,13 @@ body {
 }
 
 @media (max-width: 640px) {
-  .detail-layout {
+  .detail-layout,
+  .detail-scroll-layout {
     flex-direction: column;
   }
 
-  .detail-side {
+  .detail-side,
+  .detail-scroll-side {
     border-left: none;
     border-top: 1px solid var(--border);
     padding-left: 0;
@@ -1298,6 +1294,22 @@ body {
 .detail-artifacts-block {
   border-top: 1px solid var(--border);
   padding-top: 12px;
+}
+
+.detail-artifacts-collapsible summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  user-select: none;
+}
+
+.detail-artifacts-collapsible summary:hover {
+  color: var(--text);
+}
+
+.detail-artifacts-collapsible .detail-artifacts {
+  margin-top: 8px;
 }
 
 .detail-artifacts {

@@ -1212,7 +1212,12 @@ function buildMetaHtml(item) {
 // 詳細モーダル本体を「左3/4:説明」「右1/4:情報+成果物」の横長2カラムにまとめる（BT-261）
 function buildDetailColumnsHtml(mainHtml, sideHtml) {
   const side = sideHtml ? `<div class="detail-side">${sideHtml}</div>` : '';
-  return `<div class="detail-layout"><div class="detail-main">${mainHtml}</div>${side}</div>`;
+  return `<div class="detail-layout detail-fixed-layout"><div class="detail-main">${mainHtml}</div>${side}</div>`;
+}
+
+function buildScrollableDetailHtml(mainHtml, sideHtml, footerHtml = '') {
+  const side = sideHtml ? `<div class="detail-scroll-side">${sideHtml}</div>` : '';
+  return `<div class="detail-scroll-content"><div class="detail-scroll-layout"><div class="detail-scroll-main">${mainHtml}</div>${side}</div>${footerHtml}</div>`;
 }
 
 function buildArtifactsHtml(item) {
@@ -1224,7 +1229,11 @@ function buildArtifactsHtml(item) {
     const fullPath = wsPath ? (wsPath + '/' + art.replace(/\\/g, '/')) : art;
     return `<li class="artifact-item"><code>${escaped}</code> <button class="artifact-copy-btn" data-path="${escapeHtml(fullPath)}" title="パスをコピー"><span class="material-icon icon-content-copy"></span></button></li>`;
   }).join('');
-  return `<div class="detail-section detail-artifacts-block"><h4>成果物</h4><ul class="detail-artifacts">${artifactItems}</ul></div>`;
+  const artifactList = `<ul class="detail-artifacts">${artifactItems}</ul>`;
+  if (item.artifacts.length === 1) {
+    return `<div class="detail-section detail-artifacts-block"><h4>成果物</h4>${artifactList}</div>`;
+  }
+  return `<details class="detail-section detail-artifacts-block detail-artifacts-collapsible"><summary>成果物（${item.artifacts.length}件）</summary>${artifactList}</details>`;
 }
 
 // ボタン群を1つのflex-wrapグループにまとめる（BT-166: ペア単位のflex:1をやめ、
@@ -2251,12 +2260,11 @@ function openChildModal(item) {
     </div>
     <h3 class="detail-title">${escapeHtml(item.title)}</h3>
     ${actionsRow(editBtnHtml, deleteBtnHtml, workspaceActionHtml, moveActionHtml, detachBtn, githubLinkBtnHtml, githubCreateBtnHtml)}
-    ${desc}
   `;
-  const sideHtml = `${metaHtml}${artifactsHtml}`;
 
   body.innerHTML = `
-    ${buildDetailColumnsHtml(headerHtml, sideHtml)}
+    ${buildDetailColumnsHtml(headerHtml, metaHtml)}
+    ${buildScrollableDetailHtml(desc, artifactsHtml)}
   `;
 
   // 親から外すボタンのイベント
@@ -2886,13 +2894,11 @@ function renderModalContent(item) {
     </div>
     <h3 class="detail-title">${escapeHtml(item.title)}</h3>
     ${actionsRow(editBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml)}
-    ${desc}
   `;
-  const sideHtml = `${metaHtml}${artifactsHtml}`;
 
   body.innerHTML = `
-    ${buildDetailColumnsHtml(headerHtml, sideHtml)}
-    ${miniBoard}
+    ${buildDetailColumnsHtml(headerHtml, metaHtml)}
+    ${buildScrollableDetailHtml(desc, artifactsHtml, miniBoard)}
   `;
 
   // 説明欄の折りたたみトグル初期化（BT-080）
