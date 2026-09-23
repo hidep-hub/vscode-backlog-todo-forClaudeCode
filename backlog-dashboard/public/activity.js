@@ -117,6 +117,7 @@ const ACTIVITY_ICONS_SVG = {
   checkCircle: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="m10.6 16.6l7.05-7.05l-1.4-1.4l-5.65 5.65l-2.85-2.85l-1.4 1.4zM12 22q-2.075 0-3.9-.788t-3.175-2.137T2.788 15.9T2 12t.788-3.9t2.137-3.175T8.1 2.788T12 2t3.9.788t3.175 2.137T21.213 8.1T22 12t-.788 3.9t-2.137 3.175t-3.175 2.138T12 22"/></svg>',
   restoreFromTrash: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 21q-.825 0-1.412-.587T5 19V6q-.425 0-.712-.288T4 5t.288-.712T5 4h4q0-.425.288-.712T10 3h4q.425 0 .713.288T15 4h4q.425 0 .713.288T20 5t-.288.713T19 6v13q0 .825-.587 1.413T17 21zm4-9.15V15q0 .425.288.713T12 16t.713-.288T13 15v-3.15l.9.875q.275.275.688.275t.712-.3q.275-.275.275-.7t-.275-.7l-2.6-2.6q-.3-.3-.7-.3t-.7.3l-2.6 2.6q-.275.275-.287.688t.287.712q.275.275.688.288t.712-.263z"/></svg>',
   stacks: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.513 13.663q-.238-.063-.463-.188l-8.45-4.6q-.275-.15-.388-.375T2.1 8t.113-.5t.387-.375l8.45-4.6q.225-.125.463-.188T12 2.275t.488.063t.462.187l8.45 4.6q.275.15.388.375t.112.5t-.112.5t-.388.375l-8.45 4.6q-.225.125-.462.188t-.488.062t-.488-.062M12 15.725l7.85-4.275q.05-.025.475-.125q.425 0 .713.288t.287.712q0 .275-.125.5t-.4.375l-7.85 4.275q-.225.125-.462.188t-.488.062t-.488-.062t-.462-.188L3.2 13.2q-.275-.15-.4-.375t-.125-.5q0-.425.288-.712t.712-.288q.125 0 .238.038t.237.087zm0 4l7.85-4.275q.05-.025.475-.125q.425 0 .713.288t.287.712q0 .275-.125.5t-.4.375l-7.85 4.275q-.225.125-.462.188t-.488.062t-.488-.062t-.462-.188L3.2 17.2q-.275-.15-.4-.375t-.125-.5q0-.425.288-.712t.712-.288q.125 0 .238.038t.237.087z"/></svg>',
+  assignment: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2m-7 0c.55 0 1 .45 1 1s-.45 1-1 1s-1-.45-1-1s.45-1 1-1m2 14H7v-2h7zm3-4H7v-2h10zm0-4H7V7h10z"/></svg>',
   warning: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21L12 2l11 19zm11.713-3.287Q13 17.425 13 17t-.288-.712T12 16t-.712.288T11 17t.288.713T12 18t.713-.288M11 15h2v-5h-2z"/></svg>',
   autoAwesome: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="m19 9l-1.25-2.75L15 5l2.75-1.25L19 1l1.25 2.75L23 5l-2.75 1.25L19 9Zm0 14l-1.25-2.75L15 19l2.75-1.25L19 15l1.25 2.75L23 19l-2.75 1.25L19 23ZM9 20l-2.5-5.5L1 12l5.5-2.5L9 4l2.5 5.5L17 12l-5.5 2.5L9 20Z"/></svg>',
 };
@@ -185,6 +186,7 @@ function normalizeActivityEvent(raw) {
     isChild: !!raw.parentId,
     parentId: raw.parentId || null,
     parentTitle: raw.parentTitle || null,
+    isEpic: !!raw.isEpic,
     type,
     eventType: raw.eventType,
     eventLabel: raw.eventLabel || ACTIVITY_EVENT_LABEL[raw.eventType] || raw.eventType,
@@ -231,7 +233,6 @@ function getOrCreateActivityModal() {
       </div>
       <div class="activity-filters">
         <div class="activity-tabs" id="activity-tabs" role="tablist"></div>
-        <div class="activity-ws-chips" id="activity-ws-chips"></div>
         <input type="search" class="activity-search-input" id="activity-search" placeholder="タイトル・IDで検索">
       </div>
       <div class="activity-body" id="activity-body">
@@ -280,7 +281,7 @@ function getOrCreateActivityModal() {
 function openActivityView() {
   const modal = getOrCreateActivityModal();
   activityTypeFilter = 'all';
-  activityProjectFilter = '';
+  activityProjectFilter = currentFilter || '';
   activityDateFrom = '';
   activityDateTo = '';
   activitySearchQuery = '';
@@ -293,6 +294,13 @@ function openActivityView() {
 
 function closeActivityView() {
   if (activityModalEl) activityModalEl.classList.remove('modal-visible');
+}
+
+function syncActivityProjectFilterFromMain() {
+  if (!activityModalEl || !activityModalEl.classList.contains('modal-visible')) return;
+  activityProjectFilter = currentFilter || '';
+  renderActivityControls();
+  renderActivityBody();
 }
 
 async function loadActivity(isReload) {
@@ -425,6 +433,7 @@ function renderActivityControls() {
 
   // WSチップ(project以外のフィルタを反映した件数、もう一度押すと解除)
   const chipsEl = modal.querySelector('#activity-ws-chips');
+  if (chipsEl) {
   const exceptProject = activityEventsExceptProject();
   const byProject = {};
   for (const ev of exceptProject) {
@@ -445,6 +454,8 @@ function renderActivityControls() {
     });
   });
 
+  }
+
   if (activityUpdatedAt) {
     const d = new Date(activityUpdatedAt);
     const pad = n => String(n).padStart(2, '0');
@@ -456,8 +467,33 @@ function renderActivityControls() {
 // 同一グループ内で同じ親EPICの完了子タスクが2件以上あれば、EPIC行1つにまとめて子をtreeでネストする。
 // 1件だけの場合は親バッジ付きの通常行として出す(縦に間延びしないようにする、KIRO版と同じ判断)。
 function buildActivityRenderUnits(events) {
-  const byParent = new Map();
+  const byTask = new Map();
   for (const ev of events) {
+    if (!ev.id) continue;
+    if (!byTask.has(ev.id)) byTask.set(ev.id, []);
+    byTask.get(ev.id).push(ev);
+  }
+  const groupedTaskIds = new Set();
+  byTask.forEach((taskEvents, taskId) => {
+    if (taskEvents.length >= 2) groupedTaskIds.add(taskId);
+  });
+
+  const taskUnits = [];
+  const consumedTasks = new Set();
+  for (const ev of events) {
+    if (groupedTaskIds.has(ev.id)) {
+      if (consumedTasks.has(ev.id)) continue;
+      consumedTasks.add(ev.id);
+      taskUnits.push({ kind: 'task', taskId: ev.id, title: ev.title, project: ev.project, isEpic: ev.isEpic, events: byTask.get(ev.id) });
+    } else {
+      taskUnits.push({ kind: 'event', event: ev });
+    }
+  }
+
+  const byParent = new Map();
+  for (const unit of taskUnits) {
+    if (unit.kind !== 'event') continue;
+    const ev = unit.event;
     if (ev.type === 'completed' && ev.isChild && ev.parentId) {
       if (!byParent.has(ev.parentId)) byParent.set(ev.parentId, []);
       byParent.get(ev.parentId).push(ev);
@@ -468,7 +504,12 @@ function buildActivityRenderUnits(events) {
 
   const units = [];
   const consumed = new Set();
-  for (const ev of events) {
+  for (const unit of taskUnits) {
+    if (unit.kind === 'task') {
+      units.push(unit);
+      continue;
+    }
+    const ev = unit.event;
     const isGrouped = ev.type === 'completed' && ev.isChild && ev.parentId && epicIds.has(ev.parentId);
     if (isGrouped) {
       if (consumed.has(ev.parentId)) continue;
@@ -493,7 +534,7 @@ function buildActivityRowEl(ev, opts = {}) {
   row.className = `activity-row activity-row-${meta.cls}` + (opts.isChildRow ? ' activity-child-row' : '');
 
   const timeText = formatActivityTime(ev.ts);
-  const idHtml = `<span class="activity-id">${escapeHtml(ev.id || '-')}</span>`;
+  const idHtml = opts.hideTaskIdentity ? '' : `<span class="activity-id">${escapeHtml(ev.id || '-')}</span>`;
   const wsHtml = (!opts.hideProject && ev.project) ? `<span class="activity-ws">${escapeHtml(ev.project)}</span>` : '';
   const typeHtml = `<span class="activity-type-label">${escapeHtml(meta.label)}</span>`;
   const agentHtml = activityAgentHtml(ev.actor);
@@ -510,7 +551,7 @@ function buildActivityRowEl(ev, opts = {}) {
     <div class="activity-row-main">
       <div class="activity-row-line1">
         ${typeHtml}${agentHtml}${wsHtml}${idHtml}
-        <span class="activity-title">${escapeHtml(ev.title || '')}</span>
+        ${opts.hideTaskIdentity ? '' : `<span class="activity-title">${escapeHtml(ev.title || '')}</span>`}
       </div>
       <div class="activity-row-line2">${parentHtml}${changeHtml}</div>
     </div>
@@ -593,6 +634,76 @@ function buildActivityEpicEl(unit) {
 }
 
 // 一括開閉ボタン。「すべて畳む」「すべて開く」を独立した2ボタンにして、押せない時はdisabledで示す。
+function buildActivityTaskGroupEl(unit) {
+  const wrap = document.createElement('div');
+  const groupLabel = unit.isEpic ? 'EPIC' : 'タスク';
+  const groupIcon = unit.isEpic ? 'stacks' : 'assignment';
+  const groupClass = unit.isEpic ? 'epic' : 'task';
+  wrap.className = `activity-row activity-row-${groupClass}`;
+  wrap.innerHTML = `
+    <span class="activity-dot activity-dot-${groupClass}" aria-hidden="true">${activityIconHtml(groupIcon)}</span>
+    <div class="activity-row-main">
+      <div class="activity-row-line1">
+        <span class="activity-type-label">${groupLabel}</span>
+        ${unit.project ? `<span class="activity-ws">${escapeHtml(unit.project)}</span>` : ''}
+        <span class="activity-id">${escapeHtml(unit.taskId)}</span>
+        <span class="activity-title">${escapeHtml(unit.title || '')}</span>
+        <span class="activity-epic-count">${unit.events.length}イベント</span>
+      </div>
+    </div>
+    <span class="activity-time"></span>
+  `;
+  const item = resolveActivityItem(unit.taskId);
+  if (item) {
+    wrap.classList.add('activity-row-clickable');
+    wrap.addEventListener('click', () => openCardDetail(item));
+  }
+  const childrenWrap = document.createElement('div');
+  childrenWrap.className = 'activity-children';
+  for (const ev of unit.events) {
+    childrenWrap.appendChild(buildActivityRowEl(ev, { isChildRow: true, hideProject: true, hideTaskIdentity: true }));
+  }
+  const block = document.createElement('div');
+  block.className = 'activity-task-block';
+  block.appendChild(wrap);
+  block.appendChild(childrenWrap);
+  return block;
+}
+
+function appendActivityRenderUnits(container, events) {
+  for (const unit of buildActivityRenderUnits(events)) {
+    if (unit.kind === 'epic') container.appendChild(buildActivityEpicEl(unit));
+    else if (unit.kind === 'task') container.appendChild(buildActivityTaskGroupEl(unit));
+    else container.appendChild(buildActivityRowEl(unit.event));
+  }
+}
+
+function buildActivityWorkspaceGroupEl(project, events, dateKey) {
+  const groupKey = `${dateKey}:workspace:${project || '__unknown__'}`;
+  const collapsed = isActivityGroupCollapsed(groupKey);
+  const wrap = document.createElement('div');
+  wrap.className = 'activity-workspace-group' + (collapsed ? ' group-collapsed' : '');
+  const header = document.createElement('div');
+  header.className = 'activity-workspace-group-header';
+  header.innerHTML = `
+    <button type="button" class="activity-group-toggle" title="${collapsed ? '開く' : '畳む'}">${collapsed ? '▸' : '▾'}</button>
+    <span class="activity-ws">${escapeHtml(project || '未分類')}</span>
+    <span class="activity-group-summary">${events.length}件</span>
+  `;
+  header.addEventListener('click', () => {
+    toggleActivityGroup(groupKey);
+    renderActivityBody();
+  });
+  wrap.appendChild(header);
+  if (!collapsed) {
+    const body = document.createElement('div');
+    body.className = 'activity-workspace-group-body';
+    appendActivityRenderUnits(body, events);
+    wrap.appendChild(body);
+  }
+  return wrap;
+}
+
 function setupActivityCollapseAllBtn(groupKeys) {
   if (!activityModalEl) return;
   const collapsedCount = groupKeys.filter(k => isActivityGroupCollapsed(k)).length;
@@ -682,9 +793,18 @@ function renderActivityBody() {
     if (!collapsed) {
       const groupBody = document.createElement('div');
       groupBody.className = 'activity-group-body';
-      for (const unit of buildActivityRenderUnits(groupEvents)) {
-        if (unit.kind === 'epic') groupBody.appendChild(buildActivityEpicEl(unit));
-        else groupBody.appendChild(buildActivityRowEl(unit.event));
+      if (activityProjectFilter) {
+        appendActivityRenderUnits(groupBody, groupEvents);
+      } else {
+        const byProject = new Map();
+        for (const ev of groupEvents) {
+          const project = ev.project || '';
+          if (!byProject.has(project)) byProject.set(project, []);
+          byProject.get(project).push(ev);
+        }
+        for (const [project, projectEvents] of [...byProject.entries()].sort(([a], [b]) => a.localeCompare(b, 'ja'))) {
+          groupBody.appendChild(buildActivityWorkspaceGroupEl(project, projectEvents, key));
+        }
       }
       groupEl.appendChild(groupBody);
     }

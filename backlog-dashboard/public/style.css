@@ -2945,6 +2945,17 @@ body {
   border-color: var(--accent);
 }
 
+.activity-row-task .activity-type-label {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.activity-dot-task {
+  background: var(--drop-highlight);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .activity-ws {
   flex-shrink: 0;
   font-size: 0.72rem;
@@ -3019,6 +3030,38 @@ body {
 /* --- EPICでまとめた子タスクのtree --- */
 .activity-epic-block {
   margin-bottom: 2px;
+}
+
+.activity-task-block {
+  margin-bottom: 2px;
+}
+
+.activity-workspace-group {
+  margin: 8px 0 12px;
+}
+
+.activity-workspace-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.activity-workspace-group-header .activity-group-toggle {
+  font-size: 1rem;
+}
+
+.activity-workspace-group-body {
+  margin: 4px 0 0 16px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
 }
 
 .activity-children {

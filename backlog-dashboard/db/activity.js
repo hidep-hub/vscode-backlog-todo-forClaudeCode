@@ -30,7 +30,8 @@ function buildActivity(db, config) {
       et.color AS eventColor,
       t.title AS taskTitle,
       t.workspace AS workspace,
-      t.parent_id AS parentRowId
+      t.parent_id AS parentRowId,
+      EXISTS (SELECT 1 FROM tasks child WHERE child.parent_id = t.id AND child.deleted_at IS NULL) AS isEpic
     FROM task_events te
     LEFT JOIN event_types et ON et.code = te.event_type
     LEFT JOIN tasks t ON t.id = te.task_id
@@ -63,6 +64,7 @@ function buildActivity(db, config) {
       occurredAt: row.occurredAt,
       parentId: parent ? parent.display_id : null,
       parentTitle: parent ? parent.title : null,
+      isEpic: Boolean(row.isEpic),
     };
   });
 }
