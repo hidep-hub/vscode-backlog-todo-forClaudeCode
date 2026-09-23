@@ -266,6 +266,24 @@ body {
   color: var(--accent, #6366f1);
 }
 
+/* URL の ?workspace= で開いた文脈を、現在のフィルタ状態とは別に示す。 */
+.proj-badge.workspace-context {
+  border: 3px solid var(--accent, #6366f1);
+  outline: 2px solid var(--accent, #6366f1);
+  outline-offset: 1px;
+  padding: 0 6px;
+}
+
+.proj-badge.workspace-context.active {
+  box-shadow: 0 0 0 1px var(--card);
+}
+
+/* フィルタの対象外になっても、URLで指定された現在地の印は薄くしない。 */
+.proj-badge.workspace-context.dimmed {
+  opacity: 1;
+  box-shadow: 0 0 0 1px var(--card), 0 0 0 4px var(--accent, #6366f1);
+}
+
 .proj-badge.dimmed {
   opacity: 0.8;
 }
@@ -281,6 +299,11 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.workspace-open-current[disabled] {
+  cursor: default;
+  opacity: 0.7;
 }
 
 .header-controls {
