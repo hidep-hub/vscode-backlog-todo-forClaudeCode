@@ -84,6 +84,25 @@ function resolveWsDefault(filterMap) {
   return filterMap[key] || '';
 }
 
+// URL で指定されたワークスペースは、手動フィルタで別の表示に切り替えていても
+// 「このダッシュボードをどのワークスペースから開いたか」を示す文脈として残す。
+function getUrlWorkspaceProject(boardData = currentBoardData) {
+  const filterMap = (boardData && boardData.workspaceFilterMap) || workspaceFilterMap;
+  return resolveWsDefault(filterMap);
+}
+
+function isUrlWorkspaceProject(project, boardData = currentBoardData) {
+  const rawWorkspace = getUrlWorkspaceParam().trim().toLowerCase();
+  if (!rawWorkspace || !project) return false;
+  // project 名を直接指定するURLと、file名・パス末尾を指定するURLの両方を扱う。
+  if (project.toLowerCase() === rawWorkspace) return true;
+  return getUrlWorkspaceProject(boardData) === project;
+}
+
+function isCurrentUrlWorkspace(item) {
+  return !!item && isUrlWorkspaceProject(item.project);
+}
+
 // --- Theme settings (BT-285, persisted to localStorage) ---
 const THEME_PRESETS = {
   'light-blue':    { label: 'Light Blue', mode: 'light', accent: '#0b6fa4' },
@@ -827,13 +846,16 @@ function renderBoard(data) {
   // プロジェクト別残タスクバッジ表示（クリックでフィルタ連携）
   const badgesEl = document.getElementById('project-badges');
   if (badgesEl && data.remainingByProject) {
+    // 描画中のボードデータを直接使う。WebSocket再接続や初回描画の順序に左右されず、
+    // URLで開いたワークスペースを確実に強調できる。
     const entries = Object.entries(data.remainingByProject)
       .filter(([, count]) => count > 0)
       .sort((a, b) => b[1] - a[1]);
     badgesEl.innerHTML = entries.map(([proj, count]) => {
       const isActive = currentFilter === proj;
       const isDimmed = !!currentFilter && !isActive;
-      const cls = ['proj-badge', isActive ? 'active' : '', isDimmed ? 'dimmed' : ''].filter(Boolean).join(' ');
+      const isCurrentWorkspace = isUrlWorkspaceProject(proj, data);
+      const cls = ['proj-badge', isActive ? 'active' : '', isDimmed ? 'dimmed' : '', isCurrentWorkspace ? 'workspace-context' : ''].filter(Boolean).join(' ');
       return `<span class="${cls}" data-project="${escapeHtml(proj)}">${proj}<span class="proj-badge-count">${count}</span></span>`;
     }).join('');
   }
@@ -1218,6 +1240,9 @@ function buildWorkspaceActionHtml(item) {
   const workspaceMap = currentBoardData && currentBoardData.workspaceMap || {};
   const wsPath = workspaceMap[item.project] || '';
   if (wsPath) {
+    if (isCurrentUrlWorkspace(item)) {
+      return `<button class="add-child-btn workspace-open-current" id="modal-open-workspace-btn" disabled title="現在のワークスペースを表示中です"><span class="material-icon icon-folder-open"></span> 現在のワークスペース</button>`;
+    }
     return `<button class="add-child-btn" id="modal-open-workspace-btn"><span class="material-icon icon-folder-open"></span> ワークスペースを開く</button>`;
   }
   return `<button class="add-child-btn btn-add" id="modal-create-workspace-btn"><span class="material-icon icon-construction"></span> ワークスペースを作る</button>`;
