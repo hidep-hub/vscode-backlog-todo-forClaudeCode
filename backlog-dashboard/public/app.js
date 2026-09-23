@@ -3824,6 +3824,15 @@ function getOrCreateAddForm() {
   });
   addFormEl.querySelector('#add-form-close').addEventListener('click', closeAddForm);
 
+  // 子タスク追加フォームがEPIC詳細の上に開いているときは、Escapeをここで消費する。
+  // 親モーダルのdocumentハンドラへ到達させると、フォームではなくEPICが閉じてしまう。
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && addFormEl.classList.contains('modal-visible')) {
+      e.stopImmediatePropagation();
+      closeAddForm();
+    }
+  }, true);
+
   addFormEl.querySelector('#add-task-submit').addEventListener('click', submitAddTask);
 
   // Enterキーで送信
