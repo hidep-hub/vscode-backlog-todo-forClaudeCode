@@ -364,6 +364,15 @@ body {
   animation: spin 1.5s linear infinite;
 }
 
+.running-agent-icon.floating {
+  animation: kiro-run-float 1.8s ease-in-out infinite;
+}
+
+@keyframes kiro-run-float {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-3px) rotate(4deg); }
+}
+
 /* Agent identities: Codex's denser mark needs a little more optical size. */
 .running-agent[data-agent="codex"] .running-agent-icon {
   width: 30px;

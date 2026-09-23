@@ -798,6 +798,7 @@ function collectRunningTasks(data) {
 const RUNNING_AGENT_META = {
   codex: { label: 'Codex', icon: 'codex-icon.svg' },
   'claude-code': { label: 'Claude Code', icon: 'claude-icon.png' },
+  kiro: { label: 'Kiro', icon: 'kiro-run-icon.png' },
   user: { label: 'User', icon: 'icons/person.svg' },
 };
 
@@ -818,7 +819,10 @@ function renderRunningStrip(data) {
   el.innerHTML = agents.map(agentId => {
     const meta = runningAgentMeta(agentId);
     const tasks = running.filter(({ item }) => (item.agentId || 'user') === agentId);
-    const spins = tasks.length > 0 && agentId !== 'user';
+    const isActiveAgent = tasks.length > 0 && agentId !== 'user';
+    const iconAnimation = isActiveAgent
+      ? (agentId === 'kiro' ? ' floating' : ' spinning')
+      : '';
     const chips = tasks.map(({ item }) => `
       <button type="button" class="running-chip" data-idx="${indexByTaskId.get(item.id)}" title="${escapeHtml(item.title)}">
         <span class="running-spinner"></span>
@@ -827,7 +831,7 @@ function renderRunningStrip(data) {
       </button>
     `).join('');
     return `<section class="running-agent${tasks.length ? ' is-running' : ''}" data-agent="${escapeHtml(agentId)}" style="--running-count:${Math.max(tasks.length, 1)}" aria-label="${escapeHtml(meta.label)}: ${tasks.length} running tasks">
-      <img class="running-agent-icon${spins ? ' spinning' : ''}" src="${meta.icon}" alt="${escapeHtml(meta.label)}" title="${escapeHtml(meta.label)}">
+      <img class="running-agent-icon${iconAnimation}" src="${meta.icon}" alt="${escapeHtml(meta.label)}" title="${escapeHtml(meta.label)}">
       <div class="running-agent-chips">${chips}</div>
     </section>`;
   }).join('');
