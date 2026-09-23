@@ -2016,6 +2016,50 @@ body {
   resize: vertical;
 }
 
+/* タスク登録・編集では、説明欄を右側のメタ情報欄と同じ高さまで広げる。
+   固定のrows値に依存せず、フォーム全体がモーダル内で収まる高さになる。 */
+.add-task-form-wide .detail-layout,
+.edit-task-layout {
+  align-items: stretch;
+}
+
+.add-task-form-wide .detail-main,
+.edit-task-layout .detail-main {
+  display: flex;
+  flex-direction: column;
+}
+
+.add-task-form-wide .settings-group:has(#add-task-description),
+.edit-task-layout .settings-group:has(#edit-task-description) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.add-task-form-wide #add-task-description,
+.edit-task-layout #edit-task-description {
+  /* 初期値は説明グループの残り領域を使い、ドラッグ操作では縦横とも上書き可能にする。 */
+  flex: none;
+  box-sizing: border-box;
+  height: calc(100% - 21px);
+  max-width: 100%;
+  align-self: flex-start;
+  resize: vertical;
+}
+
+@media (max-width: 640px) {
+  .add-task-form-wide .detail-main,
+  .edit-task-layout .detail-main {
+    display: block;
+  }
+
+  .add-task-form-wide .settings-group:has(#add-task-description),
+  .edit-task-layout .settings-group:has(#edit-task-description) {
+    display: block;
+  }
+}
+
 .archived-note {
   color: var(--text-muted);
   font-size: 0.82rem;
