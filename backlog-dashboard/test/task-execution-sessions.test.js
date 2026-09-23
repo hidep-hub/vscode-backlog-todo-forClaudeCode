@@ -9,6 +9,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { createSchema } = require('../db/schema');
 const tasksRepo = require('../db/tasks-repo');
 const { buildBoardFromDb, buildTaskDetail } = require('../db/board');
+const { buildActivity } = require('../db/activity');
 
 function createTestDb() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'backlog-dashboard-test-'));
@@ -44,6 +45,20 @@ test('records the starting and stopping agents for an execution session', () => 
       { event_type: 'running_started', actor: 'codex' },
       { event_type: 'running_stopped', actor: 'claude-code' },
     ]);
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test('marks activity events for a parent task as an EPIC', () => {
+  const fixture = createTestDb();
+  try {
+    const parent = tasksRepo.create(fixture.db, { workspace: 'test', title: 'parent', status: 'do' });
+    tasksRepo.create(fixture.db, { workspace: 'test', title: 'child', status: 'todo', parentDisplayId: parent.display_id });
+    const config = { projects: [{ file: 'test', name: 'Test' }] };
+
+    const parentEvent = buildActivity(fixture.db, config).find(event => event.taskId === parent.display_id);
+    assert.equal(parentEvent.isEpic, true);
   } finally {
     cleanup(fixture);
   }

@@ -642,6 +642,7 @@ projectFilterEl.addEventListener('change', () => {
   applySettings();
   setSessionFilter(currentFilter); // ユーザー操作を記憶
   if (currentBoardData) renderBoard(currentBoardData);
+  if (typeof syncActivityProjectFilterFromMain === 'function') syncActivityProjectFilterFromMain();
 });
 
 // ワークスペースバッジクリック → フィルタ連携（トグル対応）
@@ -656,6 +657,7 @@ if (projectBadgesEl) {
     applySettings();
     setSessionFilter(currentFilter);
     if (currentBoardData) renderBoard(currentBoardData);
+    if (typeof syncActivityProjectFilterFromMain === 'function') syncActivityProjectFilterFromMain();
   });
 }
 
