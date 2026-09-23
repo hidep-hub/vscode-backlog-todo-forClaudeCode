@@ -1571,20 +1571,22 @@ function formatDescription(desc) {
 // 説明欄のHTML生成（BT-080: 長い説明は2行に折りたたみ、▼で展開できるようにする）
 function buildDescriptionSectionHtml(description) {
   if (!description) return '';
-  return `<div class="detail-section detail-description-section"><h4>説明</h4><div class="description-collapsible"><p class="description-text">${formatDescription(description)}</p><button type="button" class="description-toggle-btn" hidden>▼ もっと見る</button></div></div>`;
+  return `<div class="detail-section detail-description-section"><div class="detail-section-heading"><h4>説明</h4><button type="button" class="description-toggle-btn" hidden aria-expanded="false">▼ もっと見る</button></div><div class="description-collapsible"><p class="description-text">${formatDescription(description)}</p></div></div>`;
 }
 
 // 説明欄の折りたたみトグルを初期化する（BT-080）。2行に収まる場合はボタンを出さない
 function setupDescriptionToggle(container) {
   container.querySelectorAll('.description-collapsible').forEach((wrap) => {
     const text = wrap.querySelector('.description-text');
-    const btn = wrap.querySelector('.description-toggle-btn');
+    const section = wrap.closest('.detail-description-section');
+    const btn = section?.querySelector('.description-toggle-btn');
     if (!text || !btn) return;
     if (text.scrollHeight <= text.clientHeight + 1) return;
     btn.hidden = false;
     btn.addEventListener('click', () => {
       const expanded = wrap.classList.toggle('expanded');
       btn.textContent = expanded ? '▲ 閉じる' : '▼ もっと見る';
+      btn.setAttribute('aria-expanded', String(expanded));
     });
   });
 }
