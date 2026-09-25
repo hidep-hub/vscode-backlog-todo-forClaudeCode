@@ -850,6 +850,10 @@ function renderBoard(data) {
   lastBoardData = data;
   boardEl.innerHTML = '';
   renderRunningStrip(data);
+  renderWorkspaceSummary(data);
+  const boardColumnsEl = document.createElement('div');
+  boardColumnsEl.className = 'board-columns';
+  boardEl.appendChild(boardColumnsEl);
 
   // プロジェクト別残タスクバッジ表示（クリックでフィルタ連携）
   const badgesEl = document.getElementById('project-badges');
@@ -1084,7 +1088,7 @@ function renderBoard(data) {
       }
     }
 
-    boardEl.appendChild(colEl);
+    boardColumnsEl.appendChild(colEl);
   }
 
   // +ボタンのイベントリスナーを設定
@@ -1174,6 +1178,54 @@ function renderBoard(data) {
   });
 
   updateSelectionBar();
+}
+
+function renderWorkspaceSummary(data) {
+  if (!currentFilter || !data.workspaceSummaryMap || !Object.prototype.hasOwnProperty.call(data.workspaceSummaryMap, currentFilter)) return;
+  const summary = data.workspaceSummaryMap[currentFilter] || '';
+  const overview = document.createElement('section');
+  overview.className = 'workspace-overview';
+  overview.innerHTML = `<span class="workspace-overview-label">${escapeHtml(currentFilter)}</span><button type="button" class="workspace-overview-text${summary ? '' : ' is-empty'}" title="クリックして概要を編集">${escapeHtml(summary || 'ワークスペースの概要を入力')}</button>`;
+  boardEl.appendChild(overview);
+  overview.querySelector('.workspace-overview-text').addEventListener('click', () => startWorkspaceSummaryEdit(overview, currentFilter, summary));
+}
+
+function startWorkspaceSummaryEdit(overview, project, initialSummary) {
+  const input = document.createElement('input');
+  input.className = 'workspace-overview-input';
+  input.type = 'text';
+  input.maxLength = 240;
+  input.value = initialSummary;
+  input.placeholder = 'ワークスペースの概要を入力';
+  overview.querySelector('.workspace-overview-text').replaceWith(input);
+  input.focus();
+  input.select();
+  let finished = false;
+  const finish = async (save) => {
+    if (finished) return;
+    finished = true;
+    const summary = save ? input.value : initialSummary;
+    let saved = false;
+    if (save && summary !== initialSummary) {
+      try {
+        const response = await fetch('/api/update-workspace-summary', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project, summary }),
+        });
+        if (!response.ok) throw new Error((await response.json()).error || '保存に失敗しました');
+        saved = true;
+      } catch (error) {
+        console.error('[workspace-summary]', error);
+        alert(`ワークスペース概要を保存できませんでした: ${error.message}`);
+      }
+    }
+    if (!saved) renderBoard(currentBoardData);
+  };
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter') { event.preventDefault(); finish(true); }
+    if (event.key === 'Escape') { event.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
 }
 
 /**
