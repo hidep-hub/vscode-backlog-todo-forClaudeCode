@@ -150,9 +150,8 @@ body.dev-instance {
   font-size: 0.65rem;
   font-weight: 500;
   letter-spacing: 0.02em;
-  color: var(--text-muted);
+  color: var(--brand-fg-soft);
   white-space: nowrap;
-  padding-right: 2px;
 }
 
 /* --- Workspace theme settings (BT-285) --- */
@@ -308,9 +307,35 @@ body {
 
 .header-controls {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   margin-left: auto;
+}
+
+.header-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.header-search-input {
+  width: min(240px, 22vw);
+  min-width: 140px;
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  outline: none;
+}
+
+.header-search-input:focus {
+  border-color: var(--accent);
 }
 
 .running-strip {
@@ -637,6 +662,11 @@ body {
 
 .github-import-btn svg {
   display: block;
+}
+
+.github-import-btn::after {
+  content: 'GitHub';
+  margin-left: 4px;
 }
 
 .github-import-btn:hover {
@@ -1826,6 +1856,28 @@ body {
 }
 
 #settings-github-save:hover {
+  opacity: 0.85;
+}
+
+.settings-theme-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+#settings-workspace-theme-save {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: var(--brand-fg);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+#settings-workspace-theme-save:hover {
   opacity: 0.85;
 }
 
