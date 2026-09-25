@@ -63,7 +63,8 @@
       "file": "your-project",
       "prefix": "YP",
       "name": "your-project",
-      "workspace": "C:/dev/your-project"
+      "workspace": "C:/dev/your-project",
+      "summary": "このワークスペースの概要"
     },
     {
       "file": "inbox",

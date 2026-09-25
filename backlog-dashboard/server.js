@@ -219,6 +219,18 @@ function createWorkspaceProject({ file, prefix, name, workspace }) {
   return { success: true, file, prefix, name: displayName, workspace: workspace || '' };
 }
 
+function updateWorkspaceSummary(projectName, summary) {
+  if (typeof projectName !== 'string' || typeof summary !== 'string') {
+    return { success: false, error: 'project and summary must be strings' };
+  }
+  const project = (config.projects || []).find(p => p.name === projectName || p.file === projectName);
+  if (!project) return { success: false, error: `Project not found: ${projectName}` };
+  fs.copyFileSync(CONFIG_PATH, `${CONFIG_PATH}.bak`);
+  project.summary = summary.trim();
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  return { success: true, project: project.name, summary: project.summary };
+}
+
 function readRequestBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -394,6 +406,7 @@ function buildBoard() {
   return {
     ...dbBoard,
     workspaceMap: getWorkspaceMap(),
+    workspaceSummaryMap: getWorkspaceSummaryMap(),
     workspaceFilterMap: getWorkspaceFilterMap(),
     projectFileMap: getProjectFileMap(),
     projectPrefixMap: getProjectPrefixMap(),
@@ -401,6 +414,14 @@ function buildBoard() {
 }
 
 // プロジェクト表示名 → ワークスペースパスのマッピングを返す
+function getWorkspaceSummaryMap() {
+  const map = {};
+  for (const p of config.projects || []) {
+    if (p.name) map[p.name] = typeof p.summary === 'string' ? p.summary : '';
+  }
+  return map;
+}
+
 function getWorkspaceMap() {
   const map = {};
   for (const p of config.projects) {
@@ -1086,6 +1107,25 @@ function serveStatic(req, res) {
         res.end(JSON.stringify({ error: result.error }));
       }
     }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: POST /api/update-workspace-summary
+  if (req.url === '/api/update-workspace-summary' && req.method === 'POST') {
+    readRequestBody(req).then(({ project, summary }) => {
+      const result = updateWorkspaceSummary(project, summary);
+      if (!result.success) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: result.error }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: true, project: result.project, summary: result.summary }));
+      broadcast(buildBoard());
+    }).catch(() => {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'Invalid JSON body' }));
     });

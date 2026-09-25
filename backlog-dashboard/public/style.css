@@ -647,13 +647,42 @@ body {
 /* --- Board (Kanban) --- */
 .board {
   display: flex;
+  flex-direction: column;
   gap: var(--col-gap);
   padding: 16px;
   flex: 1;
   min-height: 0;
-  align-items: stretch;
+  overflow: hidden;
   order: 1;
 }
+
+.board-columns {
+  display: flex;
+  gap: var(--col-gap);
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+}
+
+/* --- Workspace overview (BT-311) --- */
+.workspace-overview {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.workspace-overview-label { color: var(--accent); font-size: .72rem; font-weight: 700; flex: 0 0 auto; }
+.workspace-overview-text, .workspace-overview-input { min-width: 0; flex: 1; font: inherit; font-size: .82rem; line-height: 1.35; text-align: left; }
+.workspace-overview-text { border: 0; background: transparent; color: var(--text); cursor: text; padding: 0; }
+.workspace-overview-text:hover { color: var(--accent); }
+.workspace-overview-text.is-empty { color: var(--text-muted); font-style: italic; }
+.workspace-overview-input { color: var(--text); background: var(--card); border: 1px solid var(--accent); border-radius: 4px; outline: 0; padding: 4px 7px; }
 
 /* --- Column --- */
 .column {
@@ -833,9 +862,16 @@ body {
 /* --- Responsive --- */
 @media (max-width: 800px) {
   .board {
+    overflow-y: auto;
+  }
+  .board-columns {
+    flex: 0 0 auto;
     flex-direction: column;
+    min-height: 0;
+    overflow: visible;
   }
   .column {
+    flex: 0 0 320px;
     max-width: 100%;
   }
 }
