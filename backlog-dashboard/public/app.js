@@ -2191,6 +2191,30 @@ async function toggleTodayFlag(taskId, value) {
   }
 }
 
+// --- Running Toggle (BT-277) ---
+// 実行中タスクは親EPIC・単体とも、詳細モーダルから個別に停止できる。
+// API側の実行セッション記録を通すため、表示だけを消すのではなく必ずAPIを呼ぶ。
+async function stopRunningTask(taskId, button) {
+  button.disabled = true;
+  button.textContent = '停止中...';
+  try {
+    const resp = await fetch('/api/toggle-running', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId, value: false }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.error || '実行中の停止に失敗しました');
+    }
+  } catch (e) {
+    console.error('[running] Stop failed:', e);
+    button.disabled = false;
+    button.innerHTML = '<span class="material-icon icon-stop"></span> 停止';
+    alert(e.message || '実行中の停止に失敗しました');
+  }
+}
+
 // --- Card Detail Modal ---
 let modalEl = null;
 let currentModalItemId = null;
@@ -2952,6 +2976,11 @@ function renderModalContent(item) {
     ? `<button class="add-child-btn" id="modal-set-parent-btn"><span class="material-icon icon-link"></span> 親を設定</button>`
     : '';
 
+  // BT-277: 親EPICか単体かを問わず、実行中ならそのタスクだけを停止できる。
+  const stopRunningBtnHtml = (item.id && item.id !== '-' && item.running)
+    ? `<button class="detail-action-btn btn-stop-running" id="modal-stop-running-btn"><span class="material-icon icon-stop"></span> 停止</button>`
+    : '';
+
   const detailSpinner = item.running ? '<span class="running-spinner detail-spinner"></span>' : '';
 
   // 編集・削除ボタン（BT-036/BT-031: 子ありEpicは削除不可のため削除ボタンを出さない）
@@ -2982,7 +3011,7 @@ function renderModalContent(item) {
       ${project}${category}${githubBadge}
     </div>
     <h3 class="detail-title">${escapeHtml(item.title)}</h3>
-    ${actionsRow(editBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml)}
+    ${actionsRow(stopRunningBtnHtml, editBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml)}
   `;
 
   body.innerHTML = `
@@ -3019,6 +3048,11 @@ function renderModalContent(item) {
     setParentBtnEl.addEventListener('click', () => {
       openParentPicker([item.id]);
     });
+  }
+
+  const stopRunningBtnEl = body.querySelector('#modal-stop-running-btn');
+  if (stopRunningBtnEl) {
+    stopRunningBtnEl.addEventListener('click', () => stopRunningTask(item.id, stopRunningBtnEl));
   }
 
   // GitHub Issue紐付けボタンのイベント（BT-122）
