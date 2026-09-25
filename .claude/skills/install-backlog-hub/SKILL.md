@@ -99,11 +99,9 @@ assets/
 
 ## 4. ルール層のセットアップ
 
-1. ユーザーのグローバル設定 `~/.claude/steering/backlog-hub-rules.md` の有無を確認する。
-   - 無ければ `assets/backlog-hub-rules.md` を**そのまま**そこにコピーする。
-   - 既にあり内容が異なる場合、上書きするかどうかユーザーに確認する(**上書き前に `.bak`**)。
-2. グローバル `~/.claude/CLAUDE.md`(Windows: `C:\Users\<name>\.claude\CLAUDE.md`)に、`@~/.claude/steering/backlog-hub-rules.md` の import 行が無ければ追記する(**追記前に `.bak`**)。直書きはしない。
-3. リポジトリ内で完結させたい場合は、リポジトリの `CLAUDE.md` に相対パスで import してもよい(ユーザーの希望を確認する)。
+1. リポジトリの `scripts/install-claude-backlog.ps1` を実行する。このスクリプトは共通正本 `AGENTS.md.sample` を `~/.claude/steering/backlog-hub-rules.md` へ配置し、既存ファイルをタイムスタンプ付き`.bak`へ退避する。
+2. 同スクリプトは、グローバル `~/.claude/CLAUDE.md` に `@steering/backlog-hub-rules.md` のimport行がなければ、バックアップ後に1回だけ追記する。既にある場合は変更しない。
+3. リポジトリ内で完結させたい場合は、リポジトリの `CLAUDE.md` に相対パスでimportしてもよい(ユーザーの希望を確認する)。
 
 ## 5. 最終確認チェックリスト
 
