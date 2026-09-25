@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携）
 
-> 対応API version: 2.1.8（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.1.9（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## データの真実
 - タスクの真のデータは SQLite DB（`<backlogDir>/backlog.sqlite3`）。UIやAPIはその窓（BT-179でmdから移行済み）。
