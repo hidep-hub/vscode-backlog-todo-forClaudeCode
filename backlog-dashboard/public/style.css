@@ -40,6 +40,7 @@
 .material-icon.icon-content-copy  { -webkit-mask-image: url('icons/content_copy.svg'); mask-image: url('icons/content_copy.svg'); }
 .material-icon.icon-check         { -webkit-mask-image: url('icons/check.svg'); mask-image: url('icons/check.svg'); }
 .material-icon.icon-close         { -webkit-mask-image: url('icons/close.svg'); mask-image: url('icons/close.svg'); }
+.material-icon.icon-stop          { -webkit-mask-image: url('icons/stop.svg'); mask-image: url('icons/stop.svg'); }
 .material-icon.icon-calendar-month{ -webkit-mask-image: url('icons/calendar_month.svg'); mask-image: url('icons/calendar_month.svg'); }
 .material-icon.icon-history       { -webkit-mask-image: url('icons/history.svg'); mask-image: url('icons/history.svg'); }
 .material-icon.icon-psychiatry    { -webkit-mask-image: url('icons/psychiatry.svg'); mask-image: url('icons/psychiatry.svg'); }
@@ -2083,6 +2084,22 @@ body {
 .detail-action-btn.btn-edit:hover {
   background: var(--accent);
   color: #fff;
+}
+
+/* 実行中タスクを止める操作。削除ではないため注意色の黄系で区別する。 */
+.detail-action-btn.btn-stop-running {
+  background: rgba(234, 179, 8, 0.14);
+  color: #b45309;
+}
+
+.detail-action-btn.btn-stop-running:hover {
+  background: #b45309;
+  color: #fff;
+}
+
+.detail-action-btn.btn-stop-running:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 /* 追加系（子タスク追加・親を設定・新規作成など、緑） */
