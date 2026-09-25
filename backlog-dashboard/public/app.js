@@ -6,6 +6,7 @@ const projectFilterEl = document.getElementById('project-filter');
 const searchBtn = document.getElementById('search-btn');
 const planBtn = document.getElementById('plan-btn');
 const themeSelectEl = document.getElementById('theme-select');
+const headerSearchInput = document.getElementById('header-search-input');
 const githubImportBtn = document.getElementById('github-import-btn');
 const headerLogoEl = document.getElementById('header-logo');
 const settingsBtn = document.getElementById('settings-btn');
@@ -15,6 +16,7 @@ const settingsThemeEl = document.getElementById('settings-theme');
 const workspaceThemeSettingsEl = document.getElementById('settings-workspace-theme');
 const workspaceThemeLabelEl = document.getElementById('settings-workspace-theme-label');
 const themePresetGridEl = document.getElementById('theme-preset-grid');
+const workspaceThemeSaveEl = document.getElementById('settings-workspace-theme-save');
 const settingsGithubProjectEl = document.getElementById('settings-github-project');
 const settingsGithubRepoUrlEl = document.getElementById('settings-github-repo-url');
 const settingsGithubTokenEl = document.getElementById('settings-github-token');
@@ -25,6 +27,7 @@ const settingsGithubHintEl = document.getElementById('settings-github-hint');
 // --- State ---
 let currentBoardData = null;
 let currentFilter = ''; // '' = all projects
+let workspaceThemeDraft = null;
 let todayFilterActive = localStorage.getItem('todayFilterActive') === 'true';
 let doneTodayOnly = localStorage.getItem('doneTodayOnly') === 'true'; // 完了カラム「本日完了だけ」表示（達成感モード）
 let modalParentEpic = null; // 子タスク詳細表示中の親Epic（戻る用）
@@ -208,10 +211,15 @@ function applyPalette(theme) {
 function syncThemeOptions(settings, effective) {
   const workspace = activeWorkspace();
   for (const select of [themeSelectEl, settingsThemeEl]) {
-    const prior = select.querySelector('option[value="workspace"]');
-    if (workspace && !prior) select.appendChild(new Option('Workspace', 'workspace'));
-    if (!workspace && prior) prior.remove();
-    select.value = effective.selection;
+    const workspaceAction = select.querySelector('option[value="workspace"]');
+    const workspaceApplied = select.querySelector('option[value="workspace-applied"]');
+    if (workspace && !workspaceAction) select.appendChild(new Option('Workspace を設定…', 'workspace'));
+    if (workspace && effective.selection === 'workspace' && !workspaceApplied) {
+      select.appendChild(new Option('Workspace（適用中）', 'workspace-applied'));
+    }
+    if ((!workspace || effective.selection !== 'workspace') && workspaceApplied) workspaceApplied.remove();
+    if (!workspace && workspaceAction) workspaceAction.remove();
+    select.value = effective.selection === 'workspace' ? 'workspace-applied' : effective.selection;
   }
 }
 
@@ -242,41 +250,57 @@ function renderWorkspaceThemeSettings(settings, workspace) {
   if (!workspace) { workspaceThemeSettingsEl.hidden = true; return; }
   workspaceThemeSettingsEl.hidden = false;
   workspaceThemeLabelEl.textContent = `${workspace} Theme`;
-  const saved = settings.workspaceThemes[workspace] || {};
+  if (!workspaceThemeDraft || workspaceThemeDraft.workspace !== workspace) {
+    workspaceThemeDraft = { workspace, theme: { ...(settings.workspaceThemes[workspace] || {}) } };
+  }
+  const draft = workspaceThemeDraft.theme;
   themePresetGridEl.innerHTML = Object.entries(THEME_PRESETS).map(([name, preset]) => `
-    <button type="button" class="theme-preset${saved.preset === name ? ' is-selected' : ''}" data-preset="${name}" style="--preset-accent:${preset.accent}">
+    <button type="button" class="theme-preset${draft.preset === name ? ' is-selected' : ''}" data-preset="${name}" style="--preset-accent:${preset.accent}">
       <span class="theme-preset-swatch"></span>${preset.label}
     </button>`).join('') + `
-    <label class="theme-custom-color">Custom <input type="color" id="workspace-custom-accent" value="${saved.custom || '#38bdf8'}"></label>`;
+    <label class="theme-custom-color">Custom <input type="color" id="workspace-custom-accent" value="${draft.custom || '#38bdf8'}"></label>`;
   themePresetGridEl.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => {
-    const next = normalizedSettings();
-    next.workspaceThemes[workspace] = { preset: button.dataset.preset };
-    next.workspaceThemeEnabled[workspace] = true;
-    saveSettings(next); applySettings();
+    workspaceThemeDraft = { workspace, theme: { preset: button.dataset.preset } };
+    renderWorkspaceThemeSettings(settings, workspace);
   }));
   themePresetGridEl.querySelector('#workspace-custom-accent').addEventListener('input', event => {
-    const next = normalizedSettings();
-    next.workspaceThemes[workspace] = { custom: event.target.value, mode: systemMode() };
-    next.workspaceThemeEnabled[workspace] = true;
-    saveSettings(next); applySettings();
+    workspaceThemeDraft = { workspace, theme: { custom: event.target.value, mode: systemMode() } };
   });
 }
 
 // --- Theme & Settings UI ---
 themeSelectEl.addEventListener('change', () => selectTheme(themeSelectEl.value));
 
-settingsBtn.addEventListener('click', () => {
+function closeSettings() {
+  workspaceThemeDraft = null;
+  settingsOverlay.classList.remove('settings-visible');
+  applySettings();
+}
+
+if (settingsBtn) settingsBtn.addEventListener('click', () => {
+  workspaceThemeDraft = null;
   settingsOverlay.classList.add('settings-visible');
   populateGithubProjectSelect();
   loadGithubSettingsForSelectedProject();
 });
 
 settingsClose.addEventListener('click', () => {
-  settingsOverlay.classList.remove('settings-visible');
+  closeSettings();
 });
 
 settingsOverlay.addEventListener('click', (e) => {
-  if (e.target === settingsOverlay) settingsOverlay.classList.remove('settings-visible');
+  if (e.target === settingsOverlay) closeSettings();
+});
+
+workspaceThemeSaveEl.addEventListener('click', () => {
+  const draft = workspaceThemeDraft;
+  if (!draft || !draft.workspace || (!draft.theme.preset && !draft.theme.custom)) return;
+  const settings = normalizedSettings();
+  settings.workspaceThemes[draft.workspace] = draft.theme;
+  settings.workspaceThemeEnabled[draft.workspace] = true;
+  saveSettings(settings);
+  applySettings();
+  closeSettings();
 });
 
 settingsThemeEl.addEventListener('change', () => {
@@ -662,7 +686,12 @@ if (projectBadgesEl) {
 }
 
 // --- Search Modal ---
-searchBtn.addEventListener('click', openSearchModal);
+searchBtn.addEventListener('click', () => openSearchModal(headerSearchInput.value));
+headerSearchInput.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  openSearchModal(headerSearchInput.value);
+});
 planBtn.addEventListener('click', openPlanBoard);
 
 // ショートカット: "/" または Ctrl+K（Mac: Cmd+K）で検索ダイアログを開く
@@ -671,10 +700,10 @@ document.addEventListener('keydown', (e) => {
   const isTyping = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
   if (e.key === '/' && !isTyping) {
     e.preventDefault();
-    openSearchModal();
+    headerSearchInput.focus();
   } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault();
-    openSearchModal();
+    headerSearchInput.focus();
   }
 });
 
@@ -1438,11 +1467,11 @@ function closeSearchModal() {
   if (el) el.classList.remove('modal-visible');
 }
 
-function openSearchModal() {
+function openSearchModal(initialQuery = '') {
   const el = getOrCreateSearchModal();
   const input = el.querySelector('#search-modal-input');
-  input.value = '';
-  renderSearchResults('');
+  input.value = initialQuery;
+  renderSearchResults(initialQuery.trim().toLowerCase());
   el.classList.add('modal-visible');
   input.focus();
 }
