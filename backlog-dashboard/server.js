@@ -162,14 +162,14 @@ const PREFIX_RE = /^[A-Z]{2}$/;
 /**
  * 新規プロジェクト（ワークスペース）を作成する
  * - workspaceフォルダが存在しなければ作成（「作って開く」の"作って"部分）
- * - <file>.backlog.md を雛形で新規作成
+ * - ワークスペース用ディレクトリを必要に応じて作成
  * - config.projects[] に追記して永続化
  *   （fs.watchによるホットリロード(BT-050)でも自動反映されるが、直後のリクエストが
  *   古いconfigを見ないよう in-memory も同時に更新する）
  * @param {{file:string, prefix:string, name?:string, workspace?:string}} params
  * @returns {{ success: boolean, file?: string, prefix?: string, name?: string, workspace?: string, error?: string }}
  */
-// BT-193: DB版。md雛形(<file>.backlog.md)作成の代わりにcountersテーブルへ行をINSERTする
+// DBのcountersテーブルへ採番用の行を登録する。
 function createWorkspaceProject({ file, prefix, name, workspace }) {
   if (!file || !FILE_NAME_RE.test(file)) {
     return { success: false, error: 'file must match /^[A-Za-z0-9_-]+$/' };
@@ -1383,9 +1383,6 @@ wss.on('connection', (ws) => {
 // ============================================================
 // Start
 // ============================================================
-// BT-194: mdファイル監視(fs.watch(BACKLOG_DIR,...))と_counter.md初期化(ensureCounter)は、
-// 全APIのDB化完了に伴い削除した。DBはtasksRepo経由の各APIハンドラが直接更新し、
-// 都度broadcast(buildBoard())しているためファイル変更検知は不要。
 
 server.listen(PORT, () => {
   console.log(`[backlog-dashboard] Listening on http://localhost:${PORT}`);

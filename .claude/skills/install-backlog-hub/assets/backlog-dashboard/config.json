@@ -2,58 +2,29 @@
   "columns": [
     {
       "id": "in_progress",
-      "label": "進行中",
-      "match": [
-        "進行中"
-      ],
-      "visibleFields": [
-        "id",
-        "title",
-        "badge",
-        "project",
-        "category"
-      ]
+      "label": "DO",
+      "match": ["do"],
+      "visibleFields": ["id", "title", "badge", "project", "category"]
+    },
+    {
+      "id": "ready",
+      "label": "READY",
+      "match": ["ready"],
+      "visibleFields": ["id", "title", "badge", "project", "category"]
     },
     {
       "id": "todo",
-      "label": "未着手",
-      "match": [
-        "未着手",
-        "未着手（素材あり）"
-      ],
-      "visibleFields": [
-        "id",
-        "title",
-        "badge",
-        "project",
-        "category"
-      ]
-    },
-    {
-      "id": "on_hold",
-      "label": "保留",
-      "match": [
-        "保留"
-      ],
-      "visibleFields": [
-        "id",
-        "title",
-        "project"
-      ]
+      "label": "TODO",
+      "match": ["todo"],
+      "visibleFields": ["id", "title", "badge", "project", "category"]
     },
     {
       "id": "done",
-      "label": "完了",
-      "match": [
-        "完了"
-      ],
+      "label": "DONE",
+      "match": ["done"],
       "limit": 5,
       "compact": true,
-      "visibleFields": [
-        "id",
-        "title",
-        "completedDate"
-      ]
+      "visibleFields": ["id", "title", "completedDate"]
     }
   ],
   "port": "__PORT__",
