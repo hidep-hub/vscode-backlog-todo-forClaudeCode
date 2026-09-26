@@ -1030,7 +1030,7 @@ function renderBoard(data) {
       // Epicハブアイコン（子タスクを束ねる親タスクの目印）
       const epicIcon = isEpic ? '<span class="epic-icon" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : '';
 
-      const idHtml = id ? `<div class="card-id">${spinnerHtml}${epicIcon}${parentEpicLinkHtml}<span>${id}</span>${badge}${originIcon}</div>` : (badge || originIcon || epicIcon ? `<div class="card-id">${spinnerHtml}${epicIcon}${badge}${originIcon}</div>` : '');
+      const idHtml = id ? `<div class="card-id">${spinnerHtml}${epicIcon}${parentEpicLinkHtml}<span>${id}</span>${originIcon}</div>` : (originIcon || epicIcon ? `<div class="card-id">${spinnerHtml}${epicIcon}${originIcon}</div>` : '');
       const titleHtml = showField('title') ? `<div class="card-title">${escapeHtml(item.title)}</div>` : '';
       const projectTag = showField('project') ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
       const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>' : '';
@@ -1065,7 +1065,15 @@ function renderBoard(data) {
         </div>`;
       }
 
-      card.innerHTML = `${pinHtml}${cardActionsHtml}${idHtml}${titleHtml}${metaHtml}`;
+      card.innerHTML = `${pinHtml}${cardActionsHtml}${badge}${idHtml}${titleHtml}${metaHtml}`;
+
+      // ホバー時の進捗バッジ退避量は、右上の操作ボタン数に合わせる。
+      // 操作が少ないカードでIDまで隠さないよう、必要最小限にする。
+      if (isEpic) {
+        const actionCount = card.querySelectorAll('.card-action-btn').length;
+        const badgeHoverRight = [0, 44, 61, 78][actionCount] || 78;
+        card.style.setProperty('--epic-badge-hover-right', `${badgeHoverRight}px`);
+      }
 
       // 親Epicリンクのクリック（BT-201）: カード自体のクリック（子タスク詳細を開く）とは独立させ、
       // 親Epicの詳細（ミニボード）をこのカードをハイライトした状態で開く
