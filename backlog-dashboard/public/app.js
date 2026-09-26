@@ -1212,14 +1212,16 @@ function renderBoard(data) {
 function renderWorkspaceSummary(data) {
   if (!currentFilter || !data.workspaceSummaryMap || !Object.prototype.hasOwnProperty.call(data.workspaceSummaryMap, currentFilter)) return;
   const summary = data.workspaceSummaryMap[currentFilter] || '';
+  const workspacePath = (data.workspaceMap && data.workspaceMap[currentFilter]) || '';
   const overview = document.createElement('section');
   overview.className = 'workspace-overview';
-  overview.innerHTML = `<span class="workspace-overview-label">${escapeHtml(currentFilter)}</span><button type="button" class="workspace-overview-text${summary ? '' : ' is-empty'}" title="クリックして概要を編集">${escapeHtml(summary || 'ワークスペースの概要を入力')}</button>`;
+  overview.innerHTML = `<div class="workspace-overview-content"><span class="workspace-overview-label">${escapeHtml(currentFilter)}</span><button type="button" class="workspace-overview-edit-btn" title="ワークスペース概要を編集" aria-label="ワークスペース概要を編集"><span class="material-icon icon-edit"></span></button><span class="workspace-overview-text${summary ? '' : ' is-empty'}">${escapeHtml(summary || 'ワークスペースの概要を入力')}</span><span class="workspace-overview-path" title="ワークスペースの場所">${escapeHtml(workspacePath || 'ワークスペースの場所は未設定')}</span></div>`;
   boardEl.appendChild(overview);
-  overview.querySelector('.workspace-overview-text').addEventListener('click', () => startWorkspaceSummaryEdit(overview, currentFilter, summary));
+  overview.querySelector('.workspace-overview-edit-btn').addEventListener('click', () => startWorkspaceSummaryEdit(overview, currentFilter, summary));
 }
 
 function startWorkspaceSummaryEdit(overview, project, initialSummary) {
+  overview.classList.add('is-editing');
   const input = document.createElement('input');
   input.className = 'workspace-overview-input';
   input.type = 'text';
