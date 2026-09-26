@@ -82,10 +82,13 @@ function get(repoUrl, token, issueNumber) {
 
 /**
  * POST /repos/{owner}/{repo}/issues 相当
+ * labels は未指定なら省略(GitHub側はlabelsフィールドを渡すと既存Issueなら上書きになるためcreate時のみ安全に使える)
  */
-function create(repoUrl, token, { title, body }) {
+function create(repoUrl, token, { title, body, labels }) {
   const { owner, repo } = parseRepoUrl(repoUrl);
-  return request('POST', `/repos/${owner}/${repo}/issues`, token, { title, body });
+  const payload = { title, body };
+  if (labels) payload.labels = labels;
+  return request('POST', `/repos/${owner}/${repo}/issues`, token, payload);
 }
 
 /**
@@ -104,7 +107,18 @@ function createComment(repoUrl, token, issueNumber, body) {
   return request('POST', `/repos/${owner}/${repo}/issues/${issueNumber}/comments`, token, { body });
 }
 
+/**
+ * POST /repos/{owner}/{repo}/issues/{issue_number}/sub_issues 相当(BT-134)
+ * subIssueId は issue番号(number)ではなく、issue作成時に返る内部id(id)を渡すこと。
+ */
+function addSubIssue(repoUrl, token, parentIssueNumber, subIssueId) {
+  const { owner, repo } = parseRepoUrl(repoUrl);
+  return request('POST', `/repos/${owner}/${repo}/issues/${parentIssueNumber}/sub_issues`, token, {
+    sub_issue_id: subIssueId,
+  });
+}
+
 module.exports = {
   parseRepoUrl,
-  issues: { listForRepo, get, create, update, createComment },
+  issues: { listForRepo, get, create, update, createComment, addSubIssue },
 };

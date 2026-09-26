@@ -5,6 +5,48 @@
   padding: 0;
 }
 
+/* --- Material Icons（絵文字の代わりにローカルSVGを使用。BT-173） ---
+   アイコンを変更したい場合は public/icons/ 配下のSVGファイルを差し替えるだけでよい */
+.material-icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  mask-position: center;
+  flex-shrink: 0;
+}
+.material-icon.icon-search        { -webkit-mask-image: url('icons/search.svg'); mask-image: url('icons/search.svg'); }
+.material-icon.icon-link          { -webkit-mask-image: url('icons/link.svg'); mask-image: url('icons/link.svg'); }
+.material-icon.icon-settings      { -webkit-mask-image: url('icons/settings.svg'); mask-image: url('icons/settings.svg'); }
+.material-icon.icon-celebration   { -webkit-mask-image: url('icons/celebration.svg'); mask-image: url('icons/celebration.svg'); }
+.material-icon.icon-smart-toy     { -webkit-mask-image: url('icons/smart_toy.svg'); mask-image: url('icons/smart_toy.svg'); }
+.material-icon.icon-keep          { -webkit-mask-image: url('icons/keep.svg'); mask-image: url('icons/keep.svg'); }
+.material-icon.icon-person        { -webkit-mask-image: url('icons/person.svg'); mask-image: url('icons/person.svg'); }
+.material-icon.icon-attach-file   { -webkit-mask-image: url('icons/attach_file.svg'); mask-image: url('icons/attach_file.svg'); }
+.material-icon.icon-edit          { -webkit-mask-image: url('icons/edit.svg'); mask-image: url('icons/edit.svg'); }
+.material-icon.icon-delete        { -webkit-mask-image: url('icons/delete.svg'); mask-image: url('icons/delete.svg'); }
+.material-icon.icon-upload        { -webkit-mask-image: url('icons/upload.svg'); mask-image: url('icons/upload.svg'); }
+.material-icon.icon-folder-open   { -webkit-mask-image: url('icons/folder_open.svg'); mask-image: url('icons/folder_open.svg'); }
+.material-icon.icon-construction  { -webkit-mask-image: url('icons/construction.svg'); mask-image: url('icons/construction.svg'); }
+.material-icon.icon-local-shipping{ -webkit-mask-image: url('icons/local_shipping.svg'); mask-image: url('icons/local_shipping.svg'); }
+.material-icon.icon-lock-open     { -webkit-mask-image: url('icons/lock_open.svg'); mask-image: url('icons/lock_open.svg'); }
+.material-icon.icon-stacks        { -webkit-mask-image: url('icons/stacks.svg'); mask-image: url('icons/stacks.svg'); }
+.material-icon.icon-content-copy  { -webkit-mask-image: url('icons/content_copy.svg'); mask-image: url('icons/content_copy.svg'); }
+.material-icon.icon-check         { -webkit-mask-image: url('icons/check.svg'); mask-image: url('icons/check.svg'); }
+.material-icon.icon-close         { -webkit-mask-image: url('icons/close.svg'); mask-image: url('icons/close.svg'); }
+.material-icon.icon-stop          { -webkit-mask-image: url('icons/stop.svg'); mask-image: url('icons/stop.svg'); }
+.material-icon.icon-calendar-month{ -webkit-mask-image: url('icons/calendar_month.svg'); mask-image: url('icons/calendar_month.svg'); }
+.material-icon.icon-history       { -webkit-mask-image: url('icons/history.svg'); mask-image: url('icons/history.svg'); }
+.material-icon.icon-psychiatry    { -webkit-mask-image: url('icons/psychiatry.svg'); mask-image: url('icons/psychiatry.svg'); }
+.material-icon.icon-timer         { -webkit-mask-image: url('icons/timer.svg'); mask-image: url('icons/timer.svg'); }
+.material-icon.icon-check-box     { -webkit-mask-image: url('icons/check_box.svg'); mask-image: url('icons/check_box.svg'); }
+
 /* --- Theme Variables --- */
 :root,
 [data-theme="dark"] {
@@ -29,9 +71,17 @@
   --tag-project-fg: #a8d8ea;
   --tag-category-bg: #2a1a3a;
   --tag-category-fg: #c8a8ea;
+  --tag-parent-bg: #3a2a1a;
+  --tag-parent-fg: #e8b87c;
   --compact-card-bg: #2e2e3e;
   --compact-card-hover: #343446;
   --drop-highlight: rgba(124, 143, 255, 0.08);
+  --btn-add-fg: #6fcf97;
+  --btn-add-bg: rgba(111, 207, 151, 0.12);
+  --btn-neutral-fg: #9a9ab0;
+  --btn-neutral-bg: rgba(154, 154, 176, 0.12);
+  --btn-danger-fg: #e53e3e;
+  --btn-danger-bg: rgba(229, 62, 62, 0.12);
 }
 
 [data-theme="light"] {
@@ -54,18 +104,75 @@
   --tag-project-fg: #1a5276;
   --tag-category-bg: #e8daef;
   --tag-category-fg: #6c3483;
+  --tag-parent-bg: #f8e8d6;
+  --tag-parent-fg: #8a5a1a;
   --compact-card-bg: #e8e9ec;
   --compact-card-hover: #dddee2;
   --drop-highlight: rgba(76, 95, 213, 0.08);
+  --btn-add-fg: #2f9e5c;
+  --btn-add-bg: rgba(47, 158, 92, 0.1);
+  --btn-neutral-fg: #6b6b80;
+  --btn-neutral-bg: rgba(107, 107, 128, 0.08);
+  --btn-danger-fg: #e53e3e;
+  --btn-danger-bg: rgba(229, 62, 62, 0.1);
 }
+
+:root {
+  --brand: #38bdf8;
+  --brand-fg: #101722;
+  --brand-fg-soft: rgba(16, 23, 34, 0.72);
+}
+
+/* DB化(BT-169)並行運用中、本番(md版)と見分けるための開発用インスタンス配色（BT-185）。
+   --brandを上書きするだけでヘッダー/running-stripなど既存の利用箇所すべてに伝播する。 */
+body.dev-instance {
+  --brand: #6b46c1;
+}
+
+.dev-instance-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--brand);
+  background: var(--brand-fg);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.version-badge {
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--brand-fg-soft);
+  white-space: nowrap;
+}
+
+/* --- Workspace theme settings (BT-285) --- */
+.settings-theme-hint { color: var(--text-muted); font-size: .78rem; line-height: 1.45; margin: 2px 0 8px; }
+.theme-preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.theme-preset, .theme-custom-color { align-items: center; background: var(--card); border: 1px solid var(--border); border-radius: 6px; color: var(--text); cursor: pointer; display: flex; font: inherit; font-size: .76rem; gap: 6px; min-width: 0; padding: 6px 7px; text-align: left; }
+.theme-preset:hover, .theme-preset.is-selected { border-color: var(--accent); background: var(--card-hover); }
+.theme-preset-swatch { background: var(--preset-accent); border-radius: 50%; flex: 0 0 12px; height: 12px; width: 12px; }
+.theme-custom-color { grid-column: span 2; justify-content: space-between; }
+.theme-custom-color input { border: 0; cursor: pointer; height: 22px; padding: 0; width: 32px; }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: var(--bg);
   color: var(--text);
-  min-height: 100vh;
+  height: 100vh;
   overflow-x: auto;
-  padding-bottom: 34px; /* 画面下端固定の.running-strip分の余白（BT-059） */
+  overflow-y: hidden;
+  display: flex;
+  flex-direction: column;
   transition: background 0.3s, color 0.3s;
 }
 
@@ -75,11 +182,31 @@ body {
   align-items: center;
   gap: 12px;
   padding: 10px 20px;
-  background: var(--surface);
+  background: var(--brand);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 10;
+  flex-shrink: 0;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.header-logo:hover {
+  transform: scale(1.08);
 }
 
 .header h1 {
@@ -88,8 +215,19 @@ body {
   letter-spacing: 0.02em;
   white-space: nowrap;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  line-height: 1.2;
+  gap: 0;
+}
+
+.header-title-main {
+  color: var(--brand-fg);
+}
+
+.header-title-sub {
+  font-size: 0.85em;
+  font-weight: 700;
+  color: var(--brand-fg-soft);
 }
 
 .project-badges {
@@ -128,6 +266,24 @@ body {
   color: var(--accent, #6366f1);
 }
 
+/* URL の ?workspace= で開いた文脈を、現在のフィルタ状態とは別に示す。 */
+.proj-badge.workspace-context {
+  border: 3px solid var(--accent, #6366f1);
+  outline: 2px solid var(--accent, #6366f1);
+  outline-offset: 1px;
+  padding: 0 6px;
+}
+
+.proj-badge.workspace-context.active {
+  box-shadow: 0 0 0 1px var(--card);
+}
+
+/* フィルタの対象外になっても、URLで指定された現在地の印は薄くしない。 */
+.proj-badge.workspace-context.dimmed {
+  opacity: 1;
+  box-shadow: 0 0 0 1px var(--card), 0 0 0 4px var(--accent, #6366f1);
+}
+
 .proj-badge.dimmed {
   opacity: 0.8;
 }
@@ -145,31 +301,137 @@ body {
   justify-content: center;
 }
 
+.workspace-open-current[disabled] {
+  cursor: default;
+  opacity: 0.7;
+}
+
 .header-controls {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   margin-left: auto;
+}
+
+.header-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.header-search-input {
+  width: min(240px, 22vw);
+  min-width: 140px;
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  outline: none;
+}
+
+.header-search-input:focus {
+  border-color: var(--accent);
 }
 
 .running-strip {
   display: flex;
   align-items: center;
   gap: 6px;
-  overflow-x: auto;
+  overflow: hidden;
   padding: 6px 20px;
-  background: var(--surface);
+  background: var(--brand);
   border-top: 1px solid var(--border);
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  flex-shrink: 0;
   z-index: 9;
+  order: 2;
+}
+
+.running-strip-agents {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  min-width: 0;
+  width: 100%;
+}
+
+.running-agent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.running-agent.is-running {
+  /* 同時実行数に比例して、チップを表示するAIの幅を配分する。 */
+  flex: var(--running-count, 1) 1 0;
+}
+
+.running-agent + .running-agent {
+  border-left: 1px solid color-mix(in srgb, var(--brand-fg) 30%, transparent);
+  padding-left: 10px;
+}
+
+.running-agent-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.running-agent-icon.spinning {
+  animation: spin 1.5s linear infinite;
+}
+
+.running-agent-icon.floating {
+  animation: kiro-run-float 1.8s ease-in-out infinite;
+}
+
+@keyframes kiro-run-float {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-3px) rotate(4deg); }
+}
+
+/* Agent identities: Codex's denser mark needs a little more optical size. */
+.running-agent[data-agent="codex"] .running-agent-icon {
+  width: 30px;
+  height: 30px;
+}
+
+.running-agent img[src="codex-icon.svg"],
+.activity-agent img[src="codex-icon.svg"] {
+  filter: brightness(0) saturate(100%) invert(67%) sepia(44%) saturate(649%) hue-rotate(184deg) brightness(101%) contrast(97%);
+}
+
+.running-agent img[src="claude-icon.png"],
+.activity-agent img[src="claude-icon.png"] {
+  filter: brightness(0) saturate(100%) invert(69%) sepia(89%) saturate(1540%) hue-rotate(341deg) brightness(102%) contrast(101%);
+}
+
+.running-agent img[src="icons/person.svg"],
+.activity-agent img[src="icons/person.svg"] {
+  filter: brightness(0) invert(1);
+}
+
+.running-agent-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  min-width: 0;
 }
 
 .running-strip-empty {
   font-size: 0.7rem;
-  color: var(--text-muted);
+  color: var(--brand-fg);
+  opacity: 0.85;
 }
 
 .running-chip {
@@ -185,8 +447,12 @@ body {
   color: var(--text);
   cursor: pointer;
   white-space: nowrap;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
   transition: border-color 0.15s ease;
+  font-family: inherit;
 }
 
 .running-chip:hover {
@@ -195,6 +461,18 @@ body {
 
 .running-chip-id {
   color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.running-chip-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.running-chip .running-spinner {
+  flex-shrink: 0;
 }
 
 .status {
@@ -234,7 +512,7 @@ body {
 }
 
 .search-btn {
-  background: none;
+  background: var(--card);
   border: 1px solid var(--border);
   color: var(--text-muted);
   padding: 4px 8px;
@@ -355,7 +633,7 @@ body {
 }
 
 .settings-btn {
-  background: none;
+  background: var(--card);
   border: 1px solid var(--border);
   color: var(--text-muted);
   padding: 4px 8px;
@@ -371,14 +649,25 @@ body {
 }
 
 .github-import-btn {
-  background: none;
+  background: var(--card);
   border: 1px solid var(--border);
   color: var(--text-muted);
   padding: 4px 8px;
   border-radius: 6px;
   font-size: 0.75rem;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
   transition: background 0.15s, color 0.15s;
+}
+
+.github-import-btn svg {
+  display: block;
+}
+
+.github-import-btn::after {
+  content: 'GitHub';
+  margin-left: 4px;
 }
 
 .github-import-btn:hover {
@@ -389,11 +678,42 @@ body {
 /* --- Board (Kanban) --- */
 .board {
   display: flex;
+  flex-direction: column;
   gap: var(--col-gap);
   padding: 16px;
-  min-height: calc(100vh - 60px);
-  align-items: flex-start;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  order: 1;
 }
+
+.board-columns {
+  display: flex;
+  gap: var(--col-gap);
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+}
+
+/* --- Workspace overview (BT-311) --- */
+.workspace-overview {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.workspace-overview-label { color: var(--accent); font-size: .72rem; font-weight: 700; flex: 0 0 auto; }
+.workspace-overview-text, .workspace-overview-input { min-width: 0; flex: 1; font: inherit; font-size: .82rem; line-height: 1.35; text-align: left; }
+.workspace-overview-text { border: 0; background: transparent; color: var(--text); cursor: text; padding: 0; }
+.workspace-overview-text:hover { color: var(--accent); }
+.workspace-overview-text.is-empty { color: var(--text-muted); font-style: italic; }
+.workspace-overview-input { color: var(--text); background: var(--card); border: 1px solid var(--accent); border-radius: 4px; outline: 0; padding: 4px 7px; }
 
 /* --- Column --- */
 .column {
@@ -454,7 +774,8 @@ body {
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
-  max-height: calc(100vh - 120px);
+  flex: 1;
+  min-height: 0;
 }
 
 /* --- Card --- */
@@ -529,6 +850,27 @@ body {
   background: var(--tag-category-bg);
 }
 
+/* 親Epicへのリンク（BT-201: 完了カラムに混在表示された子タスクカードのヘッダーから、親Epicへジャンプ） */
+.parent-epic-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: var(--tag-parent-fg);
+  background: var(--tag-parent-bg);
+  cursor: pointer;
+}
+
+.parent-epic-link:hover {
+  filter: brightness(1.15);
+}
+
+.id-separator {
+  color: var(--text-muted);
+  margin: 0 2px;
+}
+
 /* --- Project Colors (border-left) --- */
 .card[data-project="backlog-todo"] { border-left-color: #7cb3ff; }
 .card[data-project="server-operator"] { border-left-color: #7cffb3; }
@@ -551,9 +893,16 @@ body {
 /* --- Responsive --- */
 @media (max-width: 800px) {
   .board {
+    overflow-y: auto;
+  }
+  .board-columns {
+    flex: 0 0 auto;
     flex-direction: column;
+    min-height: 0;
+    overflow: visible;
   }
   .column {
+    flex: 0 0 320px;
     max-width: 100%;
   }
 }
@@ -601,6 +950,11 @@ body {
   font-size: 0.6rem;
   padding: 1px 4px;
   color: var(--text-muted);
+}
+
+.card-compact .parent-epic-link {
+  font-size: 0.6rem;
+  padding: 1px 4px;
 }
 
 /* --- 完了カラム「他N件」まとめカード --- */
@@ -766,13 +1120,61 @@ body {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 24px;
-  max-width: 520px;
-  width: 90%;
+  max-width: 760px;
+  width: 92%;
   max-height: 80vh;
   overflow-y: auto;
   position: relative;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
   animation: modalSlideIn 0.2s ease-out;
+}
+
+/* 単発/子タスクの詳細は、説明欄だけを内部スクロールにして
+   ヘッダー/タイトル/アクション/右カラムは常に見える状態を保つ（BT-261）。
+   EPIC(modal-wide)はmini-boardを含み縦に伸びる想定のため対象外、従来通りモーダル全体スクロール。
+   対象は.detail-modal-content(詳細/子詳細モーダル)のみに限定する。他の.modal-content利用先
+   (削除確認/GitHubリンク/親ピッカー/検索/タスク追加/ワークスペース作成)には影響させない(BT-263で発覚した副作用の修正)。 */
+.modal-content.detail-modal-content {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-content.detail-modal-content .modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-content.detail-modal-content .detail-fixed-layout {
+  flex-shrink: 0;
+}
+
+.modal-content.detail-modal-content .detail-scroll-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.detail-scroll-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.detail-scroll-main {
+  flex: 3;
+  min-width: 0;
+}
+
+.detail-scroll-side {
+  flex: 1;
+  min-width: 180px;
+  border-left: 1px solid var(--border);
+  padding-left: 20px;
 }
 
 @keyframes modalSlideIn {
@@ -847,15 +1249,58 @@ body {
   color: var(--text);
 }
 
+/* --- Detail Layout: 左3/4=説明、右1/4=トラッキング情報/成果物 (BT-261) --- */
+.detail-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.detail-main {
+  flex: 3;
+  min-width: 0;
+}
+
+.detail-side {
+  flex: 1;
+  min-width: 180px;
+  border-left: 1px solid var(--border);
+  padding-left: 20px;
+}
+
+@media (max-width: 640px) {
+  .detail-layout,
+  .detail-scroll-layout {
+    flex-direction: column;
+  }
+
+  .detail-side,
+  .detail-scroll-side {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding-left: 0;
+    padding-top: 14px;
+    width: 100%;
+  }
+}
+
 .detail-section {
   margin-bottom: 14px;
+}
+
+.detail-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 
 .detail-section h4 {
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--text-muted);
-  margin-bottom: 6px;
+  margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -866,6 +1311,32 @@ body {
   color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.description-collapsible .description-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.description-collapsible.expanded .description-text {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.description-toggle-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.78rem;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.description-toggle-btn:hover {
+  text-decoration: underline;
 }
 
 .detail-children {
@@ -901,6 +1372,28 @@ body {
 }
 
 /* --- Artifacts Section --- */
+/* 右カラムで情報(更新者など)の下に来る想定のため、区切り線を上に引く（BT-261） */
+.detail-artifacts-block {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.detail-artifacts-collapsible summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  user-select: none;
+}
+
+.detail-artifacts-collapsible summary:hover {
+  color: var(--text);
+}
+
+.detail-artifacts-collapsible .detail-artifacts {
+  margin-top: 8px;
+}
+
 .detail-artifacts {
   list-style: none;
   padding: 0;
@@ -977,7 +1470,7 @@ body {
 }
 
 .child-modal-content {
-  max-width: 520px;
+  max-width: 760px;
 }
 
 /* --- Modal Wide (Epic mini-board) --- */
@@ -1001,12 +1494,18 @@ body {
 }
 
 .github-import-toolbar select {
-  flex: 1;
+  flex: 0 1 180px;
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
   color: var(--text);
+}
+
+.github-import-total-count {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .github-import-toolbar button {
@@ -1024,6 +1523,16 @@ body {
 .github-import-toolbar button:hover {
   background: var(--card);
   color: var(--text);
+}
+
+.github-import-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .github-import-body {
@@ -1152,6 +1661,7 @@ body {
   margin-top: 12px;
   overflow-x: auto;
   padding-bottom: 2px;
+  align-items: stretch;
 }
 
 .mini-col {
@@ -1188,7 +1698,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-height: 24px;
+  flex: 1;
+  /* 空の列でも列全体をドロップ先にする。 */
+  min-height: 220px;
 }
 
 .mini-col-body .card-child {
@@ -1348,6 +1860,28 @@ body {
   opacity: 0.85;
 }
 
+.settings-theme-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+#settings-workspace-theme-save {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: var(--brand-fg);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+#settings-workspace-theme-save:hover {
+  opacity: 0.85;
+}
+
 .settings-close {
   position: absolute;
   top: 12px;
@@ -1389,6 +1923,8 @@ body {
     --tag-project-fg: #1a5276;
     --tag-category-bg: #e8daef;
     --tag-category-fg: #6c3483;
+    --tag-parent-bg: #f8e8d6;
+    --tag-parent-fg: #8a5a1a;
     --compact-card-bg: #e8e9ec;
     --compact-card-hover: #dddee2;
     --drop-highlight: rgba(76, 95, 213, 0.08);
@@ -1416,6 +1952,8 @@ body {
     --tag-project-fg: #a8d8ea;
     --tag-category-bg: #2a1a3a;
     --tag-category-fg: #c8a8ea;
+    --tag-parent-bg: #3a2a1a;
+    --tag-parent-fg: #e8b87c;
     --compact-card-bg: #2e2e3e;
     --compact-card-hover: #343446;
     --drop-highlight: rgba(124, 143, 255, 0.08);
@@ -1465,6 +2003,12 @@ body {
   max-width: 380px;
 }
 
+/* タスク追加フォームのみ詳細モーダルと同じ横長幅にする（BT-263）。
+   ワークスペース作成フォーム(getOrCreateWorkspaceCreateForm)は.add-task-modalを共有しているため対象外。 */
+.add-task-modal.add-task-form-wide {
+  max-width: 760px;
+}
+
 .add-form-title {
   font-size: 1rem;
   font-weight: 600;
@@ -1499,47 +2043,84 @@ body {
 }
 
 
-/* --- Detail Modal Action Buttons (BT-036 / BT-031 / BT-034 / BT-053 / BT-063) --- */
-/* 編集/削除、子タスク追加/親設定、ワークスペース開く/移管 のように意味のあるペアを
-   1行に横並びさせる。片方しかないボタンは flex: 1 で全幅表示になる */
+/* --- Detail Modal Action Buttons (BT-036 / BT-031 / BT-034 / BT-053 / BT-063 / BT-166) --- */
+/* 全ボタンを1つのflex-wrapグループにまとめて、内容幅で並べる。
+   意味のあるペア単位でflex:1にする方式(BT-063)は、条件次第で片割れが消えると
+   残った1個が不要に全幅表示されてしまう(BT-166で判明)ためやめた */
 .detail-actions-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin: 6px 0;
 }
 
-.detail-actions-row .add-child-btn,
-.detail-actions-row .detail-action-btn {
-  flex: 1;
-}
-
 .add-child-btn,
 .detail-action-btn {
-  padding: 5px 10px;
+  flex: 0 0 auto;
+  padding: 5px 12px;
   border-radius: 6px;
-  border: 1px dashed var(--accent);
-  background: transparent;
-  color: var(--accent);
+  border: 1px solid transparent;
+  background: var(--btn-neutral-bg);
+  color: var(--btn-neutral-fg);
   font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
   text-align: center;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .add-child-btn:hover,
 .detail-action-btn:hover {
+  background: var(--btn-neutral-fg);
+  color: #fff;
+}
+
+/* 編集系（accent色。カード直接編集ボタンのbadge等と同トーン） */
+.detail-action-btn.btn-edit {
+  background: rgba(124, 143, 255, 0.12);
+  color: var(--accent);
+}
+
+.detail-action-btn.btn-edit:hover {
   background: var(--accent);
   color: #fff;
 }
 
+/* 実行中タスクを止める操作。削除ではないため注意色の黄系で区別する。 */
+.detail-action-btn.btn-stop-running {
+  background: rgba(234, 179, 8, 0.14);
+  color: #b45309;
+}
+
+.detail-action-btn.btn-stop-running:hover {
+  background: #b45309;
+  color: #fff;
+}
+
+.detail-action-btn.btn-stop-running:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+/* 追加系（子タスク追加・親を設定・新規作成など、緑） */
+.add-child-btn.btn-add {
+  background: var(--btn-add-bg);
+  color: var(--btn-add-fg);
+}
+
+.add-child-btn.btn-add:hover {
+  background: var(--btn-add-fg);
+  color: #fff;
+}
+
+/* 削除系（赤） */
 .detail-action-btn.danger {
-  border-color: #e53e3e;
-  color: #e53e3e;
+  background: var(--btn-danger-bg);
+  color: var(--btn-danger-fg);
 }
 
 .detail-action-btn.danger:hover {
-  background: #e53e3e;
+  background: var(--btn-danger-fg);
   color: #fff;
 }
 
@@ -1553,6 +2134,50 @@ body {
   font-size: 0.85rem;
   font-family: inherit;
   resize: vertical;
+}
+
+/* タスク登録・編集では、説明欄を右側のメタ情報欄と同じ高さまで広げる。
+   固定のrows値に依存せず、フォーム全体がモーダル内で収まる高さになる。 */
+.add-task-form-wide .detail-layout,
+.edit-task-layout {
+  align-items: stretch;
+}
+
+.add-task-form-wide .detail-main,
+.edit-task-layout .detail-main {
+  display: flex;
+  flex-direction: column;
+}
+
+.add-task-form-wide .settings-group:has(#add-task-description),
+.edit-task-layout .settings-group:has(#edit-task-description) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.add-task-form-wide #add-task-description,
+.edit-task-layout #edit-task-description {
+  /* 初期値は説明グループの残り領域を使い、ドラッグ操作では縦横とも上書き可能にする。 */
+  flex: none;
+  box-sizing: border-box;
+  height: calc(100% - 21px);
+  max-width: 100%;
+  align-self: flex-start;
+  resize: vertical;
+}
+
+@media (max-width: 640px) {
+  .add-task-form-wide .detail-main,
+  .edit-task-layout .detail-main {
+    display: block;
+  }
+
+  .add-task-form-wide .settings-group:has(#add-task-description),
+  .edit-task-layout .settings-group:has(#edit-task-description) {
+    display: block;
+  }
 }
 
 .archived-note {
@@ -1598,7 +2223,7 @@ body {
 }
 
 
-/* --- Today Flag (📌 ピン) --- */
+/* --- Today Flag (ピン) --- */
 :root,
 [data-theme="dark"] {
   --card-today-bg: #3a2a2a;
@@ -1637,6 +2262,13 @@ body {
 
 .card-today:hover {
   background: var(--card-today-bg);
+}
+
+/* 履歴(activity.js)からEpicミニボードを開いた際にハイライトする子タスク(BT-246) */
+.card-activity-highlight {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 4px rgba(124, 143, 255, 0.2);
 }
 
 /* Pin toggle button */
@@ -1779,6 +2411,16 @@ body {
   50% { box-shadow: 0 0 4px 2px color-mix(in srgb, var(--running-color, var(--accent)) 55%, transparent); }
 }
 
+/* BT-201: 完了カラムの親Epicリンクから遷移した際、対象の子タスクカードを一時的にハイライト */
+@keyframes highlight-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 60%, transparent); }
+}
+
+.card-highlight-pulse {
+  animation: highlight-pulse 0.6s ease-in-out 2;
+}
+
 /* Detail modal header spinner (placed before the ID badge, matches card list style) */
 .detail-header .detail-spinner {
   width: 10px;
@@ -1891,7 +2533,7 @@ body {
   line-height: 1.5;
 }
 
-.done-today-empty-emoji {
+.done-today-empty-icon {
   font-size: 1.4rem;
 }
 
@@ -1912,7 +2554,7 @@ body {
   gap: 4px;
 }
 
-.done-today-empty-mini .done-today-empty-emoji {
+.done-today-empty-mini .done-today-empty-icon {
   font-size: 1.1rem;
 }
 
@@ -1947,6 +2589,787 @@ body {
 
 .card-select-disabled:hover {
   outline: none;
+}
+
+/* --- 履歴ダイアログ (BT-244/245/246、KIRO版kiro-backlog-todoのUIに準拠) --- */
+.activity-btn {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.activity-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.activity-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--modal-overlay);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 900;
+}
+
+.activity-modal-overlay.modal-visible {
+  display: flex;
+}
+
+.activity-modal-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 96vw;
+  height: 92vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+/* --- ヘッダー --- */
+.activity-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.activity-modal-header h3 {
+  font-size: 1rem;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.activity-header-controls {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.activity-date-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.activity-date-range input[type="date"] {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.activity-date-range-sep {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.activity-granularity,
+.activity-viewmode,
+.activity-chart-tabs {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.activity-granularity[hidden],
+.activity-chart-tabs[hidden] {
+  display: none;
+}
+
+.activity-gran-btn {
+  border: none;
+  background: var(--card);
+  color: var(--text-muted);
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.activity-gran-btn:last-child {
+  border-right: none;
+}
+
+.activity-gran-btn:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+
+.activity-gran-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.activity-collapse-all-btn {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.activity-collapse-all-btn:hover:not(:disabled) {
+  background: var(--card-hover);
+  color: var(--text);
+}
+
+.activity-collapse-all-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.activity-reload-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.activity-reload-btn:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+
+.activity-modal-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+.activity-modal-close:hover {
+  color: var(--text);
+}
+
+/* --- 種別タブ + WSチップ + 検索 --- */
+.activity-filters {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.activity-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.activity-tab {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 10px 14px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.activity-tab:hover {
+  color: var(--text);
+}
+
+.activity-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.activity-tab-count {
+  font-size: 0.72rem;
+  background: var(--card);
+  color: var(--text-muted);
+  border-radius: 9px;
+  padding: 1px 6px;
+}
+
+.activity-tab.active .activity-tab-count {
+  background: var(--accent);
+  color: #fff;
+}
+
+.activity-ws-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+}
+
+.activity-ws-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text-muted);
+  padding: 3px 10px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.activity-ws-chip:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+
+.activity-ws-chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--drop-highlight);
+}
+
+.activity-chip-count {
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
+.activity-search-input {
+  margin-left: auto;
+  flex: 0 1 220px;
+  min-width: 140px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+/* --- 本体 --- */
+.activity-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 20px 24px;
+  min-height: 0;
+}
+
+.activity-body[hidden] {
+  display: none;
+}
+
+.activity-loading,
+.activity-error,
+.activity-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.activity-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--card);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* --- タイムライン --- */
+.activity-timeline {
+  position: relative;
+}
+
+.activity-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 14px 0 2px;
+  padding: 7px 6px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.activity-group:first-child .activity-group-header {
+  margin-top: 2px;
+}
+
+.activity-group-body {
+  position: relative;
+  padding-left: 44px;
+  padding-top: 4px;
+  padding-bottom: 8px;
+}
+
+.activity-group-body::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 0;
+  bottom: 10px;
+  width: 2px;
+  background: var(--border);
+}
+
+.activity-group-header:hover .activity-group-date {
+  color: var(--accent);
+}
+
+.activity-group-toggle {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0 2px;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.activity-group.group-collapsed .activity-group-date {
+  color: var(--text-muted);
+}
+
+.activity-group.group-collapsed .activity-group-header {
+  margin: 2px 0;
+}
+
+.activity-group-date {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.activity-group-summary {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.activity-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.activity-row:hover {
+  background: var(--card);
+}
+
+.activity-row-clickable {
+  cursor: pointer;
+}
+
+.activity-dot {
+  position: absolute;
+  left: -44px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--surface);
+  background: var(--card);
+  color: var(--text-muted);
+}
+
+.activity-dot .ui-icon svg,
+.activity-dot svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.activity-dot-completed {
+  background: var(--badge-done-bg);
+  color: var(--badge-done-fg);
+}
+
+.activity-dot-deleted {
+  background: rgba(229, 115, 115, 0.16);
+  color: #e57373;
+}
+
+.activity-dot-other {
+  background: var(--tag-category-bg);
+  color: var(--tag-category-fg);
+}
+
+.activity-dot-epic {
+  background: var(--drop-highlight);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.activity-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-row-line1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  min-width: 0;
+}
+
+.activity-row-line2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.activity-type-label {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.activity-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px 1px 3px;
+}
+
+.activity-agent img {
+  width: 12px;
+  height: 12px;
+  object-fit: contain;
+}
+
+.activity-row-completed .activity-type-label {
+  color: var(--badge-done-fg);
+  border-color: var(--badge-done-fg);
+}
+
+.activity-row-deleted .activity-type-label {
+  color: #e57373;
+  border-color: #e57373;
+}
+
+.activity-row-other .activity-type-label {
+  color: var(--tag-category-fg);
+  border-color: var(--tag-category-fg);
+}
+
+.activity-row-epic .activity-type-label {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.activity-row-task .activity-type-label {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.activity-dot-task {
+  background: var(--drop-highlight);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.activity-ws {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  background: var(--tag-project-bg);
+  color: var(--tag-project-fg);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.activity-id {
+  flex-shrink: 0;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.activity-title {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-epic-count {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: var(--accent);
+  background: var(--drop-highlight);
+  border-radius: 9px;
+  padding: 1px 8px;
+}
+
+.activity-tag {
+  font-size: 0.7rem;
+  background: var(--tag-category-bg);
+  color: var(--tag-category-fg);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.activity-parent {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.7rem;
+  color: var(--accent);
+  background: var(--drop-highlight);
+  border-radius: 4px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+
+.activity-parent:hover {
+  text-decoration: underline;
+}
+
+.activity-parent svg {
+  width: 11px;
+  height: 11px;
+  display: block;
+}
+
+.activity-time {
+  flex-shrink: 0;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  min-width: 42px;
+  text-align: right;
+}
+
+/* --- EPICでまとめた子タスクのtree --- */
+.activity-epic-block {
+  margin-bottom: 2px;
+}
+
+.activity-task-block {
+  margin-bottom: 2px;
+}
+
+.activity-workspace-group {
+  margin: 8px 0 12px;
+}
+
+.activity-workspace-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.activity-workspace-group-header .activity-group-toggle {
+  font-size: 1rem;
+}
+
+.activity-workspace-group-body {
+  margin: 4px 0 0 16px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.activity-children {
+  margin-left: 4px;
+  padding-left: 22px;
+  border-left: 1px dashed var(--border);
+}
+
+.activity-child-row {
+  min-height: 34px;
+  padding: 3px 10px;
+}
+
+.activity-child-row .activity-dot {
+  left: -33px;
+  width: 20px;
+  height: 20px;
+  border-width: 2px;
+}
+
+.activity-child-row .activity-dot svg {
+  width: 11px;
+  height: 11px;
+}
+
+.activity-child-row .activity-row-line1 {
+  font-size: 0.8rem;
+}
+
+/* --- グラフ表示 (BT-245) --- */
+.activity-chart-body {
+  flex: 1;
+  overflow: auto;
+  padding: 20px 24px 24px;
+  min-height: 0;
+}
+
+.activity-chart-body[hidden] {
+  display: none;
+}
+
+.activity-chart-scroll {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.activity-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 12px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.activity-chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.activity-chart-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.activity-heatmap-svg text.activity-heatmap-label {
+  fill: var(--text-muted);
+  font-size: 9px;
+}
+
+.activity-heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.activity-heatmap-legend-cell {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  display: inline-block;
+}
+
+.activity-throughput-svg text.activity-throughput-total {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.activity-throughput-svg text.activity-throughput-label {
+  fill: var(--text-muted);
+  font-size: 10px;
+}
+
+.activity-composition-wrap {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.activity-composition-svg text.activity-composition-total-num {
+  fill: var(--text);
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.activity-composition-svg text.activity-composition-total-label {
+  fill: var(--text-muted);
+  font-size: 11px;
+}
+
+.activity-composition-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.activity-composition-count {
+  margin-left: 8px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
 }
 
 .card-selected {
@@ -2017,6 +3440,17 @@ body {
 }
 
 .selection-bar-move:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.selection-bar-github {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.selection-bar-github:hover {
   background: var(--accent);
   color: #fff;
 }
@@ -2142,4 +3576,260 @@ body {
 .detach-btn:hover {
   background: var(--today-accent);
   color: #fff;
+}
+
+/* --- 週次計画ビュー (BT-264) --- */
+.plan-btn {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.plan-btn:hover {
+  background: var(--card);
+  color: var(--text);
+}
+
+.plan-board-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--modal-overlay);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 950; /* タスク詳細等の.modal-overlay(1000)より低くし、計画ビューの上に重ねて表示できるようにする */
+  backdrop-filter: blur(2px);
+}
+
+.plan-board-overlay.active {
+  display: flex;
+}
+
+.plan-board-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  width: 95vw;
+  max-width: 1400px;
+  height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.plan-board-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.plan-board-header h3 {
+  font-size: 1rem;
+  color: var(--text);
+  margin: 0;
+  flex: 1;
+}
+
+.plan-board-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.plan-board-close:hover {
+  color: var(--text);
+}
+
+.plan-board-columns {
+  flex: 1;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  min-height: 0;
+}
+
+.plan-col {
+  flex: 1;
+  min-width: 220px;
+  max-width: 320px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.plan-col-header {
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.plan-col-header .count {
+  font-size: 0.7rem;
+  background: var(--card);
+  padding: 2px 7px;
+  border-radius: 10px;
+  color: var(--text-muted);
+}
+
+.plan-col-body {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.plan-col-body.drop-over {
+  background: var(--drop-highlight);
+  border: 2px dashed var(--accent);
+  border-radius: 6px;
+}
+
+.plan-card {
+  border-left: 3px solid transparent;
+  padding: 8px 10px;
+}
+
+.plan-card .card-id,
+.plan-epic-header .card-id {
+  font-size: 0.65rem;
+}
+
+.plan-card .card-title,
+.plan-epic-header .card-title {
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.plan-card .card-meta .card-tag {
+  font-size: 0.6rem;
+}
+
+.plan-card-done {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.plan-epic-group {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.plan-epic-group:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.plan-epic-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.plan-epic-header:hover {
+  background: var(--card-hover);
+}
+
+.plan-epic-handle {
+  color: var(--text-muted);
+  cursor: grab;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.plan-epic-handle:hover {
+  color: var(--text);
+  background: var(--card);
+}
+
+.plan-epic-header-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plan-epic-header-row1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.plan-epic-header .card-id {
+  margin-bottom: 0;
+}
+
+.plan-epic-header .card-title {
+  margin-bottom: 0;
+  white-space: normal;
+}
+
+.plan-epic-header .count {
+  font-size: 0.65rem;
+  background: var(--card);
+  padding: 1px 6px;
+  border-radius: 10px;
+  color: var(--text-muted);
+}
+
+.plan-epic-toggle {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  width: 12px;
+}
+
+.plan-epic-children {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding-left: 16px;
+  border-left: 2px solid var(--border);
+  margin-left: 8px;
+}
+
+.card-tag.due-badge {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.card-tag.completed-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }

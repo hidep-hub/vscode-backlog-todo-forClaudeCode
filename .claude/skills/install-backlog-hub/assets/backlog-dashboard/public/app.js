@@ -4,14 +4,19 @@ const boardEl = document.getElementById('board');
 const statusEl = document.getElementById('status');
 const projectFilterEl = document.getElementById('project-filter');
 const searchBtn = document.getElementById('search-btn');
+const planBtn = document.getElementById('plan-btn');
 const themeSelectEl = document.getElementById('theme-select');
+const headerSearchInput = document.getElementById('header-search-input');
 const githubImportBtn = document.getElementById('github-import-btn');
 const headerLogoEl = document.getElementById('header-logo');
 const settingsBtn = document.getElementById('settings-btn');
 const settingsOverlay = document.getElementById('settings-overlay');
 const settingsClose = document.getElementById('settings-close');
 const settingsThemeEl = document.getElementById('settings-theme');
-const settingsAccentEl = document.getElementById('settings-accent');
+const workspaceThemeSettingsEl = document.getElementById('settings-workspace-theme');
+const workspaceThemeLabelEl = document.getElementById('settings-workspace-theme-label');
+const themePresetGridEl = document.getElementById('theme-preset-grid');
+const workspaceThemeSaveEl = document.getElementById('settings-workspace-theme-save');
 const settingsGithubProjectEl = document.getElementById('settings-github-project');
 const settingsGithubRepoUrlEl = document.getElementById('settings-github-repo-url');
 const settingsGithubTokenEl = document.getElementById('settings-github-token');
@@ -22,13 +27,19 @@ const settingsGithubHintEl = document.getElementById('settings-github-hint');
 // --- State ---
 let currentBoardData = null;
 let currentFilter = ''; // '' = all projects
+let workspaceThemeDraft = null;
 let todayFilterActive = localStorage.getItem('todayFilterActive') === 'true';
 let doneTodayOnly = localStorage.getItem('doneTodayOnly') === 'true'; // 完了カラム「本日完了だけ」表示（達成感モード）
 let modalParentEpic = null; // 子タスク詳細表示中の親Epic（戻る用）
 let expandedCols = new Set(); // 完了カラム等で「他N件」を展開表示中のカラムID
 let expandedMiniCols = new Set(); // ミニボードの完了カラムで「他N件」展開中のカラムID
+let pendingHighlightChildId = null; // BT-201: 親Epicリンククリック直後、ミニボードでハイライトすべき子タスクID
 let workspaceFilterMap = null; // サーバーから取得: { workspaceKey -> projectName }
 let wsDefaultFilter = ''; // URLパラメータから決まるデフォルトフィルタ（プロジェクト名）
+
+// --- 週次計画ビュー (BT-264) ---
+let planDragData = null; // { kind: 'single', id } | { kind: 'group', epicId, childIds: [] }
+let planCollapsedGroups = new Set(); // 折りたたみ中のEPICグループキー('epicId_bucketId')
 
 // --- 複数選択→親付け (BT-034) ---
 let selectionMode = false;
@@ -76,7 +87,82 @@ function resolveWsDefault(filterMap) {
   return filterMap[key] || '';
 }
 
-// --- Settings (persisted to localStorage) ---
+// URL で指定されたワークスペースは、手動フィルタで別の表示に切り替えていても
+// 「このダッシュボードをどのワークスペースから開いたか」を示す文脈として残す。
+function getUrlWorkspaceProject(boardData = currentBoardData) {
+  const filterMap = (boardData && boardData.workspaceFilterMap) || workspaceFilterMap;
+  return resolveWsDefault(filterMap);
+}
+
+function isUrlWorkspaceProject(project, boardData = currentBoardData) {
+  const rawWorkspace = getUrlWorkspaceParam().trim().toLowerCase();
+  if (!rawWorkspace || !project) return false;
+  // project 名を直接指定するURLと、file名・パス末尾を指定するURLの両方を扱う。
+  if (project.toLowerCase() === rawWorkspace) return true;
+  return getUrlWorkspaceProject(boardData) === project;
+}
+
+function isCurrentUrlWorkspace(item) {
+  return !!item && isUrlWorkspaceProject(item.project);
+}
+
+// --- Theme settings (BT-285, persisted to localStorage) ---
+const THEME_PRESETS = {
+  'light-blue':    { label: 'Light Blue', mode: 'light', accent: '#0b6fa4' },
+  'light-teal':    { label: 'Light Teal', mode: 'light', accent: '#0f766e' },
+  'light-indigo':  { label: 'Light Indigo', mode: 'light', accent: '#4f46e5' },
+  'light-plum':    { label: 'Light Plum', mode: 'light', accent: '#9333ea' },
+  'light-forest':  { label: 'Light Forest', mode: 'light', accent: '#15803d' },
+  'light-crimson': { label: 'Light Crimson', mode: 'light', accent: '#be123c' },
+  'light-slate':   { label: 'Light Slate', mode: 'light', accent: '#475569' },
+  'dark-blue':     { label: 'Dark Blue', mode: 'dark', accent: '#38bdf8' },
+  'dark-teal':     { label: 'Dark Teal', mode: 'dark', accent: '#2dd4bf' },
+  'dark-violet':   { label: 'Dark Violet', mode: 'dark', accent: '#a78bfa' },
+  'dark-amber':    { label: 'Dark Amber', mode: 'dark', accent: '#fbbf24' },
+  'dark-rose':     { label: 'Dark Rose', mode: 'dark', accent: '#fb7185' },
+  'dark-lime':     { label: 'Dark Lime', mode: 'dark', accent: '#a3e635' },
+  'dark-slate':    { label: 'Dark Slate', mode: 'dark', accent: '#94a3b8' },
+};
+
+function mixColors(first, second, amount) {
+  const hex = value => value.replace('#', '').match(/.{2}/g).map(part => parseInt(part, 16));
+  const [r1, g1, b1] = hex(first); const [r2, g2, b2] = hex(second);
+  const component = (a, b) => Math.round(a + (b - a) * amount).toString(16).padStart(2, '0');
+  return `#${component(r1, r2)}${component(g1, g2)}${component(b1, b2)}`;
+}
+
+function buildThemePalette(mode, accent) {
+  const dark = mode === 'dark';
+  const base = dark ? '#101722' : '#f6f8fc';
+  const surfaceBase = dark ? '#172231' : '#ffffff';
+  const cardBase = dark ? '#1e2c3e' : '#eef3f9';
+  const text = dark ? '#e8f1fa' : '#17212b';
+  const muted = dark ? '#9eb0c3' : '#607080';
+  const blend = (color, amount) => mixColors(base, color, amount);
+  return {
+    '--bg': blend(accent, dark ? .10 : .025),
+    '--surface': mixColors(surfaceBase, accent, dark ? .12 : .025),
+    '--card': mixColors(cardBase, accent, dark ? .14 : .06),
+    '--card-hover': mixColors(cardBase, accent, dark ? .24 : .14),
+    '--text': text, '--text-muted': muted, '--accent': accent,
+    '--border': blend(accent, dark ? .25 : .18),
+    '--badge-done-bg': dark ? '#17382d' : '#d9f1e1', '--badge-done-fg': dark ? '#7cdea4' : '#17733c',
+    '--badge-progress-bg': dark ? '#3b3517' : '#fff3cf', '--badge-progress-fg': dark ? '#e5cd75' : '#805e00',
+    '--badge-numerator-bg': blend(accent, dark ? .24 : .16), '--badge-denominator-bg': blend(accent, dark ? .10 : .04),
+    '--modal-overlay': dark ? 'rgba(4, 9, 16, .68)' : 'rgba(18, 32, 48, .32)',
+    '--tag-project-bg': blend(accent, dark ? .18 : .12), '--tag-project-fg': dark ? '#b8e4ff' : '#185c80',
+    '--tag-category-bg': dark ? '#302443' : '#eee4f8', '--tag-category-fg': dark ? '#ddc5ff' : '#68418e',
+    '--tag-parent-bg': dark ? '#42351f' : '#f8ead9', '--tag-parent-fg': dark ? '#ffd78c' : '#82531a',
+    '--compact-card-bg': mixColors(cardBase, accent, dark ? .10 : .04),
+    '--compact-card-hover': mixColors(cardBase, accent, dark ? .18 : .11),
+    '--drop-highlight': `${accent}1f`, '--btn-add-fg': dark ? '#7cdea4' : '#17733c',
+    '--btn-add-bg': dark ? 'rgba(124, 222, 164, .12)' : 'rgba(23, 115, 60, .10)',
+    '--btn-neutral-fg': muted, '--btn-neutral-bg': dark ? 'rgba(158, 176, 195, .12)' : 'rgba(96, 112, 128, .08)',
+    '--btn-danger-fg': dark ? '#ff8c8c' : '#bd3030', '--btn-danger-bg': dark ? 'rgba(255, 140, 140, .12)' : 'rgba(189, 48, 48, .10)',
+    '--brand': accent, '--brand-fg': dark ? '#101722' : '#ffffff', '--brand-fg-soft': dark ? 'rgba(16, 23, 34, .72)' : 'rgba(255, 255, 255, .72)',
+  };
+}
+
 function loadSettings() {
   try {
     const raw = localStorage.getItem('backlog-dashboard-settings');
@@ -88,53 +174,141 @@ function saveSettings(settings) {
   localStorage.setItem('backlog-dashboard-settings', JSON.stringify(settings));
 }
 
-function applySettings() {
+function normalizedSettings() {
   const settings = loadSettings();
-  const theme = settings.theme || 'dark';
-  const accent = settings.accent || '#7c8fff';
+  if (!['dark', 'light', 'system'].includes(settings.theme)) settings.theme = 'system';
+  if (!settings.workspaceThemes || typeof settings.workspaceThemes !== 'object') settings.workspaceThemes = {};
+  if (!settings.workspaceThemeEnabled || typeof settings.workspaceThemeEnabled !== 'object') settings.workspaceThemeEnabled = {};
+  return settings;
+}
 
-  document.documentElement.setAttribute('data-theme', theme);
-  document.documentElement.style.setProperty('--accent', accent);
+function activeWorkspace() {
+  const paths = (currentBoardData && currentBoardData.workspaceMap) || {};
+  return currentFilter && paths[currentFilter] ? currentFilter : '';
+}
 
-  themeSelectEl.value = theme;
-  settingsThemeEl.value = theme;
-  settingsAccentEl.value = accent;
+function systemMode() {
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function effectiveTheme(settings) {
+  const workspace = activeWorkspace();
+  if (workspace && settings.workspaceThemeEnabled[workspace] && settings.workspaceThemes[workspace]) {
+    return { selection: 'workspace', ...settings.workspaceThemes[workspace] };
+  }
+  const mode = settings.theme === 'system' ? systemMode() : settings.theme;
+  return { selection: settings.theme, preset: `${mode}-blue` };
+}
+
+function applyPalette(theme) {
+  const preset = theme.preset && THEME_PRESETS[theme.preset];
+  const mode = preset ? preset.mode : (theme.mode || systemMode());
+  const accent = preset ? preset.accent : (theme.custom || '#38bdf8');
+  document.documentElement.setAttribute('data-theme', mode);
+  for (const [name, value] of Object.entries(buildThemePalette(mode, accent))) document.documentElement.style.setProperty(name, value);
+}
+
+function syncThemeOptions(settings, effective) {
+  const workspace = activeWorkspace();
+  for (const select of [themeSelectEl, settingsThemeEl]) {
+    const workspaceAction = select.querySelector('option[value="workspace"]');
+    const workspaceApplied = select.querySelector('option[value="workspace-applied"]');
+    if (workspace && !workspaceAction) select.appendChild(new Option('Workspace を設定…', 'workspace'));
+    if (workspace && effective.selection === 'workspace' && !workspaceApplied) {
+      select.appendChild(new Option('Workspace（適用中）', 'workspace-applied'));
+    }
+    if ((!workspace || effective.selection !== 'workspace') && workspaceApplied) workspaceApplied.remove();
+    if (!workspace && workspaceAction) workspaceAction.remove();
+    select.value = effective.selection === 'workspace' ? 'workspace-applied' : effective.selection;
+  }
+}
+
+function applySettings() {
+  const settings = normalizedSettings();
+  const effective = effectiveTheme(settings);
+  applyPalette(effective);
+  syncThemeOptions(settings, effective);
+  renderWorkspaceThemeSettings(settings, activeWorkspace());
+}
+
+function selectTheme(selection) {
+  const settings = normalizedSettings();
+  const workspace = activeWorkspace();
+  if (selection === 'workspace') {
+    if (!workspace) return;
+    settingsOverlay.classList.add('settings-visible');
+    renderWorkspaceThemeSettings(settings, workspace);
+    return;
+  }
+  settings.theme = selection;
+  if (workspace) settings.workspaceThemeEnabled[workspace] = false;
+  saveSettings(settings);
+  applySettings();
+}
+
+function renderWorkspaceThemeSettings(settings, workspace) {
+  if (!workspace) { workspaceThemeSettingsEl.hidden = true; return; }
+  workspaceThemeSettingsEl.hidden = false;
+  workspaceThemeLabelEl.textContent = `${workspace} Theme`;
+  if (!workspaceThemeDraft || workspaceThemeDraft.workspace !== workspace) {
+    workspaceThemeDraft = { workspace, theme: { ...(settings.workspaceThemes[workspace] || {}) } };
+  }
+  const draft = workspaceThemeDraft.theme;
+  themePresetGridEl.innerHTML = Object.entries(THEME_PRESETS).map(([name, preset]) => `
+    <button type="button" class="theme-preset${draft.preset === name ? ' is-selected' : ''}" data-preset="${name}" style="--preset-accent:${preset.accent}">
+      <span class="theme-preset-swatch"></span>${preset.label}
+    </button>`).join('') + `
+    <label class="theme-custom-color">Custom <input type="color" id="workspace-custom-accent" value="${draft.custom || '#38bdf8'}"></label>`;
+  themePresetGridEl.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => {
+    workspaceThemeDraft = { workspace, theme: { preset: button.dataset.preset } };
+    renderWorkspaceThemeSettings(settings, workspace);
+  }));
+  themePresetGridEl.querySelector('#workspace-custom-accent').addEventListener('input', event => {
+    workspaceThemeDraft = { workspace, theme: { custom: event.target.value, mode: systemMode() } };
+  });
 }
 
 // --- Theme & Settings UI ---
-themeSelectEl.addEventListener('change', () => {
-  const settings = loadSettings();
-  settings.theme = themeSelectEl.value;
-  saveSettings(settings);
-  applySettings();
-});
+themeSelectEl.addEventListener('change', () => selectTheme(themeSelectEl.value));
 
-settingsBtn.addEventListener('click', () => {
+function closeSettings() {
+  workspaceThemeDraft = null;
+  settingsOverlay.classList.remove('settings-visible');
+  applySettings();
+}
+
+if (settingsBtn) settingsBtn.addEventListener('click', () => {
+  workspaceThemeDraft = null;
   settingsOverlay.classList.add('settings-visible');
   populateGithubProjectSelect();
   loadGithubSettingsForSelectedProject();
 });
 
 settingsClose.addEventListener('click', () => {
-  settingsOverlay.classList.remove('settings-visible');
+  closeSettings();
 });
 
 settingsOverlay.addEventListener('click', (e) => {
-  if (e.target === settingsOverlay) settingsOverlay.classList.remove('settings-visible');
+  if (e.target === settingsOverlay) closeSettings();
+});
+
+workspaceThemeSaveEl.addEventListener('click', () => {
+  const draft = workspaceThemeDraft;
+  if (!draft || !draft.workspace || (!draft.theme.preset && !draft.theme.custom)) return;
+  const settings = normalizedSettings();
+  settings.workspaceThemes[draft.workspace] = draft.theme;
+  settings.workspaceThemeEnabled[draft.workspace] = true;
+  saveSettings(settings);
+  applySettings();
+  closeSettings();
 });
 
 settingsThemeEl.addEventListener('change', () => {
-  const settings = loadSettings();
-  settings.theme = settingsThemeEl.value;
-  saveSettings(settings);
-  applySettings();
+  selectTheme(settingsThemeEl.value);
 });
 
-settingsAccentEl.addEventListener('input', () => {
-  const settings = loadSettings();
-  settings.accent = settingsAccentEl.value;
-  saveSettings(settings);
-  applySettings();
+if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (normalizedSettings().theme === 'system') applySettings();
 });
 
 // --- GitHub連携設定 (BT-077) ---
@@ -162,7 +336,7 @@ async function loadGithubSettingsForSelectedProject() {
     const res = await fetch(`/api/github-settings?prefix=${encodeURIComponent(prefix)}`);
     const data = await res.json();
     settingsGithubRepoUrlEl.value = data.repoUrl || '';
-    settingsGithubStatusEl.textContent = data.hasToken ? '✅ トークン設定済み' : '未設定';
+    settingsGithubStatusEl.textContent = data.hasToken ? 'トークン設定済み' : '未設定';
     // トークン自体の値は表示せず、設定済みかどうかをplaceholderのマスク表示で示す
     settingsGithubTokenEl.placeholder = data.hasToken
       ? '●●●●●●●●●●●●（設定済み・変更する場合のみ入力）'
@@ -219,13 +393,13 @@ function getOrCreateGithubImportModal() {
   githubImportEl.innerHTML = `
     <div class="modal-content modal-wide github-import-modal">
       <button class="modal-close" id="github-import-close">&times;</button>
-      <h3>🔗 GitHub Issues取り込み</h3>
+      <h3><span class="material-icon icon-link"></span> GitHub Issues取り込み</h3>
       <div class="github-import-toolbar">
         <select id="github-import-project"></select>
         <span class="github-import-total-count" id="github-import-total-count"></span>
         <label class="github-import-filter"><input type="checkbox" id="github-import-filter-closed" checked><span id="github-import-filter-closed-label">closedを隠す</span></label>
         <label class="github-import-filter"><input type="checkbox" id="github-import-filter-imported" checked><span id="github-import-filter-imported-label">取込済みを隠す</span></label>
-        <button id="github-import-settings-btn" title="GitHub連携設定">⚙️ GitHub設定</button>
+        <button id="github-import-settings-btn" title="GitHub連携設定"><span class="material-icon icon-settings"></span> GitHub設定</button>
       </div>
       <div class="github-import-body" id="github-import-body">
         <p class="github-import-placeholder">プロジェクトを選択してください。</p>
@@ -449,6 +623,28 @@ function openGithubImportModal() {
 
 githubImportBtn.addEventListener('click', openGithubImportModal);
 
+// --- 開発用インスタンスのビジュアル差別化 (BT-185) ---
+// DB化(BT-169)を並行運用で進める間、本番(md版)と複製先(DB版開発中)を見た目で区別するためのバッジ。
+// config.jsonにdevInstanceLabelを設定した複製先だけで表示される（本番config.jsonにはキー自体が無い）。
+(async () => {
+  try {
+    const res = await fetch('/api/health');
+    const data = await res.json();
+    if (data.devInstanceLabel) {
+      const badgeEl = document.getElementById('dev-instance-badge');
+      badgeEl.textContent = data.devInstanceLabel;
+      badgeEl.hidden = false;
+      document.body.classList.add('dev-instance');
+    }
+    // バージョン表示 (BT-212): API/Dashboard/ルールファイルの世代照合に使う
+    if (data.apiVersion) {
+      document.getElementById('version-badge').textContent = `v${data.apiVersion}`;
+    }
+  } catch (e) {
+    console.error('[dev-instance-badge] Failed to fetch health:', e.message);
+  }
+})();
+
 // --- Header Logo: このダッシュボードアプリ自体のGitHubリポジトリを別タブで開く (BT-162) ---
 // リポジトリURLはユーザーごとのgithub-credentials.json（Issue連携先）とは無関係に、
 // サーバー側でclone元の`git remote origin`から解決した値を使う（誰の環境でも同じリンクになる）
@@ -467,8 +663,10 @@ headerLogoEl.addEventListener('click', async () => {
 // --- Project Filter ---
 projectFilterEl.addEventListener('change', () => {
   currentFilter = projectFilterEl.value;
+  applySettings();
   setSessionFilter(currentFilter); // ユーザー操作を記憶
   if (currentBoardData) renderBoard(currentBoardData);
+  if (typeof syncActivityProjectFilterFromMain === 'function') syncActivityProjectFilterFromMain();
 });
 
 // ワークスペースバッジクリック → フィルタ連携（トグル対応）
@@ -480,13 +678,21 @@ if (projectBadgesEl) {
     const proj = badge.dataset.project;
     currentFilter = (currentFilter === proj) ? '' : proj; // 同じバッジ再クリックで解除
     projectFilterEl.value = currentFilter;
+    applySettings();
     setSessionFilter(currentFilter);
     if (currentBoardData) renderBoard(currentBoardData);
+    if (typeof syncActivityProjectFilterFromMain === 'function') syncActivityProjectFilterFromMain();
   });
 }
 
 // --- Search Modal ---
-searchBtn.addEventListener('click', openSearchModal);
+searchBtn.addEventListener('click', () => openSearchModal(headerSearchInput.value));
+headerSearchInput.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  openSearchModal(headerSearchInput.value);
+});
+planBtn.addEventListener('click', openPlanBoard);
 
 // ショートカット: "/" または Ctrl+K（Mac: Cmd+K）で検索ダイアログを開く
 document.addEventListener('keydown', (e) => {
@@ -494,10 +700,10 @@ document.addEventListener('keydown', (e) => {
   const isTyping = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
   if (e.key === '/' && !isTyping) {
     e.preventDefault();
-    openSearchModal();
+    headerSearchInput.focus();
   } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault();
-    openSearchModal();
+    headerSearchInput.focus();
   }
 });
 
@@ -562,8 +768,10 @@ function connect() {
       }
 
       if (data.projects) updateProjectFilter(data.projects);
+      applySettings();
       renderBoard(currentBoardData);
       refreshModalIfOpen();
+      refreshPlanBoardIfOpen();
     } catch (e) {
       console.error('[app] Failed to parse message:', e);
     }
@@ -598,7 +806,10 @@ function collectRunningTasks(data) {
   if (!data || !data.columns) return result;
   for (const col of data.columns) {
     for (const item of col.items) {
-      if (item.running && !seen.has(item.id)) {
+      // EPICのrunningは子タスクの状態を集約して表示するためのもの。
+      // フッダーには実際に作業中の子タスクだけを出し、EPIC自体は出さない。
+      const isEpic = (item.children || []).length > 0;
+      if (item.running && !isEpic && !seen.has(item.id)) {
         seen.add(item.id);
         result.push({ item, parentEpic: null });
       }
@@ -613,23 +824,46 @@ function collectRunningTasks(data) {
   return result;
 }
 
+const RUNNING_AGENT_META = {
+  codex: { label: 'Codex', icon: 'codex-icon.svg' },
+  'claude-code': { label: 'Claude Code', icon: 'claude-icon.png' },
+  kiro: { label: 'Kiro', icon: 'kiro-run-icon.png' },
+  user: { label: 'User', icon: 'icons/person.svg' },
+};
+
+function runningAgentMeta(agentId) {
+  return RUNNING_AGENT_META[agentId] || { label: agentId || 'User', icon: 'icons/person.svg' };
+}
+
 function renderRunningStrip(data) {
-  const el = document.getElementById('running-strip-chips');
-  const iconEl = document.getElementById('running-strip-icon');
+  const el = document.getElementById('running-strip-agents');
   if (!el) return;
   const running = collectRunningTasks(data);
-  if (iconEl) iconEl.classList.toggle('spinning', running.length > 0);
-  if (!running.length) {
-    el.innerHTML = '<span class="running-strip-empty">🟡 進行中のタスクはなし</span>';
-    return;
+  const agents = ['codex', 'claude-code', 'kiro'];
+  for (const { item } of running) {
+    const agentId = item.agentId || 'user';
+    if (!agents.includes(agentId)) agents.push(agentId);
   }
-  el.innerHTML = running.map(({ item }, idx) => `
-    <span class="running-chip" data-idx="${idx}" title="${escapeHtml(item.title)}">
-      <span class="running-spinner"></span>
-      <span class="running-chip-id">${escapeHtml(item.id)}</span>
-      <span class="running-chip-title">${escapeHtml(item.title)}</span>
-    </span>
-  `).join('');
+  const indexByTaskId = new Map(running.map((entry, index) => [entry.item.id, index]));
+  el.innerHTML = agents.map(agentId => {
+    const meta = runningAgentMeta(agentId);
+    const tasks = running.filter(({ item }) => (item.agentId || 'user') === agentId);
+    const isActiveAgent = tasks.length > 0 && agentId !== 'user';
+    const iconAnimation = isActiveAgent
+      ? (agentId === 'kiro' ? ' floating' : ' spinning')
+      : '';
+    const chips = tasks.map(({ item }) => `
+      <button type="button" class="running-chip" data-idx="${indexByTaskId.get(item.id)}" title="${escapeHtml(item.title)}">
+        <span class="running-spinner"></span>
+        <span class="running-chip-id">${escapeHtml(item.id)}</span>
+        <span class="running-chip-title">${escapeHtml(item.title)}</span>
+      </button>
+    `).join('');
+    return `<section class="running-agent${tasks.length ? ' is-running' : ''}" data-agent="${escapeHtml(agentId)}" style="--running-count:${Math.max(tasks.length, 1)}" aria-label="${escapeHtml(meta.label)}: ${tasks.length} running tasks">
+      <img class="running-agent-icon${iconAnimation}" src="${meta.icon}" alt="${escapeHtml(meta.label)}" title="${escapeHtml(meta.label)}">
+      <div class="running-agent-chips">${chips}</div>
+    </section>`;
+  }).join('');
   el.querySelectorAll('.running-chip').forEach((chipEl) => {
     const idx = parseInt(chipEl.dataset.idx, 10);
     chipEl.addEventListener('click', () => {
@@ -645,17 +879,24 @@ function renderBoard(data) {
   lastBoardData = data;
   boardEl.innerHTML = '';
   renderRunningStrip(data);
+  renderWorkspaceSummary(data);
+  const boardColumnsEl = document.createElement('div');
+  boardColumnsEl.className = 'board-columns';
+  boardEl.appendChild(boardColumnsEl);
 
   // プロジェクト別残タスクバッジ表示（クリックでフィルタ連携）
   const badgesEl = document.getElementById('project-badges');
   if (badgesEl && data.remainingByProject) {
+    // 描画中のボードデータを直接使う。WebSocket再接続や初回描画の順序に左右されず、
+    // URLで開いたワークスペースを確実に強調できる。
     const entries = Object.entries(data.remainingByProject)
       .filter(([, count]) => count > 0)
       .sort((a, b) => b[1] - a[1]);
     badgesEl.innerHTML = entries.map(([proj, count]) => {
       const isActive = currentFilter === proj;
       const isDimmed = !!currentFilter && !isActive;
-      const cls = ['proj-badge', isActive ? 'active' : '', isDimmed ? 'dimmed' : ''].filter(Boolean).join(' ');
+      const isCurrentWorkspace = isUrlWorkspaceProject(proj, data);
+      const cls = ['proj-badge', isActive ? 'active' : '', isDimmed ? 'dimmed' : '', isCurrentWorkspace ? 'workspace-context' : ''].filter(Boolean).join(' ');
       return `<span class="${cls}" data-project="${escapeHtml(proj)}">${proj}<span class="proj-badge-count">${count}</span></span>`;
     }).join('');
   }
@@ -698,14 +939,14 @@ function renderBoard(data) {
 
     // 完了カラム用「本日完了だけ」トグルチップ
     const doneTodayToggleHtml = isCompact
-      ? `<button class="done-today-btn${doneTodayOnly ? ' filter-active' : ''}" data-col-id="${col.id}" title="本日完了分のみ表示（達成感モード）">🎉 今日</button>`
+      ? `<button class="done-today-btn${doneTodayOnly ? ' filter-active' : ''}" data-col-id="${col.id}" title="本日完了分のみ表示（達成感モード）"><span class="material-icon icon-celebration"></span> 今日</button>`
       : '';
 
     // カウント/limit表示エリア
     let countAreaHtml;
     if (doneTodayActive) {
       // 本日完了だけ表示中: 達成感カウント（limit入力は隠す）
-      countAreaHtml = `<span class="count done-today-count">🎉 ${items.length}</span>`;
+      countAreaHtml = `<span class="count done-today-count"><span class="material-icon icon-celebration"></span> ${items.length}</span>`;
     } else if (currentLimit) {
       countAreaHtml = `<input type="number" class="limit-input" value="${currentLimit}" min="1" max="${totalBeforeLimit}" data-col-id="${col.id}" title="表示件数 (全${totalBeforeLimit}件)">
                <span class="count-total">/ ${totalBeforeLimit}</span>`;
@@ -726,7 +967,7 @@ function renderBoard(data) {
     `;
 
     const body = colEl.querySelector('.column-body');
-    setupDropZone(body, col.id, col.match, false, null);
+    setupDropZone(body, col.id, col.match);
 
     for (const item of items) {
       const card = document.createElement('div');
@@ -737,11 +978,11 @@ function renderBoard(data) {
 
       if (item.id && item.id !== '-') {
         card.dataset.taskId = item.id;
-        setupDragAndDrop(card, item, col.id, false);
+        setupDragAndDrop(card, item, col.id);
       }
 
       card.classList.add('card-clickable');
-      setupCardClick(card, item);
+      setupCardClick(card, item, !!item.parentId);
 
       // 今日やるフラグ（Epic: 子の集約、単発: 自身のフラグ）
       const hasTodayFlag = isEpic ? (item.todayCount > 0) : item.todayFlag;
@@ -762,8 +1003,14 @@ function renderBoard(data) {
       const showField = (name) => fields.includes(name);
 
       const id = (showField('id') && item.id && item.id !== '-') ? item.id : '';
-      const completedDate = (showField('completedDate') && item.completedDate) ? `<span class="card-tag">${item.completedDate}</span>` : '';
+      const completedDate = (showField('completedDate') && item.completedDate) ? renderCompletedDateBadge(item.completedDate) : '';
       const category = (showField('category') && item.category && item.category !== '-') ? `<span class="card-tag category">${item.category}</span>` : '';
+
+      // 親Epicへのリンク（BT-201: 親が未完了のまま個別完了した子タスクを完了カラムに混在表示する分）
+      // クリックすると親Epicの詳細（ミニボード）を開き、このカードをハイライトする
+      const parentEpicLinkHtml = item.parentId
+        ? `<span class="parent-epic-link" data-parent-id="${escapeHtml(item.parentId)}" title="親タスク: ${escapeHtml(item.parentTitle || '')}（クリックでEpic詳細へ）"><span class="material-icon icon-stacks"></span>${escapeHtml(item.parentId)}</span><span class="id-separator">|</span>`
+        : '';
 
       // GitHub風ピルバッジ
       let badge = '';
@@ -774,49 +1021,67 @@ function renderBoard(data) {
       }
 
       // 起源マーク
-      const originIcon = item.origin === 'claude' ? '<span class="origin-mark" title="Claude">🤖</span>'
-        : item.origin === 'user' ? '<span class="origin-mark" title="User">👤</span>' : '';
+      const originIcon = item.origin === 'claude' ? '<span class="origin-mark" title="Claude"><span class="material-icon icon-smart-toy"></span></span>'
+        : item.origin === 'user' ? '<span class="origin-mark" title="User"><span class="material-icon icon-person"></span></span>' : '';
 
       // 実行中スピナー
       const spinnerHtml = item.running ? '<span class="running-spinner"></span>' : '';
 
       // Epicハブアイコン（子タスクを束ねる親タスクの目印）
-      const epicIcon = isEpic ? '<span class="epic-icon" title="親タスク（子タスクを束ねるEpic）">⧉</span>' : '';
+      const epicIcon = isEpic ? '<span class="epic-icon" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : '';
 
-      const idHtml = id ? `<div class="card-id">${spinnerHtml}${epicIcon}<span>${id}</span>${badge}${originIcon}</div>` : (badge || originIcon || epicIcon ? `<div class="card-id">${spinnerHtml}${epicIcon}${badge}${originIcon}</div>` : '');
+      const idHtml = id ? `<div class="card-id">${spinnerHtml}${epicIcon}${parentEpicLinkHtml}<span>${id}</span>${badge}${originIcon}</div>` : (badge || originIcon || epicIcon ? `<div class="card-id">${spinnerHtml}${epicIcon}${badge}${originIcon}</div>` : '');
       const titleHtml = showField('title') ? `<div class="card-title">${escapeHtml(item.title)}</div>` : '';
       const projectTag = showField('project') ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
-      const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり">📎</span>' : '';
+      const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>' : '';
       const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
-      const metaParts = [projectTag, category, artifactIndicator, githubBadge, completedDate].filter(Boolean);
+      const dueBadge = item.dueDate ? renderDueDateBadge(item.dueDate) : '';
+      const metaParts = [projectTag, category, artifactIndicator, githubBadge, dueBadge, completedDate].filter(Boolean);
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
 
-      // 📌 ピンボタン（完了カラムには不要）
+      // ピンボタン（完了カラムには不要）
       let pinHtml = '';
+      const pinIconHtml = '<span class="material-icon icon-keep"></span>';
       if (!isCompact && item.id && item.id !== '-') {
         if (isEpic) {
-          // Epic: 子の集約表示。📌n（一括操作ボタン）
+          // Epic: 子の集約表示。ピン+件数（一括操作ボタン）
           const pinActive = item.todayCount > 0;
-          const pinLabel = pinActive ? `📌${item.todayCount}` : '📌';
-          pinHtml = `<button class="today-pin-btn${pinActive ? ' pin-active' : ''}" data-task-id="${item.id}" data-is-child="false" title="今日やる（一括）">${pinLabel}</button>`;
+          const pinLabel = pinActive ? `${pinIconHtml}${item.todayCount}` : pinIconHtml;
+          pinHtml = `<button class="today-pin-btn${pinActive ? ' pin-active' : ''}" data-task-id="${item.id}" title="今日やる（一括）">${pinLabel}</button>`;
         } else {
           // 単発タスク: 通常トグル
-          pinHtml = `<button class="today-pin-btn${item.todayFlag ? ' pin-active' : ''}" data-task-id="${item.id}" data-is-child="false" title="今日やる">📌</button>`;
+          pinHtml = `<button class="today-pin-btn${item.todayFlag ? ' pin-active' : ''}" data-task-id="${item.id}" title="今日やる">${pinIconHtml}</button>`;
         }
       }
 
-      // ✏️🔗🗑 編集・GitHub紐付け・削除ボタン（BT-041: 詳細モーダルを開かずカードから直接操作。完了カラムには不要。Epicは削除不可のため編集のみ）
+      // 編集・GitHub紐付け・削除ボタン（BT-041: 詳細モーダルを開かずカードから直接操作。完了カラムには不要。Epicは削除不可のため編集のみ）
       let cardActionsHtml = '';
       if (!isCompact && item.id && item.id !== '-') {
         cardActionsHtml = `<div class="card-actions">
-          <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集">✏️</button>
-          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueと紐づける">🔗</button>` : ''}
-          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成">📤</button>` : ''}
-          ${!isEpic ? `<button class="card-action-btn card-delete-btn danger" data-task-id="${item.id}" title="削除">🗑</button>` : ''}
+          <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集"><span class="material-icon icon-edit"></span></button>
+          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
+          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
+          ${!isEpic ? `<button class="card-action-btn card-delete-btn danger" data-task-id="${item.id}" title="削除"><span class="material-icon icon-delete"></span></button>` : ''}
         </div>`;
       }
 
       card.innerHTML = `${pinHtml}${cardActionsHtml}${idHtml}${titleHtml}${metaHtml}`;
+
+      // 親Epicリンクのクリック（BT-201）: カード自体のクリック（子タスク詳細を開く）とは独立させ、
+      // 親Epicの詳細（ミニボード）をこのカードをハイライトした状態で開く
+      const parentEpicLinkEl = card.querySelector('.parent-epic-link');
+      if (parentEpicLinkEl) {
+        parentEpicLinkEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const epic = findItemById(item.parentId);
+          if (!epic) return;
+          expandedMiniCols.add('done'); // 完了済みの対象子タスクがlimitで隠れないようにする
+          pendingHighlightChildId = item.id;
+          openCardDetail(epic);
+        });
+      }
+
       body.appendChild(card);
     }
 
@@ -825,7 +1090,7 @@ function renderBoard(data) {
       if (items.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'done-today-empty';
-        empty.innerHTML = `<span class="done-today-empty-emoji">🌱</span><span>今日の達成はまだないよ<br>ひとつ片付けてこ！</span>`;
+        empty.innerHTML = `<span class="material-icon icon-psychiatry done-today-empty-icon"></span><span>今日の達成はまだないよ<br>ひとつ片付けてこ！</span>`;
         body.appendChild(empty);
       }
     } else if (isCompact) {
@@ -852,7 +1117,7 @@ function renderBoard(data) {
       }
     }
 
-    boardEl.appendChild(colEl);
+    boardColumnsEl.appendChild(colEl);
   }
 
   // +ボタンのイベントリスナーを設定
@@ -885,19 +1150,18 @@ function renderBoard(data) {
     });
   });
 
-  // 📌 ピンボタンのイベントリスナー
+  // ピンボタンのイベントリスナー
   boardEl.querySelectorAll('.today-pin-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
       const taskId = btn.dataset.taskId;
-      const isChild = btn.dataset.isChild === 'true';
       const isActive = btn.classList.contains('pin-active');
-      toggleTodayFlag(taskId, isChild, !isActive);
+      toggleTodayFlag(taskId, !isActive);
     });
   });
 
-  // ✏️ カード直接編集ボタンのイベントリスナー（BT-041）
+  // カード直接編集ボタンのイベントリスナー（BT-041）
   boardEl.querySelectorAll('.card-edit-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -907,7 +1171,7 @@ function renderBoard(data) {
     });
   });
 
-  // 🗑 カード直接削除ボタンのイベントリスナー（BT-041）
+  // カード直接削除ボタンのイベントリスナー（BT-041）
   boardEl.querySelectorAll('.card-delete-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -917,22 +1181,22 @@ function renderBoard(data) {
     });
   });
 
-  // 🔗 GitHub Issueバッジ: クリックしてもカード詳細を開かず、リンク遷移のみ行う（BT-110）
+  // GitHub Issueバッジ: クリックしてもカード詳細を開かず、リンク遷移のみ行う（BT-110）
   boardEl.querySelectorAll('.github-issue-badge').forEach(link => {
     link.addEventListener('click', (e) => e.stopPropagation());
   });
 
-  // 🔗 GitHub Issue紐付けボタンのイベントリスナー（BT-122）
+  // GitHub Issue紐付けボタンのイベントリスナー（BT-122）
   boardEl.querySelectorAll('.card-github-link-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
       const item = findItemById(btn.dataset.taskId);
-      if (item) openGithubLinkModal(item, btn.dataset.isChild === 'true');
+      if (item) openGithubLinkModal(item);
     });
   });
 
-  // 📤 GitHub Issue新規作成ボタンのイベントリスナー（BT-134）
+  // GitHub Issue新規作成ボタンのイベントリスナー（BT-134）
   boardEl.querySelectorAll('.card-github-create-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -945,8 +1209,56 @@ function renderBoard(data) {
   updateSelectionBar();
 }
 
+function renderWorkspaceSummary(data) {
+  if (!currentFilter || !data.workspaceSummaryMap || !Object.prototype.hasOwnProperty.call(data.workspaceSummaryMap, currentFilter)) return;
+  const summary = data.workspaceSummaryMap[currentFilter] || '';
+  const overview = document.createElement('section');
+  overview.className = 'workspace-overview';
+  overview.innerHTML = `<span class="workspace-overview-label">${escapeHtml(currentFilter)}</span><button type="button" class="workspace-overview-text${summary ? '' : ' is-empty'}" title="クリックして概要を編集">${escapeHtml(summary || 'ワークスペースの概要を入力')}</button>`;
+  boardEl.appendChild(overview);
+  overview.querySelector('.workspace-overview-text').addEventListener('click', () => startWorkspaceSummaryEdit(overview, currentFilter, summary));
+}
+
+function startWorkspaceSummaryEdit(overview, project, initialSummary) {
+  const input = document.createElement('input');
+  input.className = 'workspace-overview-input';
+  input.type = 'text';
+  input.maxLength = 240;
+  input.value = initialSummary;
+  input.placeholder = 'ワークスペースの概要を入力';
+  overview.querySelector('.workspace-overview-text').replaceWith(input);
+  input.focus();
+  input.select();
+  let finished = false;
+  const finish = async (save) => {
+    if (finished) return;
+    finished = true;
+    const summary = save ? input.value : initialSummary;
+    let saved = false;
+    if (save && summary !== initialSummary) {
+      try {
+        const response = await fetch('/api/update-workspace-summary', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project, summary }),
+        });
+        if (!response.ok) throw new Error((await response.json()).error || '保存に失敗しました');
+        saved = true;
+      } catch (error) {
+        console.error('[workspace-summary]', error);
+        alert(`ワークスペース概要を保存できませんでした: ${error.message}`);
+      }
+    }
+    if (!saved) renderBoard(currentBoardData);
+  };
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter') { event.preventDefault(); finish(true); }
+    if (event.key === 'Escape') { event.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+
 /**
- * カードの✏️ボタンから直接呼ばれる: 詳細モーダルを開いて即編集モードにする（BT-041）
+ * カードの編集ボタンから直接呼ばれる: 詳細モーダルを開いて即編集モードにする（BT-041）
  * @param {object} item
  */
 function openCardEditDirect(item) {
@@ -954,12 +1266,12 @@ function openCardEditDirect(item) {
   const modal = getOrCreateModal();
   const body = modal.querySelector('.modal-body');
   const isEpic = item.children && item.children.length > 0;
-  const isArchivedSingle = !isEpic && item.status === '完了';
-  enterEditMode(item, body, false, isArchivedSingle, renderModalContent);
+  const isArchivedSingle = !isEpic && item.statusCode === 'done';
+  enterEditMode(item, body, isArchivedSingle, renderModalContent);
 }
 
 /**
- * ミニボード子カードの✏️ボタンから直接呼ばれる: 子詳細モーダルを開いて即編集モードにする（BT-041）
+ * ミニボード子カードの編集ボタンから直接呼ばれる: 子詳細モーダルを開いて即編集モードにする（BT-041）
  * @param {object} childWithProject
  * @param {object} epic
  */
@@ -967,7 +1279,32 @@ function openChildCardEditDirect(childWithProject, epic) {
   openCardDetail(childWithProject, epic);
   const modal = getOrCreateChildModal();
   const body = modal.querySelector('.modal-body');
-  enterEditMode(childWithProject, body, true, false, openChildModal);
+  enterEditMode(childWithProject, body, false, openChildModal);
+}
+
+// 情報セクション（担当・日付・トラッキング情報）のHTML生成。
+// 単発/子/EPICの3種で別々に組んでいたものをBT-261で1箇所に統一。
+function buildMetaHtml(item) {
+  const metaParts = [];
+  if (item.assignee) metaParts.push(`<li><strong>担当:</strong> ${escapeHtml(item.assignee)}</li>`);
+  if (item.startDate) metaParts.push(`<li><strong>開始日:</strong> ${escapeHtml(item.startDate)}</li>`);
+  if (item.dueDate) metaParts.push(`<li><strong>期日:</strong> ${escapeHtml(item.dueDate)}</li>`);
+  if (item.completedDate) metaParts.push(`<li><strong>完了日:</strong> ${escapeHtml(item.completedDate)}</li>`);
+  if (item.createdAt) metaParts.push(`<li><strong>作成日:</strong> ${escapeHtml(formatDateTimeJst(item.createdAt))}</li>`);
+  if (item.updatedAt) metaParts.push(`<li><strong>更新日:</strong> ${escapeHtml(formatDateTimeJst(item.updatedAt))}</li>`);
+  if (item.updatedBy) metaParts.push(`<li><strong>更新者:</strong> ${escapeHtml(item.updatedBy)}</li>`);
+  return metaParts.length > 0 ? `<div class="detail-section"><h4>情報</h4><ul class="detail-meta">${metaParts.join('')}</ul></div>` : '';
+}
+
+// 詳細モーダル本体を「左3/4:説明」「右1/4:情報+成果物」の横長2カラムにまとめる（BT-261）
+function buildDetailColumnsHtml(mainHtml, sideHtml) {
+  const side = sideHtml ? `<div class="detail-side">${sideHtml}</div>` : '';
+  return `<div class="detail-layout detail-fixed-layout"><div class="detail-main">${mainHtml}</div>${side}</div>`;
+}
+
+function buildScrollableDetailHtml(mainHtml, sideHtml, footerHtml = '') {
+  const side = sideHtml ? `<div class="detail-scroll-side">${sideHtml}</div>` : '';
+  return `<div class="detail-scroll-content"><div class="detail-scroll-layout"><div class="detail-scroll-main">${mainHtml}</div>${side}</div>${footerHtml}</div>`;
 }
 
 function buildArtifactsHtml(item) {
@@ -977,9 +1314,13 @@ function buildArtifactsHtml(item) {
   const artifactItems = item.artifacts.map((art, idx) => {
     const escaped = escapeHtml(art);
     const fullPath = wsPath ? (wsPath + '/' + art.replace(/\\/g, '/')) : art;
-    return `<li class="artifact-item"><code>${escaped}</code> <button class="artifact-copy-btn" data-path="${escapeHtml(fullPath)}" title="パスをコピー">&#128203;</button></li>`;
+    return `<li class="artifact-item"><code>${escaped}</code> <button class="artifact-copy-btn" data-path="${escapeHtml(fullPath)}" title="パスをコピー"><span class="material-icon icon-content-copy"></span></button></li>`;
   }).join('');
-  return `<div class="detail-section"><h4>成果物</h4><ul class="detail-artifacts">${artifactItems}</ul></div>`;
+  const artifactList = `<ul class="detail-artifacts">${artifactItems}</ul>`;
+  if (item.artifacts.length === 1) {
+    return `<div class="detail-section detail-artifacts-block"><h4>成果物</h4>${artifactList}</div>`;
+  }
+  return `<details class="detail-section detail-artifacts-block detail-artifacts-collapsible"><summary>成果物（${item.artifacts.length}件）</summary>${artifactList}</details>`;
 }
 
 // ボタン群を1つのflex-wrapグループにまとめる（BT-166: ペア単位のflex:1をやめ、
@@ -997,9 +1338,12 @@ function buildWorkspaceActionHtml(item) {
   const workspaceMap = currentBoardData && currentBoardData.workspaceMap || {};
   const wsPath = workspaceMap[item.project] || '';
   if (wsPath) {
-    return `<button class="add-child-btn" id="modal-open-workspace-btn">📂 ワークスペースを開く</button>`;
+    if (isCurrentUrlWorkspace(item)) {
+      return `<button class="add-child-btn workspace-open-current" id="modal-open-workspace-btn" disabled title="現在のワークスペースを表示中です"><span class="material-icon icon-folder-open"></span> 現在のワークスペース</button>`;
+    }
+    return `<button class="add-child-btn" id="modal-open-workspace-btn"><span class="material-icon icon-folder-open"></span> ワークスペースを開く</button>`;
   }
-  return `<button class="add-child-btn btn-add" id="modal-create-workspace-btn">🛠 ワークスペースを作る</button>`;
+  return `<button class="add-child-btn btn-add" id="modal-create-workspace-btn"><span class="material-icon icon-construction"></span> ワークスペースを作る</button>`;
 }
 
 function setupWorkspaceActionButtons(body, item) {
@@ -1016,7 +1360,7 @@ function setupWorkspaceActionButtons(body, item) {
 // ワークスペース移管ボタンのHTMLを生成する（BT-063）
 function buildMoveActionHtml(item) {
   if (!item.id || item.id === '-') return '';
-  return `<button class="add-child-btn" id="modal-move-btn">🚚 ワークスペースを移管</button>`;
+  return `<button class="add-child-btn" id="modal-move-btn"><span class="material-icon icon-local-shipping"></span> ワークスペースを移管</button>`;
 }
 
 function setupMoveActionButton(body, item, isChild) {
@@ -1050,18 +1394,21 @@ async function openTaskWorkspace(taskId, btnEl) {
 }
 
 function setupArtifactCopyButtons(container) {
+  const copyIcon = '<span class="material-icon icon-content-copy"></span>';
+  const successIcon = '<span class="material-icon icon-check"></span>';
+  const errorIcon = '<span class="material-icon icon-close"></span>';
   container.querySelectorAll('.artifact-copy-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const pathText = btn.dataset.path;
       navigator.clipboard.writeText(pathText).then(() => {
-        btn.textContent = '✓';
+        btn.innerHTML = successIcon;
         btn.classList.add('copied');
-        setTimeout(() => { btn.innerHTML = '&#128203;'; btn.classList.remove('copied'); }, 1500);
+        setTimeout(() => { btn.innerHTML = copyIcon; btn.classList.remove('copied'); }, 1500);
       }).catch(() => {
         // fallback
-        btn.textContent = '✗';
-        setTimeout(() => { btn.innerHTML = '&#128203;'; }, 1500);
+        btn.innerHTML = errorIcon;
+        setTimeout(() => { btn.innerHTML = copyIcon; }, 1500);
       });
     });
   });
@@ -1120,11 +1467,11 @@ function closeSearchModal() {
   if (el) el.classList.remove('modal-visible');
 }
 
-function openSearchModal() {
+function openSearchModal(initialQuery = '') {
   const el = getOrCreateSearchModal();
   const input = el.querySelector('#search-modal-input');
-  input.value = '';
-  renderSearchResults('');
+  input.value = initialQuery;
+  renderSearchResults(initialQuery.trim().toLowerCase());
   el.classList.add('modal-visible');
   input.focus();
 }
@@ -1137,6 +1484,7 @@ function buildSearchTree() {
   for (const col of currentBoardData.columns) {
     for (const item of col.items) {
       if (!item.id || item.id === '-') continue;
+      if (item.parentId) continue; // BT-201: 完了カラムに混在表示中の子タスクは親Epic側で既にカウント済み
       const proj = item.project || '-';
       if (!projectMap.has(proj)) projectMap.set(proj, { epics: new Map(), singles: [] });
       const projEntry = projectMap.get(proj);
@@ -1206,7 +1554,7 @@ function renderSearchResults(query) {
     if (entry.type === 'header') {
       return `<div class="search-group-header">${escapeHtml(entry.label)}</div>`;
     }
-    const epicIcon = entry.isEpic ? '<span class="epic-icon" title="Epic">⧉</span>' : '';
+    const epicIcon = entry.isEpic ? '<span class="epic-icon" title="Epic"><span class="material-icon icon-stacks"></span></span>' : '';
     return `<div class="search-result-item search-indent-${entry.indent}" data-entry-idx="${idx}">
       ${epicIcon}<span class="search-result-id">${escapeHtml(entry.item.id)}</span>
       <span class="search-result-title">${escapeHtml(entry.item.title)}</span>
@@ -1275,6 +1623,24 @@ function getTodayJST() {
   return jst.toISOString().slice(0, 10);
 }
 
+// created_at/updated_at(UTC ISO文字列)をJSTの "YYYY-MM-DD HH:mm" 表示に変換する（BT-261）
+function formatDateTimeJst(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(d);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}`;
+}
+
 // 説明テキストを適度に改行して表示用HTMLにする
 function formatDescription(desc) {
   if (!desc) return '';
@@ -1290,20 +1656,22 @@ function formatDescription(desc) {
 // 説明欄のHTML生成（BT-080: 長い説明は2行に折りたたみ、▼で展開できるようにする）
 function buildDescriptionSectionHtml(description) {
   if (!description) return '';
-  return `<div class="detail-section"><h4>説明</h4><div class="description-collapsible"><p class="description-text">${formatDescription(description)}</p><button type="button" class="description-toggle-btn" hidden>▼ もっと見る</button></div></div>`;
+  return `<div class="detail-section detail-description-section"><div class="detail-section-heading"><h4>説明</h4><button type="button" class="description-toggle-btn" hidden aria-expanded="false">▼ もっと見る</button></div><div class="description-collapsible"><p class="description-text">${formatDescription(description)}</p></div></div>`;
 }
 
 // 説明欄の折りたたみトグルを初期化する（BT-080）。2行に収まる場合はボタンを出さない
 function setupDescriptionToggle(container) {
   container.querySelectorAll('.description-collapsible').forEach((wrap) => {
     const text = wrap.querySelector('.description-text');
-    const btn = wrap.querySelector('.description-toggle-btn');
+    const section = wrap.closest('.detail-description-section');
+    const btn = section?.querySelector('.description-toggle-btn');
     if (!text || !btn) return;
     if (text.scrollHeight <= text.clientHeight + 1) return;
     btn.hidden = false;
     btn.addEventListener('click', () => {
       const expanded = wrap.classList.toggle('expanded');
       btn.textContent = expanded ? '▲ 閉じる' : '▼ もっと見る';
+      btn.setAttribute('aria-expanded', String(expanded));
     });
   });
 }
@@ -1311,12 +1679,12 @@ function setupDescriptionToggle(container) {
 // --- Drag & Drop ---
 let dragData = null;
 
-function setupDragAndDrop(card, item, colId, isChild = false, parentId = null) {
+function setupDragAndDrop(card, item, colId) {
   card.setAttribute('draggable', 'true');
   card.classList.add('card-draggable');
 
   card.addEventListener('dragstart', (e) => {
-    dragData = { id: item.id, isChild, sourceColId: colId, parentId };
+    dragData = { id: item.id, sourceColId: colId };
     card.classList.add('card-dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', item.id);
@@ -1331,7 +1699,7 @@ function setupDragAndDrop(card, item, colId, isChild = false, parentId = null) {
   });
 }
 
-function setupDropZone(bodyEl, colId, colMatch, isChildZone = false, parentId = null) {
+function setupDropZone(bodyEl, colId, colMatch) {
   let lastDropTarget = { card: null, position: 'below' }; // dragoverで計算した最後のターゲットを保持
 
   bodyEl.addEventListener('dragover', (e) => {
@@ -1388,7 +1756,7 @@ function setupDropZone(bodyEl, colId, colMatch, isChildZone = false, parentId = 
       filteredIds.splice(insertIdx, 0, dragId);
 
       if (JSON.stringify(filteredIds) === JSON.stringify(currentIds)) return;
-      reorderItems(filteredIds, dragData.isChild, dragData.parentId || parentId);
+      reorderItems(filteredIds);
     } else {
       // 別カラムへ移動 → ステータス変更 + ドロップ位置での並び替え
       const newStatus = colMatch[0];
@@ -1412,10 +1780,10 @@ function setupDropZone(bodyEl, colId, colMatch, isChildZone = false, parentId = 
 
       // ステータス変更してから並び替え
       const dragInfo = { ...dragData };
-      updateStatus(dragInfo.id, newStatus, dragInfo.isChild).then(() => {
+      updateStatus(dragInfo.id, newStatus).then(() => {
         // 2つ以上のIDがあればreorder実行
         if (existingIds.length >= 2) {
-          reorderItems(existingIds, dragInfo.isChild, dragInfo.parentId || parentId);
+          reorderItems(existingIds);
         }
       });
     }
@@ -1440,12 +1808,12 @@ function clearDropIndicators(bodyEl) {
   bodyEl.querySelectorAll('.card-drop-below').forEach(el => el.classList.remove('card-drop-below'));
 }
 
-async function reorderItems(orderedIds, isChild, parentId) {
+async function reorderItems(orderedIds) {
   try {
     const resp = await fetch('/api/reorder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderedIds, isChild, parentId }),
+      body: JSON.stringify({ orderedIds }),
     });
     if (!resp.ok) {
       const err = await resp.json();
@@ -1456,12 +1824,12 @@ async function reorderItems(orderedIds, isChild, parentId) {
   }
 }
 
-async function updateStatus(taskId, newStatus, isChild) {
+async function updateStatus(taskId, newStatus) {
   try {
     const resp = await fetch('/api/update-status', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ taskId, newStatus, isChild }),
+      body: JSON.stringify({ taskId, newStatus }),
     });
     if (!resp.ok) {
       const err = await resp.json();
@@ -1472,13 +1840,347 @@ async function updateStatus(taskId, newStatus, isChild) {
   }
 }
 
+// --- 週次計画ビュー (BT-264) ---
+const PLAN_WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
+
+function planFormatDueBadge(dueDate) {
+  if (!dueDate) return '';
+  const d = new Date(dueDate + 'T00:00:00');
+  return `${d.getMonth() + 1}/${d.getDate()}(${PLAN_WEEKDAY_JA[d.getDay()]})`;
+}
+
+function renderDueDateBadge(dueDate) {
+  const label = planFormatDueBadge(dueDate);
+  return `<span class="card-tag due-badge" title="期日"><span class="material-icon icon-timer"></span><span>${escapeHtml(label)}</span></span>`;
+}
+
+function renderCompletedDateBadge(completedDate) {
+  return `<span class="card-tag completed-date" title="完了日"><span class="material-icon icon-check-box"></span><span>${escapeHtml(completedDate)}</span></span>`;
+}
+
+function planGetMonday(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay(); // 0=Sun .. 6=Sat
+  const diff = (day === 0 ? -6 : 1 - day);
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function planFormatYmd(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function planAddDays(d, n) {
+  const nd = new Date(d);
+  nd.setDate(nd.getDate() + n);
+  return nd;
+}
+
+// weeksOffset: 今週=0, 来週=1, それ以降(ドロップ時の基準週)=2
+const PLAN_WEEKS_OFFSET = { thisWeek: 0, nextWeek: 1, later: 2 };
+
+function planBucketDef() {
+  const todayMonday = planGetMonday(getTodayJST());
+  const mondayOf = (weeksOffset) => planFormatYmd(planAddDays(todayMonday, weeksOffset * 7)).slice(5).replace('-', '/');
+  return [
+    { id: 'todo', label: 'TODO' },
+    { id: 'overdue', label: '遅延' },
+    { id: 'thisWeek', label: `今週(${mondayOf(0)})` },
+    { id: 'nextWeek', label: `来週(${mondayOf(1)})` },
+    { id: 'later', label: 'それ以降' },
+  ];
+}
+
+function planBucketForDueDate(dueDate) {
+  if (!dueDate) return 'todo';
+  const todayMonday = planGetMonday(getTodayJST());
+  const dueMonday = planGetMonday(dueDate);
+  const weeksDiff = Math.round((dueMonday - todayMonday) / (7 * 86400000));
+  if (weeksDiff < 0) return 'overdue';
+  if (weeksDiff === 0) return 'thisWeek';
+  if (weeksDiff === 1) return 'nextWeek';
+  return 'later';
+}
+
+// ドロップ先バケットに対応する期日（週の日曜日）。TODO(=クリア)/遅延(非対応)はnull。
+// 「それ以降」は境界がないため、暫定でPLAN_WEEKS_OFFSET.later週の日曜日に固定する。
+function planDueDateForBucket(bucketId) {
+  if (!(bucketId in PLAN_WEEKS_OFFSET)) return null;
+  const todayMonday = planGetMonday(getTodayJST());
+  const monday = planAddDays(todayMonday, PLAN_WEEKS_OFFSET[bucketId] * 7);
+  return planFormatYmd(planAddDays(monday, 6));
+}
+
+// メインボードの全カラムからトップレベルitemを収集（parentId付き=完了子タスクの重複表示はスキップ、フィルタはヘッダーのワークスペース選択に追従）
+function planCollectItems() {
+  if (!lastBoardData || !lastBoardData.columns) return [];
+  const result = [];
+  const seen = new Set();
+  for (const col of lastBoardData.columns) {
+    for (const item of col.items) {
+      if (!item.id || item.id === '-') continue;
+      if (item.parentId) continue; // 親側children配列で既にカウント済み
+      if (currentFilter && item.project !== currentFilter) continue;
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      result.push(item);
+    }
+  }
+  return result;
+}
+
+function planBuildBuckets(bucketDefs) {
+  const buckets = {};
+  for (const b of bucketDefs) buckets[b.id] = { singles: [], epicGroups: new Map() };
+
+  for (const item of planCollectItems()) {
+    const isEpic = (item.children && item.children.length > 0) || item.childrenTotal > 0;
+    if (isEpic) {
+      for (const child of (item.children || [])) {
+        const bucketId = planBucketForDueDate(child.dueDate);
+        if (bucketId === 'todo' && child.statusCode === 'done') continue; // 完了済みは期日未設定のままTODOに残さない
+        let group = buckets[bucketId].epicGroups.get(item.id);
+        if (!group) {
+          group = { epic: item, children: [] };
+          buckets[bucketId].epicGroups.set(item.id, group);
+        }
+        group.children.push(child);
+      }
+    } else {
+      const bucketId = planBucketForDueDate(item.dueDate);
+      if (bucketId === 'todo' && item.statusCode === 'done') continue;
+      buckets[bucketId].singles.push(item);
+    }
+  }
+  return buckets;
+}
+
+async function planUpdateDueDate(taskId, dueDate) {
+  try {
+    const resp = await fetch('/api/update-task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId, dueDate: dueDate || '' }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      console.error('[plan] update-task failed:', err.error);
+    }
+  } catch (e) {
+    console.error('[plan] Network error:', e);
+  }
+}
+
+function planBuildCard(item, bucketId, parentEpic = null) {
+  const isDone = item.statusCode === 'done';
+  const card = document.createElement('div');
+  card.className = 'card plan-card' + (isDone ? ' plan-card-done' : '');
+  card.dataset.taskId = item.id;
+  const spinner = item.running ? '<span class="running-spinner"></span>' : '';
+  const dueBadge = item.dueDate ? `<div class="card-meta">${renderDueDateBadge(item.dueDate)}</div>` : '';
+  card.innerHTML = `<div class="card-id">${spinner}${escapeHtml(item.id)}</div><div class="card-title">${escapeHtml(item.title)}</div>${dueBadge}`;
+
+  if (!isDone) {
+    card.setAttribute('draggable', 'true');
+    card.classList.add('card-draggable');
+    card.addEventListener('dragstart', (e) => {
+      planDragData = { kind: 'single', id: item.id };
+      card.classList.add('card-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', item.id);
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('card-dragging');
+      planDragData = null;
+    });
+  }
+
+  card.addEventListener('click', () => {
+    if (parentEpic) {
+      // 子タスク: EPICボード(ミニボード)を開き、この子タスクをハイライト
+      expandedMiniCols.add('done');
+      pendingHighlightChildId = item.id;
+      openCardDetail(parentEpic);
+    } else {
+      openCardDetail(item);
+    }
+  });
+  return card;
+}
+
+function planBuildEpicGroup(group, bucketId) {
+  const key = group.epic.id + '_' + bucketId;
+  const isExpanded = !planCollapsedGroups.has(key);
+  const wrap = document.createElement('div');
+  wrap.className = 'plan-epic-group';
+
+  const header = document.createElement('div');
+  header.className = 'plan-epic-header';
+  header.innerHTML = `<span class="plan-epic-handle" title="ドラッグでこのEPICの子タスクをまとめて移動">≡</span><span class="plan-epic-toggle">${isExpanded ? '▾' : '▸'}</span><div class="plan-epic-header-text"><div class="plan-epic-header-row1"><span class="card-id">${escapeHtml(group.epic.id)}</span><span class="count">${group.children.length}</span></div><div class="card-title">${escapeHtml(group.epic.title)}</div></div>`;
+
+  header.addEventListener('click', (e) => {
+    if (e.target.closest('.plan-epic-handle')) return;
+    if (planCollapsedGroups.has(key)) planCollapsedGroups.delete(key); else planCollapsedGroups.add(key);
+    renderPlanBoard();
+  });
+
+  const handle = header.querySelector('.plan-epic-handle');
+  handle.setAttribute('draggable', 'true');
+  handle.addEventListener('dragstart', (e) => {
+    e.stopPropagation();
+    const targetIds = group.children.filter(c => c.statusCode !== 'done').map(c => c.id);
+    if (targetIds.length === 0) { e.preventDefault(); return; }
+    planDragData = { kind: 'group', epicId: group.epic.id, childIds: targetIds };
+    header.classList.add('card-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', group.epic.id);
+  });
+  handle.addEventListener('dragend', () => {
+    header.classList.remove('card-dragging');
+    planDragData = null;
+  });
+
+  const childrenEl = document.createElement('div');
+  childrenEl.className = 'plan-epic-children';
+  childrenEl.style.display = isExpanded ? '' : 'none';
+  for (const child of group.children) {
+    childrenEl.appendChild(planBuildCard(child, bucketId, group.epic));
+  }
+
+  wrap.appendChild(header);
+  wrap.appendChild(childrenEl);
+  return wrap;
+}
+
+function planSetupDropZone(bodyEl, bucketId) {
+  const canDrop = bucketId !== 'overdue'; // 遅延列への期日設定は未定義のため今回は非対応
+
+  bodyEl.addEventListener('dragover', (e) => {
+    if (!planDragData || !canDrop) return;
+    e.preventDefault();
+    bodyEl.classList.add('drop-over');
+  });
+  bodyEl.addEventListener('dragleave', (e) => {
+    if (!bodyEl.contains(e.relatedTarget)) bodyEl.classList.remove('drop-over');
+  });
+  bodyEl.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    bodyEl.classList.remove('drop-over');
+    if (!planDragData || !canDrop) { planDragData = null; return; }
+
+    const newDue = planDueDateForBucket(bucketId); // TODO列はnull(=クリア)
+    const drag = planDragData;
+    planDragData = null;
+
+    if (drag.kind === 'single') {
+      await planUpdateDueDate(drag.id, newDue);
+    } else if (drag.kind === 'group') {
+      await Promise.all(drag.childIds.map(id => planUpdateDueDate(id, newDue)));
+    }
+    renderPlanBoard();
+  });
+}
+
+function renderPlanBoard() {
+  const container = document.getElementById('plan-board-columns');
+  if (!container) return;
+
+  // EPIC開閉トグル等での再描画時に、列のスクロール位置が先頭に飛ばないよう保持する
+  const scrollPositions = {};
+  container.querySelectorAll('.plan-col-body[data-bucket-id]').forEach(el => {
+    scrollPositions[el.dataset.bucketId] = el.scrollTop;
+  });
+
+  const bucketDefs = planBucketDef();
+  const buckets = planBuildBuckets(bucketDefs);
+  container.innerHTML = '';
+
+  for (const b of bucketDefs) {
+    const bucket = buckets[b.id];
+    const totalCount = bucket.singles.length + Array.from(bucket.epicGroups.values()).reduce((s, g) => s + g.children.length, 0);
+
+    const colEl = document.createElement('div');
+    colEl.className = 'plan-col';
+    colEl.innerHTML = `<div class="plan-col-header"><span>${b.label}</span><span class="count">${totalCount}</span></div><div class="plan-col-body" data-bucket-id="${b.id}"></div>`;
+    const body = colEl.querySelector('.plan-col-body');
+    planSetupDropZone(body, b.id);
+
+    for (const item of bucket.singles) {
+      body.appendChild(planBuildCard(item, b.id));
+    }
+    for (const group of bucket.epicGroups.values()) {
+      body.appendChild(planBuildEpicGroup(group, b.id));
+    }
+
+    container.appendChild(colEl);
+    // scrollTopはDOM接続後でないと反映されない(接続前は高さが確定せず0にクランプされる)
+    if (scrollPositions[b.id] != null) body.scrollTop = scrollPositions[b.id];
+  }
+}
+
+function getOrCreatePlanBoardModal() {
+  let overlay = document.getElementById('plan-board-overlay');
+  if (overlay) return overlay;
+  overlay = document.createElement('div');
+  overlay.id = 'plan-board-overlay';
+  overlay.className = 'plan-board-overlay';
+  overlay.innerHTML = `
+    <div class="plan-board-panel">
+      <div class="plan-board-header">
+        <h3><span class="material-icon icon-calendar-month"></span> 週次計画</h3>
+        <select class="filter-select" id="plan-board-project-filter" title="Workspace filter"></select>
+        <button class="plan-board-close" id="plan-board-close">&times;</button>
+      </div>
+      <div class="plan-board-columns" id="plan-board-columns"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#plan-board-close').addEventListener('click', closePlanBoard);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closePlanBoard(); });
+  overlay.querySelector('#plan-board-project-filter').addEventListener('change', (e) => {
+    currentFilter = e.target.value;
+    setSessionFilter(currentFilter);
+    if (projectFilterEl) projectFilterEl.value = currentFilter;
+    if (currentBoardData) renderBoard(currentBoardData);
+    renderPlanBoard();
+  });
+  return overlay;
+}
+
+function openPlanBoard() {
+  const overlay = getOrCreatePlanBoardModal();
+  const sel = overlay.querySelector('#plan-board-project-filter');
+  if (sel && projectFilterEl) {
+    sel.innerHTML = projectFilterEl.innerHTML;
+    sel.value = currentFilter;
+  }
+  overlay.classList.add('active');
+  renderPlanBoard();
+}
+
+function closePlanBoard() {
+  const overlay = document.getElementById('plan-board-overlay');
+  if (overlay) overlay.classList.remove('active');
+}
+
+// WS経由のボード更新受信時、週次計画ビューが開いていれば最新データで再描画する
+// (ドロップ直後のrenderPlanBoard()はupdate-task完了直後でまだlastBoardDataが古いままのため、
+//  WS更新が届いたこのタイミングで改めて描画し直すことで実際の反映を保証する)
+function refreshPlanBoardIfOpen() {
+  const overlay = document.getElementById('plan-board-overlay');
+  if (overlay && overlay.classList.contains('active')) renderPlanBoard();
+}
+
 // --- Today Flag Toggle ---
-async function toggleTodayFlag(taskId, isChild, value) {
+async function toggleTodayFlag(taskId, value) {
   try {
     const resp = await fetch('/api/toggle-today', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ taskId, isChild, value }),
+      body: JSON.stringify({ taskId, value }),
     });
     if (!resp.ok) {
       const err = await resp.json();
@@ -1489,16 +2191,41 @@ async function toggleTodayFlag(taskId, isChild, value) {
   }
 }
 
+// --- Running Toggle (BT-277) ---
+// 実行中タスクは親EPIC・単体とも、詳細モーダルから個別に停止できる。
+// API側の実行セッション記録を通すため、表示だけを消すのではなく必ずAPIを呼ぶ。
+async function stopRunningTask(taskId, button) {
+  button.disabled = true;
+  button.textContent = '停止中...';
+  try {
+    const resp = await fetch('/api/toggle-running', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId, value: false }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.error || '実行中の停止に失敗しました');
+    }
+  } catch (e) {
+    console.error('[running] Stop failed:', e);
+    button.disabled = false;
+    button.innerHTML = '<span class="material-icon icon-stop"></span> 停止';
+    alert(e.message || '実行中の停止に失敗しました');
+  }
+}
+
 // --- Card Detail Modal ---
 let modalEl = null;
 let currentModalItemId = null;
+let activityHighlightTaskIds = null; // 履歴(activity.js)からEpicを開いた際にハイライトする子タスクIDのSet
 
 function getOrCreateModal() {
   if (modalEl) return modalEl;
   modalEl = document.createElement('div');
   modalEl.className = 'modal-overlay';
   modalEl.innerHTML = `
-    <div class="modal-content">
+    <div class="modal-content detail-modal-content">
       <button class="modal-close">&times;</button>
       <div class="modal-body"></div>
     </div>
@@ -1521,6 +2248,7 @@ function closeModal() {
     modalEl.classList.remove('modal-visible');
     currentModalItemId = null;
     modalParentEpic = null;
+    activityHighlightTaskIds = null;
     closeChildModal();
   }
 }
@@ -1555,6 +2283,12 @@ function openCardDetail(item, parentEpic = null) {
   }
 }
 
+// 履歴(activity.js)からEpicを開く専用入口。指定した子タスクIDをミニボードでハイライトする(BT-246)。
+function openEpicWithHighlight(epicItem, highlightTaskIds) {
+  activityHighlightTaskIds = new Set(highlightTaskIds);
+  openCardDetail(epicItem);
+}
+
 function getOrCreateChildModal() {
   let el = document.getElementById('child-modal-overlay');
   if (el) return el;
@@ -1562,7 +2296,7 @@ function getOrCreateChildModal() {
   el.id = 'child-modal-overlay';
   el.className = 'modal-overlay child-modal-overlay';
   el.innerHTML = `
-    <div class="modal-content child-modal-content">
+    <div class="modal-content child-modal-content detail-modal-content">
       <button class="modal-close" id="child-modal-close">&times;</button>
       <div class="modal-body"></div>
     </div>
@@ -1602,32 +2336,27 @@ function openChildModal(item) {
   // 成果物セクション
   const artifactsHtml = buildArtifactsHtml(item);
 
-  const metaParts = [];
-  if (item.assignee) metaParts.push(`<li><strong>担当:</strong> ${escapeHtml(item.assignee)}</li>`);
-  if (item.startDate) metaParts.push(`<li><strong>開始日:</strong> ${escapeHtml(item.startDate)}</li>`);
-  if (item.dueDate) metaParts.push(`<li><strong>期日:</strong> ${escapeHtml(item.dueDate)}</li>`);
-  if (item.completedDate) metaParts.push(`<li><strong>完了日:</strong> ${escapeHtml(item.completedDate)}</li>`);
-  const metaHtml = metaParts.length > 0 ? `<div class="detail-section"><h4>情報</h4><ul class="detail-meta">${metaParts.join('')}</ul></div>` : '';
+  const metaHtml = buildMetaHtml(item);
 
   const detailSpinner = item.running ? '<span class="running-spinner detail-spinner"></span>' : '';
 
   // 親から外すボタン（BT-034: attachの逆操作。単に外すだけで他の親には付け替えない）
   const detachBtn = (item.id && item.id !== '-')
-    ? `<button class="add-child-btn detach-btn" id="modal-detach-btn">🔓 親から外す</button>`
+    ? `<button class="add-child-btn detach-btn" id="modal-detach-btn"><span class="material-icon icon-lock-open"></span> 親から外す</button>`
     : '';
 
   // 編集・削除ボタン（BT-036/BT-031: 子タスクは常に単独削除可）
-  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn btn-edit" id="modal-edit-btn">✏️ 編集</button>` : '';
-  const deleteBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>` : '';
+  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn btn-edit" id="modal-edit-btn"><span class="material-icon icon-edit"></span> 編集</button>` : '';
+  const deleteBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn danger" id="modal-delete-btn"><span class="material-icon icon-delete"></span> 削除</button>` : '';
 
   // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
   const githubLinkBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn" id="modal-github-link-btn">🔗 GitHub Issueと紐づける</button>`
+    ? `<button class="add-child-btn" id="modal-github-link-btn"><span class="material-icon icon-link"></span> GitHub Issueと紐づける</button>`
     : '';
 
   // GitHub Issue新規作成ボタン（BT-134）
   const githubCreateBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn">📤 GitHub Issueを新規作成</button>`
+    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn"><span class="material-icon icon-upload"></span> GitHub Issueを新規作成</button>`
     : '';
 
   // ワークスペース導線ボタン（BT-053）
@@ -1636,17 +2365,19 @@ function openChildModal(item) {
   // ワークスペース移管ボタン（BT-063）
   const moveActionHtml = buildMoveActionHtml(item);
 
-  body.innerHTML = `
+  const headerHtml = `
     <div class="detail-header">
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
       ${statusBadge}
       ${project}${category}${githubBadge}
     </div>
     <h3 class="detail-title">${escapeHtml(item.title)}</h3>
-    ${desc}
-    ${artifactsHtml}
-    ${metaHtml}
     ${actionsRow(editBtnHtml, deleteBtnHtml, workspaceActionHtml, moveActionHtml, detachBtn, githubLinkBtnHtml, githubCreateBtnHtml)}
+  `;
+
+  body.innerHTML = `
+    ${buildDetailColumnsHtml(headerHtml, metaHtml)}
+    ${buildScrollableDetailHtml(desc, artifactsHtml)}
   `;
 
   // 親から外すボタンのイベント
@@ -1658,7 +2389,7 @@ function openChildModal(item) {
   // GitHub Issue紐付けボタンのイベント（BT-122）
   const githubLinkBtnEl = body.querySelector('#modal-github-link-btn');
   if (githubLinkBtnEl) {
-    githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item, true));
+    githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item));
   }
 
   // GitHub Issue新規作成ボタンのイベント（BT-134）
@@ -1671,7 +2402,7 @@ function openChildModal(item) {
   const editBtnEl = body.querySelector('#modal-edit-btn');
   if (editBtnEl) {
     editBtnEl.addEventListener('click', () => {
-      enterEditMode(item, body, true, false, openChildModal);
+      enterEditMode(item, body, false, openChildModal);
     });
   }
 
@@ -1723,25 +2454,59 @@ async function detachTask(taskId) {
  * 詳細モーダルのbodyを編集フォームに差し替える
  * @param {object} item - 編集対象タスク
  * @param {HTMLElement} body - モーダルの .modal-body 要素
- * @param {boolean} isChild - h4子タスクか
  * @param {boolean} isArchivedSingle - 完了済みアーカイブ単発タスクか（説明編集不可）
  * @param {(item: object) => void} renderFn - 表示モードに戻す際に呼ぶ描画関数
  */
-function enterEditMode(item, body, isChild, isArchivedSingle, renderFn) {
+function enterEditMode(item, body, isArchivedSingle, renderFn) {
   const descValue = item.description || '';
   const descField = isArchivedSingle
     ? `<div class="detail-section"><p class="archived-note">完了済みタスクのため説明は編集できないよ</p></div>`
     : `<div class="settings-group"><label>説明</label><textarea id="edit-task-description" rows="6" placeholder="説明を入力">${escapeHtml(descValue)}</textarea></div>`;
+  const projects = (currentBoardData && currentBoardData.projects) || [];
+  const projectOptions = projects.map(project =>
+    `<option value="${escapeHtml(project)}"${project === item.project ? ' selected' : ''}>${escapeHtml(project)}</option>`
+  ).join('');
 
   body.innerHTML = `
     <div class="detail-header">
       <span class="detail-id">${escapeHtml(item.id || '-')}</span>
     </div>
-    <div class="settings-group">
-      <label>タイトル</label>
-      <input type="text" id="edit-task-title" value="${escapeHtml(item.title)}">
+    <div class="detail-layout edit-task-layout">
+      <div class="detail-main">
+        <div class="settings-group">
+          <label>タイトル</label>
+          <input type="text" id="edit-task-title" value="${escapeHtml(item.title)}">
+        </div>
+        ${descField}
+      </div>
+      <div class="detail-side">
+        <div class="settings-group">
+          <label>ワークスペース</label>
+          <select id="edit-task-project">${projectOptions}</select>
+        </div>
+        <div class="settings-group">
+          <label>ステータス</label>
+          <select id="edit-task-status">
+            <option value="todo"${item.statusCode === 'todo' ? ' selected' : ''}>TODO</option>
+            <option value="ready"${item.statusCode === 'ready' ? ' selected' : ''}>READY</option>
+            <option value="do"${item.statusCode === 'do' ? ' selected' : ''}>DO</option>
+            <option value="done"${item.statusCode === 'done' ? ' selected' : ''}>DONE</option>
+          </select>
+        </div>
+        <div class="settings-group">
+          <label>担当（任意）</label>
+          <input type="text" id="edit-task-assignee" placeholder="担当者" value="${escapeHtml(item.assignee || '')}">
+        </div>
+        <div class="settings-group">
+          <label>開始日（任意）</label>
+          <input type="date" id="edit-task-start-date" value="${escapeHtml(item.startDate || '')}">
+        </div>
+        <div class="settings-group">
+          <label>期日（任意）</label>
+          <input type="date" id="edit-task-due-date" value="${escapeHtml(item.dueDate || '')}">
+        </div>
+      </div>
     </div>
-    ${descField}
     <p class="edit-task-error" style="display:none;"></p>
     <div class="edit-form-actions">
       <button class="add-task-submit" id="edit-task-save">保存</button>
@@ -1751,6 +2516,11 @@ function enterEditMode(item, body, isChild, isArchivedSingle, renderFn) {
 
   const titleInput = body.querySelector('#edit-task-title');
   const descInput = body.querySelector('#edit-task-description');
+  const projectInput = body.querySelector('#edit-task-project');
+  const statusInput = body.querySelector('#edit-task-status');
+  const assigneeInput = body.querySelector('#edit-task-assignee');
+  const startDateInput = body.querySelector('#edit-task-start-date');
+  const dueDateInput = body.querySelector('#edit-task-due-date');
   const errorEl = body.querySelector('.edit-task-error');
   const saveBtn = body.querySelector('#edit-task-save');
   const cancelBtn = body.querySelector('#edit-task-cancel');
@@ -1765,7 +2535,13 @@ function enterEditMode(item, body, isChild, isArchivedSingle, renderFn) {
       return;
     }
 
-    const payload = { taskId: item.id, isChild, title: newTitle };
+    const payload = {
+      taskId: item.id,
+      title: newTitle,
+      assignee: assigneeInput.value.trim(),
+      startDate: startDateInput.value,
+      dueDate: dueDateInput.value,
+    };
     if (descInput) payload.description = descInput.value;
 
     try {
@@ -1780,8 +2556,44 @@ function enterEditMode(item, body, isChild, isArchivedSingle, renderFn) {
         errorEl.style.display = 'block';
         return;
       }
+      if (statusInput.value !== item.statusCode) {
+        const statusResp = await fetch('/api/update-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskId: item.id, newStatus: statusInput.value }),
+        });
+        const statusData = await statusResp.json();
+        if (!statusResp.ok) {
+          errorEl.textContent = `ステータス更新に失敗したよ: ${statusData.error || ''}`;
+          errorEl.style.display = 'block';
+          return;
+        }
+      }
+      let updatedId = item.id;
+      if (projectInput.value !== item.project) {
+        const projectFileMap = (currentBoardData && currentBoardData.projectFileMap) || {};
+        const targetFile = projectFileMap[projectInput.value] || projectInput.value;
+        const moveResp = await fetch('/api/move-task', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskId: item.id, targetFile }),
+        });
+        const moveData = await moveResp.json();
+        if (!moveResp.ok) {
+          errorEl.textContent = `ワークスペース移動に失敗したよ: ${moveData.error || ''}`;
+          errorEl.style.display = 'block';
+          return;
+        }
+        updatedId = moveData.newId;
+      }
       item.title = newTitle;
       if (descInput) item.description = descInput.value;
+      item.assignee = assigneeInput.value.trim() || null;
+      item.startDate = startDateInput.value || null;
+      item.dueDate = dueDateInput.value || null;
+      item.statusCode = statusInput.value;
+      item.id = updatedId;
+      item.project = projectInput.value;
       renderFn(item);
     } catch (e) {
       console.error('[edit] Network error:', e);
@@ -1844,7 +2656,7 @@ function openDeleteConfirm(item, isChild) {
       const resp = await fetch('/api/delete-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId: item.id, isChild }),
+        body: JSON.stringify({ taskId: item.id }),
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -1903,14 +2715,13 @@ function parseIssueNumberInput(raw) {
 /**
  * GitHub Issue紐付けモーダルを開く
  * @param {object} item - 紐付け対象タスク
- * @param {boolean} isChild - h4子タスクか
  */
-function openGithubLinkModal(item, isChild) {
+function openGithubLinkModal(item) {
   const el = getOrCreateGithubLinkModal();
   const content = el.querySelector('.modal-content');
   content.innerHTML = `
     <button class="modal-close" id="github-link-close">&times;</button>
-    <h3 class="add-form-title">🔗 GitHub Issueと紐づける</h3>
+    <h3 class="add-form-title"><span class="material-icon icon-link"></span> GitHub Issueと紐づける</h3>
     <p class="delete-confirm-text">「${escapeHtml(item.title)}」(${escapeHtml(item.id)}) に紐づけるIssue番号かURLを入力してね。</p>
     <input type="text" id="github-link-input" class="parent-picker-search" placeholder="例: 123 / #123 / https://github.com/owner/repo/issues/123">
     <p class="delete-confirm-error" style="display:none;"></p>
@@ -1934,7 +2745,7 @@ function openGithubLinkModal(item, isChild) {
       const resp = await fetch('/api/github-link-issue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId: item.id, isChild, issueNumber }),
+        body: JSON.stringify({ taskId: item.id, issueNumber }),
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -1990,7 +2801,7 @@ function openGithubCreateConfirm(item, isChild) {
     : '';
   content.innerHTML = `
     <button class="modal-close" id="github-create-confirm-close">&times;</button>
-    <h3 class="add-form-title">📤 GitHub Issueを新規作成</h3>
+    <h3 class="add-form-title"><span class="material-icon icon-upload"></span> GitHub Issueを新規作成</h3>
     <p class="delete-confirm-text">「${escapeHtml(item.title)}」(${escapeHtml(item.id)}) からGitHub Issueを新規作成するよ。大丈夫?</p>
     ${epicNote}
     <p class="delete-confirm-error" style="display:none;"></p>
@@ -2011,7 +2822,7 @@ function openGithubCreateConfirm(item, isChild) {
       const resp = await fetch('/api/github-create-issue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId: item.id, isChild }),
+        body: JSON.stringify({ taskId: item.id }),
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -2064,7 +2875,7 @@ function openBulkGithubCreateConfirm() {
     : '';
   content.innerHTML = `
     <button class="modal-close" id="github-create-confirm-close">&times;</button>
-    <h3 class="add-form-title">📤 GitHub Issueを一括作成</h3>
+    <h3 class="add-form-title"><span class="material-icon icon-upload"></span> GitHub Issueを一括作成</h3>
     <p class="delete-confirm-text">選択中のタスクから ${targets.length}件 のGitHub Issueを新規作成するよ。大丈夫?</p>
     ${skipNote}
     <p class="delete-confirm-error" style="display:none;"></p>
@@ -2093,7 +2904,7 @@ function openBulkGithubCreateConfirm() {
         const resp = await fetch('/api/github-create-issue', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ taskId: item.id, isChild: false }),
+          body: JSON.stringify({ taskId: item.id }),
         });
         const data = await resp.json();
         if (!resp.ok) {
@@ -2148,12 +2959,7 @@ function renderModalContent(item) {
   // 成果物セクション
   const artifactsHtml = buildArtifactsHtml(item);
 
-  const metaParts = [];
-  if (item.assignee) metaParts.push(`<li><strong>担当:</strong> ${escapeHtml(item.assignee)}</li>`);
-  if (item.startDate) metaParts.push(`<li><strong>開始日:</strong> ${escapeHtml(item.startDate)}</li>`);
-  if (item.dueDate) metaParts.push(`<li><strong>期日:</strong> ${escapeHtml(item.dueDate)}</li>`);
-  if (item.completedDate) metaParts.push(`<li><strong>完了日:</strong> ${escapeHtml(item.completedDate)}</li>`);
-  const metaHtml = metaParts.length > 0 ? `<div class="detail-section"><h4>情報</h4><ul class="detail-meta">${metaParts.join('')}</ul></div>` : '';
+  const metaHtml = buildMetaHtml(item);
 
   let miniBoard = '';
   if (isEpic) {
@@ -2166,33 +2972,38 @@ function renderModalContent(item) {
     : '';
 
   // 親を設定ボタン（BT-034: 単独タスク→その場でEPIC化。子を持つ/完了済みは対象外）
-  const setParentBtn = (item.id && item.id !== '-' && !isEpic && item.status !== '完了')
-    ? `<button class="add-child-btn" id="modal-set-parent-btn">🔗 親を設定</button>`
+  const setParentBtn = (item.id && item.id !== '-' && !isEpic && item.statusCode !== 'done')
+    ? `<button class="add-child-btn" id="modal-set-parent-btn"><span class="material-icon icon-link"></span> 親を設定</button>`
+    : '';
+
+  // BT-277: 親EPICか単体かを問わず、実行中ならそのタスクだけを停止できる。
+  const stopRunningBtnHtml = (item.id && item.id !== '-' && item.running)
+    ? `<button class="detail-action-btn btn-stop-running" id="modal-stop-running-btn"><span class="material-icon icon-stop"></span> 停止</button>`
     : '';
 
   const detailSpinner = item.running ? '<span class="running-spinner detail-spinner"></span>' : '';
 
   // 編集・削除ボタン（BT-036/BT-031: 子ありEpicは削除不可のため削除ボタンを出さない）
-  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn btn-edit" id="modal-edit-btn">✏️ 編集</button>` : '';
-  const deleteBtnHtml = (item.id && item.id !== '-' && !isEpic) ? `<button class="detail-action-btn danger" id="modal-delete-btn">🗑 削除</button>` : '';
+  const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn btn-edit" id="modal-edit-btn"><span class="material-icon icon-edit"></span> 編集</button>` : '';
+  const deleteBtnHtml = (item.id && item.id !== '-' && !isEpic) ? `<button class="detail-action-btn danger" id="modal-delete-btn"><span class="material-icon icon-delete"></span> 削除</button>` : '';
 
   // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
   const githubLinkBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn" id="modal-github-link-btn">🔗 GitHub Issueと紐づける</button>`
+    ? `<button class="add-child-btn" id="modal-github-link-btn"><span class="material-icon icon-link"></span> GitHub Issueと紐づける</button>`
     : '';
 
   // GitHub Issue新規作成ボタン（BT-134: Epicの場合は子タスクもsub-issueとして一括作成）
   const githubCreateBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn">📤 GitHub Issueを新規作成</button>`
+    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn"><span class="material-icon icon-upload"></span> GitHub Issueを新規作成</button>`
     : '';
 
   // ワークスペース導線ボタン（BT-053）
   const workspaceActionHtml = buildWorkspaceActionHtml(item);
 
   // ワークスペース移管ボタン（BT-063: 子ありEpicはサーバー側でも拒否されるため出さない）
-  const moveActionHtml = (!isEpic && item.status !== '完了') ? buildMoveActionHtml(item) : '';
+  const moveActionHtml = (!isEpic && item.statusCode !== 'done') ? buildMoveActionHtml(item) : '';
 
-  body.innerHTML = `
+  const headerHtml = `
     <div class="detail-header">
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
       ${statusBadge}
@@ -2200,11 +3011,12 @@ function renderModalContent(item) {
       ${project}${category}${githubBadge}
     </div>
     <h3 class="detail-title">${escapeHtml(item.title)}</h3>
-    ${desc}
-    ${artifactsHtml}
-    ${metaHtml}
-    ${actionsRow(editBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml)}
-    ${miniBoard}
+    ${actionsRow(stopRunningBtnHtml, editBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml)}
+  `;
+
+  body.innerHTML = `
+    ${buildDetailColumnsHtml(headerHtml, metaHtml)}
+    ${buildScrollableDetailHtml(desc, artifactsHtml, miniBoard)}
   `;
 
   // 説明欄の折りたたみトグル初期化（BT-080）
@@ -2226,7 +3038,7 @@ function renderModalContent(item) {
   const childBtn = body.querySelector('#modal-add-child-btn');
   if (childBtn) {
     childBtn.addEventListener('click', () => {
-      openAddTaskForm('未着手', item.project, item.id);
+      openAddTaskForm('todo', item.project, item.id);
     });
   }
 
@@ -2238,10 +3050,15 @@ function renderModalContent(item) {
     });
   }
 
+  const stopRunningBtnEl = body.querySelector('#modal-stop-running-btn');
+  if (stopRunningBtnEl) {
+    stopRunningBtnEl.addEventListener('click', () => stopRunningTask(item.id, stopRunningBtnEl));
+  }
+
   // GitHub Issue紐付けボタンのイベント（BT-122）
   const githubLinkBtnEl = body.querySelector('#modal-github-link-btn');
   if (githubLinkBtnEl) {
-    githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item, false));
+    githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item));
   }
 
   // GitHub Issue新規作成ボタンのイベント（BT-134）
@@ -2254,8 +3071,8 @@ function renderModalContent(item) {
   const editBtnEl = body.querySelector('#modal-edit-btn');
   if (editBtnEl) {
     editBtnEl.addEventListener('click', () => {
-      const isArchivedSingle = !isEpic && item.status === '完了';
-      enterEditMode(item, body, false, isArchivedSingle, renderModalContent);
+      const isArchivedSingle = !isEpic && item.statusCode === 'done';
+      enterEditMode(item, body, isArchivedSingle, renderModalContent);
     });
   }
 
@@ -2289,7 +3106,7 @@ function buildMiniBoard(epic) {
 
   for (const col of columns) {
     const isDoneCol = col.compact || col.id === 'done';
-    let matchedChildren = children.filter(c => col.match.includes(c.status));
+    let matchedChildren = children.filter(c => col.match.includes(c.statusCode));
     // 完了カラムは日付降順、同日内はID降順ソート（completedDateがないものは末尾）
     if (isDoneCol) {
       matchedChildren = [...matchedChildren].sort((a, b) => {
@@ -2329,11 +3146,11 @@ function buildMiniBoard(epic) {
 
     // 完了カラム用「本日完了だけ」トグル＋達成感カウント
     const doneTodayToggleHtml = isDoneCol
-      ? `<button class="done-today-btn${doneTodayOnly ? ' filter-active' : ''}" data-mini-done-today="1" title="本日完了分のみ表示（達成感モード）">🎉 今日</button>`
+      ? `<button class="done-today-btn${doneTodayOnly ? ' filter-active' : ''}" data-mini-done-today="1" title="本日完了分のみ表示（達成感モード）"><span class="material-icon icon-celebration"></span> 今日</button>`
       : '';
     let countHtml;
     if (miniDoneTodayActive) {
-      countHtml = `<span class="count done-today-count">🎉 ${matchedChildren.length}</span>`;
+      countHtml = `<span class="count done-today-count"><span class="material-icon icon-celebration"></span> ${matchedChildren.length}</span>`;
     } else if (miniLimit) {
       countHtml = `<input type="number" class="limit-input mini-limit-input" value="${miniLimit}" min="1" max="${miniTotalBeforeLimit}" data-col-id="${col.id}" title="表示件数 (全${miniTotalBeforeLimit}件)"><span class="count-total">/ ${miniTotalBeforeLimit}</span>`;
     } else {
@@ -2353,19 +3170,20 @@ function buildMiniBoard(epic) {
     `;
 
     const body = colEl.querySelector('.mini-col-body');
-    setupDropZone(body, col.id, col.match, true, epic.id);
+    setupDropZone(body, col.id, col.match);
 
     for (const child of matchedChildren) {
       const card = document.createElement('div');
       card.className = 'card card-child card-draggable';
       if (child.todayFlag) card.classList.add('card-today');
       if (child.running) card.classList.add('is-running');
+      if (activityHighlightTaskIds && activityHighlightTaskIds.has(child.id)) card.classList.add('card-activity-highlight');
       card.dataset.project = epic.project;
       card.setAttribute('draggable', 'true');
       card.dataset.taskId = child.id;
 
       card.addEventListener('dragstart', (e) => {
-        dragData = { id: child.id, isChild: true, sourceColId: col.id, parentId: epic.id };
+        dragData = { id: child.id, sourceColId: col.id };
         card.classList.add('card-dragging');
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', child.id);
@@ -2390,28 +3208,31 @@ function buildMiniBoard(epic) {
         mParts.push(`<span class="card-tag">${escapeHtml(child.assignee)}</span>`);
       }
       if (child.artifacts && child.artifacts.length > 0) {
-        mParts.push('<span class="card-tag artifact-indicator" title="成果物あり">📎</span>');
+        mParts.push('<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>');
       }
       if (child.githubIssueNumber) {
         mParts.push(renderGithubIssueBadge(child.githubIssueNumber, child.githubIssueUrl));
       }
+      if (child.dueDate) {
+        mParts.push(renderDueDateBadge(child.dueDate));
+      }
       if (child.completedDate) {
-        mParts.push(`<span class="card-tag completed-date" title="完了日">${escapeHtml(child.completedDate)}</span>`);
+        mParts.push(renderCompletedDateBadge(child.completedDate));
       }
       const mHtml = mParts.length > 0 ? `<div class="card-meta">${mParts.join('')}</div>` : '';
 
-      // 📌 ピンボタン（ミニボード子カード）
+      // ピンボタン（ミニボード子カード）
       const childPinHtml = child.id
-        ? `<button class="today-pin-btn${child.todayFlag ? ' pin-active' : ''}" data-task-id="${child.id}" data-is-child="true" title="今日やる">📌</button>`
+        ? `<button class="today-pin-btn${child.todayFlag ? ' pin-active' : ''}" data-task-id="${child.id}" title="今日やる"><span class="material-icon icon-keep"></span></button>`
         : '';
 
-      // ✏️🔗🗑 編集・GitHub紐付け・削除ボタン（ミニボード子カード、BT-041: 子タスクは常に単独削除可。BT-122でGitHub紐付けボタンを追加）
+      // 編集・GitHub紐付け・削除ボタン（ミニボード子カード、BT-041: 子タスクは常に単独削除可。BT-122でGitHub紐付けボタンを追加）
       const childActionsHtml = child.id
         ? `<div class="card-actions">
-            <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集">✏️</button>
-            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける">🔗</button>` : ''}
-            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-create-btn" data-task-id="${child.id}" title="GitHub Issueを新規作成">📤</button>` : ''}
-            <button class="card-action-btn card-child-delete-btn danger" data-task-id="${child.id}" title="削除">🗑</button>
+            <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集"><span class="material-icon icon-edit"></span></button>
+            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
+            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-create-btn" data-task-id="${child.id}" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
+            <button class="card-action-btn card-child-delete-btn danger" data-task-id="${child.id}" title="削除"><span class="material-icon icon-delete"></span></button>
           </div>`
         : '';
 
@@ -2458,7 +3279,7 @@ function buildMiniBoard(epic) {
           e.stopPropagation();
           e.preventDefault();
           const childWithProject = { ...child, project: epic.project };
-          openGithubLinkModal(childWithProject, true);
+          openGithubLinkModal(childWithProject);
         });
       }
 
@@ -2480,7 +3301,7 @@ function buildMiniBoard(epic) {
     if (miniDoneTodayActive && matchedChildren.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'done-today-empty done-today-empty-mini';
-      empty.innerHTML = `<span class="done-today-empty-emoji">🌱</span><span>今日はまだ</span>`;
+      empty.innerHTML = `<span class="material-icon icon-psychiatry done-today-empty-icon"></span><span>今日はまだ</span>`;
       body.appendChild(empty);
     }
 
@@ -2543,27 +3364,38 @@ function buildMiniBoard(epic) {
     });
   });
 
-  // ミニボード内の📌ピンボタンにイベント設定
+  // ミニボード内のピンボタンにイベント設定
   container.querySelectorAll('.today-pin-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
       const taskId = btn.dataset.taskId;
-      const isChild = btn.dataset.isChild === 'true';
       const isActive = btn.classList.contains('pin-active');
-      toggleTodayFlag(taskId, isChild, !isActive);
+      toggleTodayFlag(taskId, !isActive);
     });
   });
+
+  // BT-201: 完了カラムの親Epicリンクから来た場合、対象の子タスクカードをハイライト
+  if (pendingHighlightChildId) {
+    const targetId = pendingHighlightChildId;
+    pendingHighlightChildId = null;
+    const targetCard = container.querySelector(`[data-task-id="${CSS.escape(targetId)}"]`);
+    if (targetCard) {
+      targetCard.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      targetCard.classList.add('card-highlight-pulse');
+      setTimeout(() => targetCard.classList.remove('card-highlight-pulse'), 2000);
+    }
+  }
 }
 
-function setupCardClick(card, item) {
+function setupCardClick(card, item, isChildCard = false) {
   card.addEventListener('click', (ev) => {
     if (ev.defaultPrevented) return;
     if (selectionMode) {
       toggleCardSelection(item);
       return;
     }
-    openCardDetail(item);
+    openCardDetail(item, isChildCard || null);
   });
 }
 
@@ -2571,7 +3403,7 @@ function setupCardClick(card, item) {
 function toggleCardSelection(item) {
   if (!item.id || item.id === '-') return;
   const isEpic = item.childrenTotal > 0;
-  const isDone = item.status === '完了';
+  const isDone = item.statusCode === 'done';
   if (isEpic || isDone) return; // 選択不可（グレーアウト対象と同条件）
   if (selectedIds.has(item.id)) selectedIds.delete(item.id);
   else selectedIds.add(item.id);
@@ -2587,9 +3419,9 @@ function getOrCreateSelectionBar() {
   selectionBarEl.innerHTML = `
     <span class="selection-bar-count"></span>
     <button class="selection-bar-btn selection-bar-parent" id="selection-pick-parent">親を選ぶ</button>
-    <button class="selection-bar-btn selection-bar-move" id="selection-pick-move">🚚 移動</button>
-    <button class="selection-bar-btn selection-bar-github" id="selection-github-create">📤 GitHub登録</button>
-    <button class="selection-bar-btn selection-bar-delete danger" id="selection-delete">🗑 削除</button>
+    <button class="selection-bar-btn selection-bar-move" id="selection-pick-move"><span class="material-icon icon-local-shipping"></span> 移動</button>
+    <button class="selection-bar-btn selection-bar-github" id="selection-github-create"><span class="material-icon icon-upload"></span> GitHub登録</button>
+    <button class="selection-bar-btn selection-bar-delete danger" id="selection-delete"><span class="material-icon icon-delete"></span> 削除</button>
     <button class="selection-bar-btn selection-bar-cancel" id="selection-cancel">キャンセル</button>
   `;
   document.body.appendChild(selectionBarEl);
@@ -2779,7 +3611,7 @@ async function confirmMove(targetFile) {
       const resp = await fetch('/api/move-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId, targetFile, isChild }),
+        body: JSON.stringify({ taskId, targetFile }),
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -2854,7 +3686,7 @@ function renderParentPickerList(query) {
 
   const q = query.trim().toLowerCase();
   const candidates = [];
-  // ボード表示順（🔥アクティブ→💡保留、完了カラムは除外）で同一プロジェクトの候補を収集
+  // ボード表示順（完了カラムは除外）で同一プロジェクトの候補を収集
   for (const col of currentBoardData.columns) {
     if (col.compact || col.id === 'done') continue;
     for (const item of col.items) {
@@ -2910,7 +3742,7 @@ async function submitNewParent(title) {
     const resp = await fetch('/api/add-task', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, project: parentPickerProject, status: '未着手', origin: 'user' }),
+      body: JSON.stringify({ title, project: parentPickerProject, status: 'todo', origin: 'user' }),
     });
     const data = await resp.json();
     if (!resp.ok) {
@@ -3069,31 +3901,50 @@ function getOrCreateAddForm() {
   addFormEl = document.createElement('div');
   addFormEl.className = 'modal-overlay';
   addFormEl.innerHTML = `
-    <div class="modal-content add-task-modal">
+    <div class="modal-content add-task-modal add-task-form-wide">
       <button class="modal-close" id="add-form-close">&times;</button>
       <h3 class="add-form-title">タスク追加</h3>
-      <div class="settings-group">
-        <label>タイトル</label>
-        <input type="text" id="add-task-title" placeholder="やりたいことを一言で">
+      <div class="detail-layout">
+        <div class="detail-main">
+          <div class="settings-group">
+            <label>タイトル</label>
+            <input type="text" id="add-task-title" placeholder="やりたいことを一言で">
+          </div>
+          <div class="settings-group">
+            <label>説明（任意）</label>
+            <textarea id="add-task-description" rows="4" placeholder="補足があれば"></textarea>
+          </div>
+        </div>
+        <div class="detail-side">
+          <div class="settings-group">
+            <label>ワークスペース</label>
+            <select id="add-task-project">
+              <option value="inbox">未ワークスペース (Inbox)</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label>ステータス</label>
+            <select id="add-task-status">
+              <option value="todo">TODO</option>
+              <option value="ready">READY</option>
+              <option value="do">DO</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label>担当（任意）</label>
+            <input type="text" id="add-task-assignee" placeholder="担当者">
+          </div>
+          <div class="settings-group">
+            <label>開始日（任意）</label>
+            <input type="date" id="add-task-start-date">
+          </div>
+          <div class="settings-group">
+            <label>期日（任意）</label>
+            <input type="date" id="add-task-due-date">
+          </div>
+        </div>
       </div>
-      <div class="settings-group">
-        <label>説明（任意）</label>
-        <textarea id="add-task-description" rows="4" placeholder="補足があれば"></textarea>
-      </div>
-      <div class="settings-group">
-        <label>ワークスペース</label>
-        <select id="add-task-project">
-          <option value="inbox">未ワークスペース (Inbox)</option>
-        </select>
-      </div>
-      <div class="settings-group">
-        <label>ステータス</label>
-        <select id="add-task-status">
-          <option value="未着手">未着手</option>
-          <option value="進行中">進行中</option>
-          <option value="保留">保留</option>
-        </select>
-      </div>
+      <p class="edit-task-error" id="add-task-error" style="display:none;"></p>
       <button class="add-task-submit" id="add-task-submit">追加</button>
     </div>
   `;
@@ -3103,6 +3954,15 @@ function getOrCreateAddForm() {
     if (e.target === addFormEl) closeAddForm();
   });
   addFormEl.querySelector('#add-form-close').addEventListener('click', closeAddForm);
+
+  // 子タスク追加フォームがEPIC詳細の上に開いているときは、Escapeをここで消費する。
+  // 親モーダルのdocumentハンドラへ到達させると、フォームではなくEPICが閉じてしまう。
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && addFormEl.classList.contains('modal-visible')) {
+      e.stopImmediatePropagation();
+      closeAddForm();
+    }
+  }, true);
 
   addFormEl.querySelector('#add-task-submit').addEventListener('click', submitAddTask);
 
@@ -3155,10 +4015,18 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId) {
     form.querySelector('#add-task-status').value = defaultStatus;
   }
 
-  // タイトル・説明をクリア＆フォーカス
+  // タイトル・説明・担当・日付をクリア＆フォーカス（BT-263）
   const titleInput = form.querySelector('#add-task-title');
   titleInput.value = '';
   form.querySelector('#add-task-description').value = '';
+  form.querySelector('#add-task-assignee').value = '';
+  form.querySelector('#add-task-start-date').value = '';
+  form.querySelector('#add-task-due-date').value = '';
+
+  // 前回開いた時のエラー表示を引きずらないようリセット
+  const errorEl = form.querySelector('#add-task-error');
+  errorEl.textContent = '';
+  errorEl.style.display = 'none';
 
   form.classList.add('modal-visible');
   setTimeout(() => titleInput.focus(), 100);
@@ -3174,7 +4042,12 @@ async function submitAddTask() {
   const description = form.querySelector('#add-task-description').value.trim();
   const project = form.querySelector('#add-task-project').value;
   const status = form.querySelector('#add-task-status').value;
+  const assignee = form.querySelector('#add-task-assignee').value.trim();
+  const startDate = form.querySelector('#add-task-start-date').value;
+  const dueDate = form.querySelector('#add-task-due-date').value;
   const parentId = form.dataset.parentId || '';
+  const errorEl = form.querySelector('#add-task-error');
+  errorEl.style.display = 'none';
 
   if (!title) {
     form.querySelector('#add-task-title').focus();
@@ -3184,6 +4057,9 @@ async function submitAddTask() {
   try {
     const body = { title, project, status, origin: 'user' };
     if (description) body.description = description;
+    if (assignee) body.assignee = assignee;
+    if (startDate) body.startDate = startDate;
+    if (dueDate) body.dueDate = dueDate;
     if (parentId) body.parentId = parentId;
 
     const resp = await fetch('/api/add-task', {
@@ -3196,9 +4072,13 @@ async function submitAddTask() {
     } else {
       const err = await resp.json();
       console.error('[add-task] Failed:', err.error);
+      errorEl.textContent = `追加に失敗したよ: ${err.error || ''}`;
+      errorEl.style.display = 'block';
     }
   } catch (e) {
     console.error('[add-task] Network error:', e);
+    errorEl.textContent = 'ネットワークエラーが発生したよ';
+    errorEl.style.display = 'block';
   }
 }
 

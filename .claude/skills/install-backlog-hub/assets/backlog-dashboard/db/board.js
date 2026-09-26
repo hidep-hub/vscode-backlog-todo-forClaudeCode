@@ -1,0 +1,281 @@
+'use strict';
+
+// buildBoard()のDB版(BT-186骨格→BT-188でserver.jsに接続)。
+// config.columns[].matchはBT-187決定によりstatuses.code単位の配列(例["todo"])。
+// カラム振り分けはDB上のcode(row.status)で行い、表示用のitem.statusはlabelに変換して返す。
+// 返却するJSON構造は現行server.jsのbuildBoard()と同じ形を目指す。
+
+const tasksRepo = require('./tasks-repo');
+
+function getStatusList(db) {
+  return db.prepare('SELECT code, label, sort_order FROM statuses ORDER BY sort_order').all();
+}
+
+function toDateOnly(completedAt) {
+  if (!completedAt) return null;
+  return completedAt.slice(0, 10);
+}
+
+function toTimeOnly(completedAt) {
+  if (!completedAt || completedAt.length < 19) return null;
+  return completedAt.slice(11, 19);
+}
+
+/**
+ * DB行1件をフロント向けタスクオブジェクトに変換する(children/todayFlag/running等は呼び出し側で付与)。
+ */
+function toTaskItem(row, { statusLabelMap, projectName }) {
+  const deliverables = row.__deliverables || [];
+  return {
+    id: row.display_id,
+    title: row.title,
+    project: projectName,
+    status: statusLabelMap[row.status] || row.status,
+    statusCode: row.status,
+    category: row.category || '-',
+    description: row.description || '',
+    assignee: row.assignee || null,
+    startDate: row.start_date || null,
+    dueDate: row.due_date || null,
+    githubIssueNumber: row.github_issue_number || null,
+    githubIssueUrl: row.github_issue_url || null,
+    commit: row.commit_hash || null,
+    completedDate: toDateOnly(row.completed_at),
+    completedTs: toTimeOnly(row.completed_at),
+    origin: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    updatedBy: row.updated_by,
+    artifacts: deliverables.length ? deliverables.map(d => d.path).filter(Boolean) : undefined,
+  };
+}
+
+// 子を持つ親の実効ステータスcodeを、子の最大進捗と親自身のステータスの大きい方から決める
+// (md版のcomputeParentStatusと同じ「C案」ロジック。完了は除外して集計し、全子完了ならdone)
+function computeParentStatusCode(childRows, parentOwnCode, statusRankMap) {
+  if (childRows.length === 0) return parentOwnCode;
+  if (childRows.every(c => c.status === 'done')) return 'done';
+  let maxRank = 0;
+  let maxCode = 'todo';
+  for (const c of childRows) {
+    if (c.status === 'done') continue;
+    const rank = statusRankMap[c.status] || 0;
+    if (rank > maxRank) { maxRank = rank; maxCode = c.status; }
+  }
+  const parentRank = statusRankMap[parentOwnCode] || 0;
+  return parentRank > maxRank ? parentOwnCode : maxCode;
+}
+
+/**
+ * 全ワークスペースの全タスク(削除済み除く)+成果物+pins+running_tasksを読み、
+ * 現行buildBoard()と同じ形状の{columns, projects, remainingByProject, ...}を返す。
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {object} config - server.jsのconfigオブジェクト(columns/projects/defaultWorkspaceParent)
+ */
+function buildBoardFromDb(db, config) {
+  const statusList = getStatusList(db);
+  const statusLabelMap = {};
+  const statusRankMap = {};
+  for (const s of statusList) {
+    statusLabelMap[s.code] = s.label;
+    statusRankMap[s.code] = s.sort_order;
+  }
+  const workspaceToProjectName = {};
+  for (const p of config.projects || []) {
+    if (p.file) workspaceToProjectName[p.file] = p.name;
+  }
+
+  const allRows = tasksRepo.listAll(db);
+  const deliverableRows = db.prepare('SELECT * FROM deliverables ORDER BY task_id, sort_order').all();
+  const deliverablesByTaskId = {};
+  for (const d of deliverableRows) {
+    (deliverablesByTaskId[d.task_id] = deliverablesByTaskId[d.task_id] || []).push(d);
+  }
+  const pinnedTaskIds = new Set(db.prepare('SELECT task_id FROM pins').all().map(r => r.task_id));
+  const runningTaskIds = new Set(db.prepare('SELECT task_id FROM running_tasks').all().map(r => r.task_id));
+  const activeAgentByTaskId = new Map(
+    db.prepare(`SELECT task_id, agent_id FROM task_execution_sessions
+      WHERE stopped_at IS NULL ORDER BY started_at DESC, id DESC`).all()
+      .reverse()
+      .map(row => [row.task_id, row.agent_id])
+  );
+
+  for (const row of allRows) row.__deliverables = deliverablesByTaskId[row.id] || [];
+
+  const rowsById = {};
+  for (const row of allRows) rowsById[row.id] = row;
+
+  const childrenByParentId = {};
+  for (const row of allRows) {
+    if (row.parent_id !== null) {
+      (childrenByParentId[row.parent_id] = childrenByParentId[row.parent_id] || []).push(row);
+    }
+  }
+
+  // 個別に完了した子タスク(BT-201: 完了カラムに個別カードとして混在表示する分)。
+  // BT-240で親の実効ステータス条件を撤廃し、親がdone扱いになった後も子の個別完了表示を継続するようにした。
+  const looseCompletedChildren = [];
+
+  function toItem(row) {
+    const projectName = workspaceToProjectName[row.workspace] || row.workspace;
+    const item = toTaskItem(row, { statusLabelMap, projectName });
+    const childRows = childrenByParentId[row.id] || [];
+    const children = childRows.map(childRow => {
+      const childItem = toTaskItem(childRow, { statusLabelMap, projectName });
+      childItem.todayFlag = pinnedTaskIds.has(childRow.id);
+      childItem.running = runningTaskIds.has(childRow.id);
+      childItem.agentId = activeAgentByTaskId.get(childRow.id) || null;
+      return childItem;
+    });
+    item.children = children;
+    item.todayFlag = pinnedTaskIds.has(row.id);
+    item.running = runningTaskIds.has(row.id);
+    item.agentId = activeAgentByTaskId.get(row.id) || null;
+    if (childRows.length > 0) {
+      item.childrenTotal = childRows.length;
+      item.childrenDone = childRows.filter(c => c.status === 'done').length;
+      const statusCode = computeParentStatusCode(childRows, row.status, statusRankMap);
+      item.status = statusLabelMap[statusCode] || statusCode;
+      item.statusCode = statusCode;
+      const todayCount = children.filter(c => c.todayFlag).length;
+      if (todayCount > 0) item.todayCount = todayCount;
+      if (children.some(c => c.running)) item.running = true;
+      for (const child of children) {
+        if (child.statusCode === 'done') {
+          looseCompletedChildren.push({ ...child, parentId: item.id, parentTitle: item.title });
+        }
+      }
+    }
+    return item;
+  }
+
+  const topLevelRows = allRows.filter(r => r.parent_id === null);
+  const topLevelItems = topLevelRows.map(toItem);
+
+  const columns = (config.columns || []).map(col => {
+    let items = topLevelItems.filter(item => col.match.includes(item.statusCode));
+    if (col.id === 'done') {
+      items = items.concat(looseCompletedChildren.filter(c => col.match.includes(c.statusCode)));
+    }
+    const totalCount = items.length;
+    if (col.compact || col.id === 'done') {
+      items = items.slice().sort((a, b) => {
+        const da = a.completedDate || '0000-00-00';
+        const dbb = b.completedDate || '0000-00-00';
+        const dateCmp = dbb.localeCompare(da);
+        if (dateCmp !== 0) return dateCmp;
+        if (a.completedTs && b.completedTs) {
+          const tsCmp = b.completedTs.localeCompare(a.completedTs);
+          if (tsCmp !== 0) return tsCmp;
+        }
+        return (b.id || '').localeCompare(a.id || '');
+      });
+    }
+    return {
+      id: col.id,
+      label: col.label,
+      match: col.match,
+      items,
+      totalCount,
+      limit: col.limit || null,
+      visibleFields: col.visibleFields || null,
+      compact: col.compact || false,
+    };
+  });
+
+  const projectsFromConfig = (config.projects || []).map(p => p.name).filter(Boolean);
+  const projectsFromTasks = topLevelItems.map(t => t.project).filter(Boolean);
+  const projects = [...new Set([...projectsFromConfig, ...projectsFromTasks])].sort();
+
+  const remainingByProject = {};
+  for (const item of topLevelItems) {
+    if (!item.project || item.statusCode === 'done') continue;
+    remainingByProject[item.project] = (remainingByProject[item.project] || 0) + 1;
+  }
+
+  const statuses = statusList.map(s => ({ code: s.code, label: s.label, sortOrder: s.sort_order }));
+
+  return {
+    columns,
+    projects,
+    remainingByProject,
+    statuses,
+    updatedAt: new Date().toISOString(),
+    defaultWorkspaceParent: config.defaultWorkspaceParent || '',
+  };
+}
+
+/**
+ * displayId(例 "BT-181")1件を、buildBoardFromDb()と同じ形状のタスクアイテムとして返す。
+ * 子タスクを持つ親であればchildren/childrenTotal/childrenDone/実効statusを含める。
+ * 見つからない場合はnullを返す(GET /api/task/:id用、BT-222)。
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {object} config - server.jsのconfigオブジェクト(projects)
+ * @param {string} displayId
+ */
+function buildTaskDetail(db, config, displayId) {
+  const row = tasksRepo.getByDisplayId(db, displayId);
+  if (!row) return null;
+
+  const statusList = getStatusList(db);
+  const statusLabelMap = {};
+  const statusRankMap = {};
+  for (const s of statusList) {
+    statusLabelMap[s.code] = s.label;
+    statusRankMap[s.code] = s.sort_order;
+  }
+  const workspaceToProjectName = {};
+  for (const p of config.projects || []) {
+    if (p.file) workspaceToProjectName[p.file] = p.name;
+  }
+
+  const childRows = db.prepare('SELECT * FROM tasks WHERE parent_id = ? AND deleted_at IS NULL ORDER BY sort_order').all(row.id);
+  const relevantIds = [row.id, ...childRows.map(c => c.id)];
+  const placeholders = relevantIds.map(() => '?').join(',');
+  const deliverableRows = db.prepare(`SELECT * FROM deliverables WHERE task_id IN (${placeholders}) ORDER BY task_id, sort_order`).all(...relevantIds);
+  const deliverablesByTaskId = {};
+  for (const d of deliverableRows) {
+    (deliverablesByTaskId[d.task_id] = deliverablesByTaskId[d.task_id] || []).push(d);
+  }
+  row.__deliverables = deliverablesByTaskId[row.id] || [];
+  for (const c of childRows) c.__deliverables = deliverablesByTaskId[c.id] || [];
+
+  const pinnedTaskIds = new Set(db.prepare(`SELECT task_id FROM pins WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
+  const runningTaskIds = new Set(db.prepare(`SELECT task_id FROM running_tasks WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
+  const activeAgentByTaskId = new Map(
+    db.prepare(`SELECT task_id, agent_id FROM task_execution_sessions
+      WHERE task_id IN (${placeholders}) AND stopped_at IS NULL
+      ORDER BY started_at DESC, id DESC`).all(...relevantIds)
+      .reverse()
+      .map(row => [row.task_id, row.agent_id])
+  );
+
+  const projectName = workspaceToProjectName[row.workspace] || row.workspace;
+  const item = toTaskItem(row, { statusLabelMap, projectName });
+  item.todayFlag = pinnedTaskIds.has(row.id);
+  item.running = runningTaskIds.has(row.id);
+  item.agentId = activeAgentByTaskId.get(row.id) || null;
+
+  const children = childRows.map(childRow => {
+    const childItem = toTaskItem(childRow, { statusLabelMap, projectName });
+    childItem.todayFlag = pinnedTaskIds.has(childRow.id);
+    childItem.running = runningTaskIds.has(childRow.id);
+    childItem.agentId = activeAgentByTaskId.get(childRow.id) || null;
+    return childItem;
+  });
+  item.children = children;
+  if (childRows.length > 0) {
+    item.childrenTotal = childRows.length;
+    item.childrenDone = childRows.filter(c => c.status === 'done').length;
+    const statusCode = computeParentStatusCode(childRows, row.status, statusRankMap);
+    item.status = statusLabelMap[statusCode] || statusCode;
+    item.statusCode = statusCode;
+    const todayCount = children.filter(c => c.todayFlag).length;
+    if (todayCount > 0) item.todayCount = todayCount;
+    if (children.some(c => c.running)) item.running = true;
+  }
+
+  return item;
+}
+
+module.exports = { buildBoardFromDb, buildTaskDetail };

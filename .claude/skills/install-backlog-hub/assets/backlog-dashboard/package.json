@@ -1,13 +1,18 @@
 {
   "name": "backlog-dashboard",
-  "version": "1.0.0",
-  "description": "バックログかんばんダッシュボード - mdファイルをリアルタイムにかんばんボード表示",
+  "version": "2.1.9",
+  "description": "SQLiteバックログをリアルタイムにかんばんボード表示",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test",
+    "db:export": "node db/export.js"
   },
   "dependencies": {
     "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=22.5.0"
   },
   "private": true
 }
