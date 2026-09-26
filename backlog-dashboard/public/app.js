@@ -2008,6 +2008,7 @@ function planBuildCard(item, bucketId, parentEpic = null) {
       openCardDetail(item);
     }
   });
+  setupTaskQuickTip(card, item);
   return card;
 }
 
@@ -3238,6 +3239,7 @@ function buildMiniBoard(epic) {
 
       card.innerHTML = `${childPinHtml}${childActionsHtml}${childId}${childTitle}${mHtml}`;
       card.classList.add('card-clickable');
+      setupTaskQuickTip(card, { ...child, project: epic.project });
       card.addEventListener('click', (e) => {
         if (e.defaultPrevented) return;
         // childにproject情報を付与（リンク生成用）
@@ -3396,6 +3398,72 @@ function setupCardClick(card, item, isChildCard = false) {
       return;
     }
     openCardDetail(item, isChildCard || null);
+  });
+  setupTaskQuickTip(card, item);
+}
+
+// BT-317: 詳細モーダルを開かずに、カードの内容を素早く確認するための右クリックTIP。
+let taskQuickTipEl = null;
+
+function getOrCreateTaskQuickTip() {
+  if (taskQuickTipEl) return taskQuickTipEl;
+  taskQuickTipEl = document.createElement('aside');
+  taskQuickTipEl.className = 'task-quick-tip';
+  taskQuickTipEl.setAttribute('role', 'dialog');
+  taskQuickTipEl.setAttribute('aria-label', 'タスクのクイックプレビュー');
+  document.body.appendChild(taskQuickTipEl);
+
+  document.addEventListener('pointerdown', (e) => {
+    if (!taskQuickTipEl.contains(e.target)) closeTaskQuickTip();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeTaskQuickTip();
+  });
+  window.addEventListener('resize', closeTaskQuickTip);
+  // キャプチャで背後のスクロールも検知するが、TIP自身のスクロールでは閉じない。
+  window.addEventListener('scroll', (e) => {
+    if (!taskQuickTipEl.contains(e.target)) closeTaskQuickTip();
+  }, true);
+  return taskQuickTipEl;
+}
+
+function closeTaskQuickTip() {
+  if (taskQuickTipEl) taskQuickTipEl.classList.remove('task-quick-tip-visible');
+}
+
+function buildTaskQuickTipHtml(item) {
+  const meta = [];
+  if (item.category && item.category !== '-') meta.push(`<span class="task-quick-tip-tag">${escapeHtml(item.category)}</span>`);
+  if (item.assignee) meta.push(`<span class="task-quick-tip-tag">担当: ${escapeHtml(item.assignee)}</span>`);
+  if (item.startDate) meta.push(`<span class="task-quick-tip-tag">開始: ${escapeHtml(item.startDate)}</span>`);
+  if (item.dueDate) meta.push(`<span class="task-quick-tip-tag">期日: ${escapeHtml(item.dueDate)}</span>`);
+  const artifacts = (item.artifacts || []).slice(0, 3)
+    .map(path => `<li><code>${escapeHtml(path)}</code></li>`).join('');
+  const moreArtifacts = item.artifacts && item.artifacts.length > 3
+    ? `<li>ほか ${item.artifacts.length - 3} 件</li>` : '';
+  return `
+    <div class="task-quick-tip-header"><span class="task-quick-tip-id">${escapeHtml(item.id || '-')}</span><span class="task-quick-tip-hint">Esc または外側クリックで閉じる</span></div>
+    <div class="task-quick-tip-title">${escapeHtml(item.title || '')}</div>
+    <div class="task-quick-tip-description">${item.description ? escapeHtml(item.description) : '<span>説明はありません</span>'}</div>
+    ${meta.length ? `<div class="task-quick-tip-meta">${meta.join('')}</div>` : ''}
+    ${artifacts ? `<div class="task-quick-tip-artifacts"><span>成果物</span><ul>${artifacts}${moreArtifacts}</ul></div>` : ''}
+  `;
+}
+
+function setupTaskQuickTip(card, item) {
+  card.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const tip = getOrCreateTaskQuickTip();
+    tip.innerHTML = buildTaskQuickTipHtml(item);
+    tip.style.left = '0px';
+    tip.style.top = '0px';
+    tip.classList.add('task-quick-tip-visible');
+    const margin = 12;
+    const left = Math.min(e.clientX, window.innerWidth - tip.offsetWidth - margin);
+    const top = Math.min(e.clientY, window.innerHeight - tip.offsetHeight - margin);
+    tip.style.left = `${Math.max(margin, left)}px`;
+    tip.style.top = `${Math.max(margin, top)}px`;
   });
 }
 

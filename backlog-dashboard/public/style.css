@@ -1064,6 +1064,43 @@ body {
   outline-offset: -1px;
 }
 
+/* --- Task Quick Tip (BT-317) --- */
+.task-quick-tip {
+  position: fixed;
+  z-index: 1000;
+  display: none;
+  width: min(390px, calc(100vw - 24px));
+  max-height: min(440px, calc(100vh - 24px));
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+.task-quick-tip-visible { display: block; }
+
+.task-quick-tip-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.task-quick-tip-id { color: var(--accent); font-size: .75rem; font-weight: 700; }
+.task-quick-tip-hint { color: var(--text-muted); font-size: .65rem; }
+.task-quick-tip-title { margin-top: 5px; font-size: .9rem; font-weight: 700; line-height: 1.4; word-break: break-word; }
+.task-quick-tip-description { max-height: 180px; margin-top: 10px; overflow: auto; color: var(--text); font-size: .8rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.task-quick-tip-description span { color: var(--text-muted); font-style: italic; }
+.task-quick-tip-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.task-quick-tip-tag { padding: 2px 6px; border-radius: 4px; background: var(--bg); color: var(--text-muted); font-size: .68rem; }
+.task-quick-tip-artifacts { margin-top: 10px; color: var(--text-muted); font-size: .7rem; }
+.task-quick-tip-artifacts ul { margin: 4px 0 0; padding-left: 16px; }
+.task-quick-tip-artifacts li { margin: 2px 0; overflow-wrap: anywhere; }
+.task-quick-tip-artifacts code { color: var(--text); font-size: .7rem; }
+
 /* --- Drag & Drop --- */
 .card-draggable {
   cursor: grab;
