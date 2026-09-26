@@ -1017,7 +1017,7 @@ function renderBoard(data) {
       if (showField('badge') && item.childrenTotal) {
         const allDone = item.childrenDone === item.childrenTotal;
         const badgeClass = allDone ? 'badge-done' : '';
-        badge = `<span class="card-badge ${badgeClass}"><span class="badge-num">${item.childrenDone}</span><span class="badge-den">/${item.childrenTotal}</span></span>`;
+        badge = `<span class="card-badge ${badgeClass}"><span class="badge-num">${item.childrenDone}</span><span class="badge-den">${item.childrenTotal}</span></span>`;
       }
 
       // 起源マーク
@@ -1037,6 +1037,7 @@ function renderBoard(data) {
       const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
       const dueBadge = item.dueDate ? renderDueDateBadge(item.dueDate) : '';
       const metaParts = [projectTag, category, artifactIndicator, githubBadge, dueBadge, completedDate].filter(Boolean);
+      if (badge) metaParts.push(badge);
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
 
       // ピンボタン（完了カラムには不要）
@@ -1065,15 +1066,7 @@ function renderBoard(data) {
         </div>`;
       }
 
-      card.innerHTML = `${pinHtml}${cardActionsHtml}${badge}${idHtml}${titleHtml}${metaHtml}`;
-
-      // ホバー時の進捗バッジ退避量は、右上の操作ボタン数に合わせる。
-      // 操作が少ないカードでIDまで隠さないよう、必要最小限にする。
-      if (isEpic) {
-        const actionCount = card.querySelectorAll('.card-action-btn').length;
-        const badgeHoverRight = [0, 44, 61, 78][actionCount] || 78;
-        card.style.setProperty('--epic-badge-hover-right', `${badgeHoverRight}px`);
-      }
+      card.innerHTML = `${pinHtml}${cardActionsHtml}${idHtml}${titleHtml}${metaHtml}`;
 
       // 親Epicリンクのクリック（BT-201）: カード自体のクリック（子タスク詳細を開く）とは独立させ、
       // 親Epicの詳細（ミニボード）をこのカードをハイライトした状態で開く
