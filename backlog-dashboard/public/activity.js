@@ -465,62 +465,56 @@ function renderActivityControls() {
 }
 
 // --- レンダー単位の構築 ---
-// 同一グループ内で同じ親EPICの完了子タスクが2件以上あれば、EPIC行1つにまとめて子をtreeでネストする。
-// 1件だけの場合は親バッジ付きの通常行として出す(縦に間延びしないようにする、KIRO版と同じ判断)。
+// 履歴は常にタスク単位でまとめる。子タスクは親EPICの配下に置き、
+// 「EPIC → 子タスク → イベント」の操作経路をそのまま表示する。
 function buildActivityRenderUnits(events) {
-  const byTask = new Map();
-  for (const ev of events) {
-    if (!ev.id) continue;
-    if (!byTask.has(ev.id)) byTask.set(ev.id, []);
-    byTask.get(ev.id).push(ev);
-  }
-  const groupedTaskIds = new Set();
-  byTask.forEach((taskEvents, taskId) => {
-    if (taskEvents.length >= 2) groupedTaskIds.add(taskId);
+  const directTasks = new Map();
+  const epics = new Map();
+  const looseEvents = [];
+
+  events.forEach((ev, order) => {
+    if (!ev.id) {
+      looseEvents.push({ kind: 'event', event: ev, order });
+      return;
+    }
+    if (ev.isChild && ev.parentId) {
+      if (!epics.has(ev.parentId)) {
+        epics.set(ev.parentId, {
+          kind: 'epic', parentId: ev.parentId, parentTitle: ev.parentTitle,
+          project: ev.project, events: [], children: new Map(), order,
+        });
+      }
+      const epic = epics.get(ev.parentId);
+      if (!epic.children.has(ev.id)) {
+        epic.children.set(ev.id, {
+          taskId: ev.id, title: ev.title, project: ev.project, events: [], order,
+        });
+      }
+      epic.children.get(ev.id).events.push(ev);
+      return;
+    }
+
+    if (!directTasks.has(ev.id)) {
+      directTasks.set(ev.id, {
+        kind: 'task', taskId: ev.id, title: ev.title, project: ev.project,
+        isEpic: ev.isEpic, events: [], order,
+      });
+    }
+    directTasks.get(ev.id).events.push(ev);
   });
 
-  const taskUnits = [];
-  const consumedTasks = new Set();
-  for (const ev of events) {
-    if (groupedTaskIds.has(ev.id)) {
-      if (consumedTasks.has(ev.id)) continue;
-      consumedTasks.add(ev.id);
-      taskUnits.push({ kind: 'task', taskId: ev.id, title: ev.title, project: ev.project, isEpic: ev.isEpic, events: byTask.get(ev.id) });
-    } else {
-      taskUnits.push({ kind: 'event', event: ev });
+  // EPIC自身のイベントも、子タスクの変更と同じEPICツリーにまとめる。
+  for (const epic of epics.values()) {
+    const ownEvents = directTasks.get(epic.parentId);
+    if (ownEvents) {
+      epic.events = ownEvents.events;
+      epic.order = Math.min(epic.order, ownEvents.order);
+      directTasks.delete(epic.parentId);
     }
+    epic.children = [...epic.children.values()].sort((a, b) => a.order - b.order);
   }
 
-  const byParent = new Map();
-  for (const unit of taskUnits) {
-    if (unit.kind !== 'event') continue;
-    const ev = unit.event;
-    if (ev.type === 'completed' && ev.isChild && ev.parentId) {
-      if (!byParent.has(ev.parentId)) byParent.set(ev.parentId, []);
-      byParent.get(ev.parentId).push(ev);
-    }
-  }
-  const epicIds = new Set();
-  byParent.forEach((arr, pid) => { if (arr.length >= 2) epicIds.add(pid); });
-
-  const units = [];
-  const consumed = new Set();
-  for (const unit of taskUnits) {
-    if (unit.kind === 'task') {
-      units.push(unit);
-      continue;
-    }
-    const ev = unit.event;
-    const isGrouped = ev.type === 'completed' && ev.isChild && ev.parentId && epicIds.has(ev.parentId);
-    if (isGrouped) {
-      if (consumed.has(ev.parentId)) continue;
-      consumed.add(ev.parentId);
-      units.push({ kind: 'epic', parentId: ev.parentId, parentTitle: ev.parentTitle, project: ev.project, children: byParent.get(ev.parentId) });
-    } else {
-      units.push({ kind: 'event', event: ev });
-    }
-  }
-  return units;
+  return [...directTasks.values(), ...epics.values(), ...looseEvents].sort((a, b) => a.order - b.order);
 }
 
 function resolveActivityItem(id) {
@@ -562,7 +556,7 @@ function buildActivityRowEl(ev, opts = {}) {
   if (!line2.textContent.trim() && !parentHtml) line2.remove();
 
   const target = resolveActivityItem(ev.id);
-  if (target) {
+  if (opts.allowTaskClick !== false && target) {
     row.classList.add('activity-row-clickable');
     row.addEventListener('click', (e) => {
       if (e.target.closest('.activity-parent')) return;
@@ -605,13 +599,13 @@ function buildActivityEpicEl(unit) {
         ${unit.project ? `<span class="activity-ws">${escapeHtml(unit.project)}</span>` : ''}
         <span class="activity-id">${escapeHtml(unit.parentId)}</span>
         <span class="activity-title">${escapeHtml(titleText)}</span>
-        <span class="activity-epic-count">${unit.children.length}件完了</span>
+        <span class="activity-epic-count">${unit.children.length}件の子タスク</span>
       </div>
     </div>
     <span class="activity-time"></span>
   `;
 
-  const childIds = unit.children.map(c => c.id).filter(Boolean);
+  const childIds = unit.children.map(c => c.taskId).filter(Boolean);
   const epicItem = resolveActivityItem(unit.parentId);
   if (epicItem) {
     wrap.classList.add('activity-row-clickable');
@@ -623,8 +617,11 @@ function buildActivityEpicEl(unit) {
 
   const childrenWrap = document.createElement('div');
   childrenWrap.className = 'activity-children';
+  for (const ev of unit.events) {
+    childrenWrap.appendChild(buildActivityRowEl(ev, { isChildRow: true, hideProject: true, hideTaskIdentity: true, allowTaskClick: false }));
+  }
   for (const child of unit.children) {
-    childrenWrap.appendChild(buildActivityRowEl(child, { isChildRow: true, hideProject: true }));
+    childrenWrap.appendChild(buildActivityTaskGroupEl(child, { isChild: true }));
   }
 
   const block = document.createElement('div');
@@ -635,12 +632,12 @@ function buildActivityEpicEl(unit) {
 }
 
 // 一括開閉ボタン。「すべて畳む」「すべて開く」を独立した2ボタンにして、押せない時はdisabledで示す。
-function buildActivityTaskGroupEl(unit) {
+function buildActivityTaskGroupEl(unit, opts = {}) {
   const wrap = document.createElement('div');
   const groupLabel = unit.isEpic ? 'EPIC' : 'タスク';
   const groupIcon = unit.isEpic ? 'stacks' : 'assignment';
   const groupClass = unit.isEpic ? 'epic' : 'task';
-  wrap.className = `activity-row activity-row-${groupClass}`;
+  wrap.className = `activity-row activity-row-${groupClass}` + (opts.isChild ? ' activity-child-task' : '');
   wrap.innerHTML = `
     <span class="activity-dot activity-dot-${groupClass}" aria-hidden="true">${activityIconHtml(groupIcon)}</span>
     <div class="activity-row-main">
@@ -662,7 +659,7 @@ function buildActivityTaskGroupEl(unit) {
   const childrenWrap = document.createElement('div');
   childrenWrap.className = 'activity-children';
   for (const ev of unit.events) {
-    childrenWrap.appendChild(buildActivityRowEl(ev, { isChildRow: true, hideProject: true, hideTaskIdentity: true }));
+    childrenWrap.appendChild(buildActivityRowEl(ev, { isChildRow: true, hideProject: true, hideTaskIdentity: true, allowTaskClick: false }));
   }
   const block = document.createElement('div');
   block.className = 'activity-task-block';
