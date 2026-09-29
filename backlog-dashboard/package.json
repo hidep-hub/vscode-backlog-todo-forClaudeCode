@@ -1,6 +1,6 @@
 {
   "name": "backlog-dashboard",
-  "version": "2.1.9",
+  "version": "2.1.10",
   "description": "SQLiteバックログをリアルタイムにかんばんボード表示",
   "main": "server.js",
   "scripts": {
