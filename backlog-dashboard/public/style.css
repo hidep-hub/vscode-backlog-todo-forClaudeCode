@@ -2049,6 +2049,18 @@ body {
   gap: 6px;
 }
 
+.column-sort-select {
+  max-width: 96px;
+  height: 20px;
+  padding: 0 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.58rem;
+}
+
 .add-task-btn {
   width: 20px;
   height: 20px;
