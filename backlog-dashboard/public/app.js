@@ -37,6 +37,24 @@ let pendingHighlightChildId = null; // BT-201: 親Epicリンククリック直�
 let workspaceFilterMap = null; // サーバーから取得: { workspaceKey -> projectName }
 let wsDefaultFilter = ''; // URLパラメータから決まるデフォルトフィルタ（プロジェクト名）
 
+const COLUMN_SORT_KEY_PREFIX = 'columnSort_';
+const COLUMN_SORT_OPTIONS = [
+  ['manual', 'Manual'],
+  ['updated-desc', 'Updated'],
+  ['due-asc', 'Due date'],
+];
+
+function columnSortMode(colId) {
+  return localStorage.getItem(COLUMN_SORT_KEY_PREFIX + colId) || 'manual';
+}
+
+function columnSortSelectHtml(colId) {
+  const current = columnSortMode(colId);
+  const options = COLUMN_SORT_OPTIONS.map(([value, label]) =>
+    `<option value="${value}"${value === current ? ' selected' : ''}>${label}</option>`).join('');
+  return `<select class="column-sort-select" data-col-id="${colId}" aria-label="${colId}の表示順">${options}</select>`;
+}
+
 // --- 週次計画ビュー (BT-264) ---
 let planDragData = null; // { kind: 'single', id } | { kind: 'group', epicId, childIds: [] }
 let planCollapsedGroups = new Set(); // 折りたたみ中のEPICグループキー('epicId_bucketId')
@@ -924,6 +942,8 @@ function renderBoard(data) {
       const todayStr = getTodayJST();
       items = items.filter(item => item.completedDate === todayStr);
     }
+    // DONEは完了日時の新しい順で固定し、並び順の選択対象から外す。
+    if (!isCompact) items = columnSort.sortItems(items, columnSortMode(col.id));
 
     // limit 制御（フロント側で表示件数を制御）
     const defaultLimit = col.limit || null;
@@ -964,6 +984,7 @@ function renderBoard(data) {
         <span>${col.label}</span>
         <div class="column-header-right">
           ${doneTodayToggleHtml}
+          ${!isCompact ? columnSortSelectHtml(col.id) : ''}
           ${countAreaHtml}
           ${!isCompact ? `<button class="add-task-btn" data-col-id="${col.id}" data-col-status="${col.match[0]}" title="タスク追加">+</button>` : ''}
         </div>
@@ -1153,6 +1174,13 @@ function renderBoard(data) {
         localStorage.setItem('colLimit_' + colId, val);
         renderBoard(lastBoardData);
       }
+    });
+  });
+
+  boardEl.querySelectorAll('.column-sort-select').forEach(select => {
+    select.addEventListener('change', (e) => {
+      localStorage.setItem(COLUMN_SORT_KEY_PREFIX + e.target.dataset.colId, e.target.value);
+      renderBoard(lastBoardData);
     });
   });
 
@@ -3136,6 +3164,8 @@ function buildMiniBoard(epic) {
       const todayStr = getTodayJST();
       matchedChildren = matchedChildren.filter(c => c.completedDate === todayStr);
     }
+    // EPIC詳細のDONE列もメインボードと同様に完了日時順を維持する。
+    if (!isDoneCol) matchedChildren = columnSort.sortItems(matchedChildren, columnSortMode(col.id));
 
     // limit 制御（完了カラムのみ・メインボードと同じ思想）。
     // 「本日完了だけ」表示中はlimitを無視して全件出す。
@@ -3171,6 +3201,7 @@ function buildMiniBoard(epic) {
         <span>${col.label}</span>
         <div class="column-header-right">
           ${doneTodayToggleHtml}
+          ${!isDoneCol ? columnSortSelectHtml(col.id) : ''}
           ${countHtml}
           <button class="add-task-btn add-task-btn-mini" data-col-status="${col.match[0]}" data-parent-id="${epic.id}" data-project="${epic.project}" title="子タスク追加">+</button>
         </div>
@@ -3356,6 +3387,14 @@ function buildMiniBoard(epic) {
   });
 
   // ミニボード内「本日完了だけ」トグルにイベント設定（状態はメインと共有）
+  container.querySelectorAll('.column-sort-select').forEach(select => {
+    select.addEventListener('change', (e) => {
+      localStorage.setItem(COLUMN_SORT_KEY_PREFIX + e.target.dataset.colId, e.target.value);
+      buildMiniBoard(epic);
+      if (lastBoardData) renderBoard(lastBoardData);
+    });
+  });
+
   container.querySelectorAll('[data-mini-done-today]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
