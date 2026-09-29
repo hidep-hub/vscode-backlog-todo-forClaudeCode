@@ -88,6 +88,19 @@ test('serves the core task workflow through the REST API', async () => {
     const unpinEpic = await request(baseUrl, '/api/toggle-today', { taskId: epic, value: false, actor: 'codex' });
     assert.equal(unpinEpic.body.pinned, false);
     assert.equal((await request(baseUrl, `/api/task/${childTask}`)).body.todayFlag, false);
+
+    const parentCreated = await request(baseUrl, '/api/add-task', { title: 'Drop target', project: 'extra', status: 'ready' });
+    const draggedCreated = await request(baseUrl, '/api/add-task', { title: 'Dragged task', project: 'extra', status: 'do' });
+    assert.equal(parentCreated.body.ok, true);
+    assert.equal(draggedCreated.body.ok, true);
+    const attached = await request(baseUrl, '/api/attach-to-parent', {
+      taskIds: [draggedCreated.body.id], parentId: parentCreated.body.id,
+    });
+    assert.equal(attached.body.ok, true, JSON.stringify(attached.body));
+    const draggedDetail = await request(baseUrl, `/api/task/${draggedCreated.body.id}`);
+    assert.equal(draggedDetail.body.statusCode, 'do');
+    const parentDetail = await request(baseUrl, `/api/task/${parentCreated.body.id}`);
+    assert.deepEqual(parentDetail.body.children.map(child => child.id), [draggedCreated.body.id]);
   } finally {
     if (child.exitCode === null && child.signalCode === null) {
       child.kill();
