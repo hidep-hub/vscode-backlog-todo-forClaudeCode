@@ -177,10 +177,12 @@ body {
 }
 
 /* --- Header --- */
+/* BM-010: ワークスペースが増えるほどヘッダーが縦に伸びる問題への対応。
+   1段目=ロゴ＋機能ボタン（機能ボタンは右寄せ）、2段目=ワークスペースバッジ、の2段構成に固定する。 */
 .header {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 6px;
   padding: 10px 20px;
   background: var(--brand);
   border-bottom: 1px solid var(--border);
@@ -190,10 +192,24 @@ body {
   flex-shrink: 0;
 }
 
+.header-top-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
 .header-brand {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
+}
+
+.header-badges-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
 }
 
 .header-logo {
