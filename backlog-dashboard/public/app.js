@@ -1032,6 +1032,7 @@ function renderBoard(data) {
       if (item.id && item.id !== '-') {
         card.dataset.taskId = item.id;
         setupDragAndDrop(card, item, col.id);
+        setupParentDropTarget(card, item);
       }
 
       card.classList.add('card-clickable');
@@ -1745,7 +1746,11 @@ function setupDragAndDrop(card, item, colId) {
   card.classList.add('card-draggable');
 
   card.addEventListener('dragstart', (e) => {
-    dragData = { id: item.id, sourceColId: colId };
+    // 親を持たず、子も持たない未完了の単独タスクだけを、カードへ重ねて
+    // 親子化できるドラッグ元にする。通常の列移動・並べ替えは全カードで維持する。
+    // board APIでは子を持たないタスクのchildrenTotalはnullで返る。
+    const canAttach = !item.parentId && !item.childrenTotal && item.statusCode !== 'done';
+    dragData = { id: item.id, sourceColId: colId, canAttach };
     card.classList.add('card-dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', item.id);
@@ -1757,6 +1762,45 @@ function setupDragAndDrop(card, item, colId) {
     document.querySelectorAll('.column-body.drop-over, .mini-col-body.drop-over').forEach(el => el.classList.remove('drop-over'));
     document.querySelectorAll('.card-drop-above').forEach(el => el.classList.remove('card-drop-above'));
     document.querySelectorAll('.card-drop-below').forEach(el => el.classList.remove('card-drop-below'));
+    clearParentDropHighlights();
+  });
+}
+
+function canDropAsChildOn(drag, parentItem) {
+  return !!drag?.canAttach
+    && drag.id !== parentItem.id
+    && !parentItem.parentId
+    && parentItem.statusCode !== 'done';
+}
+
+function clearParentDropHighlights() {
+  document.querySelectorAll('.card-drop-parent').forEach(el => el.classList.remove('card-drop-parent'));
+}
+
+// カード上へのドロップは列移動ではなく、ドラッグ元をこのカードの子にする操作。
+// 単独タスクを親にすると、そのままEPICとして扱える。
+function setupParentDropTarget(card, parentItem) {
+  card.addEventListener('dragover', (e) => {
+    if (!canDropAsChildOn(dragData, parentItem)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    clearParentDropHighlights();
+    card.classList.add('card-drop-parent');
+  });
+
+  card.addEventListener('dragleave', (e) => {
+    if (!card.contains(e.relatedTarget)) card.classList.remove('card-drop-parent');
+  });
+
+  card.addEventListener('drop', async (e) => {
+    if (!canDropAsChildOn(dragData, parentItem)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const childId = dragData.id;
+    dragData = null;
+    clearParentDropHighlights();
+    await attachDraggedTaskToParent(childId, parentItem.id);
   });
 }
 
@@ -1867,6 +1911,24 @@ function getDropTarget(bodyEl, clientY) {
 function clearDropIndicators(bodyEl) {
   bodyEl.querySelectorAll('.card-drop-above').forEach(el => el.classList.remove('card-drop-above'));
   bodyEl.querySelectorAll('.card-drop-below').forEach(el => el.classList.remove('card-drop-below'));
+}
+
+async function attachDraggedTaskToParent(taskId, parentId) {
+  try {
+    const resp = await fetch('/api/attach-to-parent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskIds: [taskId], parentId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      console.error('[dnd] Attach failed:', data.error, data.failed);
+      alert(`親子関係の登録に失敗したよ: ${data.error || ''}`);
+    }
+  } catch (e) {
+    console.error('[dnd] Attach network error:', e);
+    alert('親子関係の登録中に通信エラーが起きたよ');
+  }
 }
 
 async function reorderItems(orderedIds) {
