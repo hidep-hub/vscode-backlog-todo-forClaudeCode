@@ -1,10 +1,24 @@
 {
   "columns": [
     {
-      "id": "in_progress",
-      "label": "進行中",
+      "id": "do",
+      "label": "DO",
       "match": [
-        "進行中"
+        "do"
+      ],
+      "visibleFields": [
+        "id",
+        "title",
+        "badge",
+        "project",
+        "category"
+      ]
+    },
+    {
+      "id": "ready",
+      "label": "READY",
+      "match": [
+        "ready"
       ],
       "visibleFields": [
         "id",
@@ -16,24 +30,9 @@
     },
     {
       "id": "todo",
-      "label": "未着手",
+      "label": "TODO",
       "match": [
-        "未着手",
-        "未着手（素材あり）"
-      ],
-      "visibleFields": [
-        "id",
-        "title",
-        "badge",
-        "project",
-        "category"
-      ]
-    },
-    {
-      "id": "on_hold",
-      "label": "保留",
-      "match": [
-        "保留"
+        "todo"
       ],
       "visibleFields": [
         "id",
@@ -43,9 +42,9 @@
     },
     {
       "id": "done",
-      "label": "完了",
+      "label": "DONE",
       "match": [
-        "完了"
+        "done"
       ],
       "limit": 5,
       "compact": true,
@@ -58,6 +57,7 @@
   ],
   "port": 3333,
   "backlogDir": "~/.backlog",
+  "defaultWorkspaceParent": "C:/dev",
   "projects": [
     {
       "file": "your-project",

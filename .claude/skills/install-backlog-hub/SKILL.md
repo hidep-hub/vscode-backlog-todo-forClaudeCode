@@ -5,19 +5,18 @@ description: SQLite版backlog-dashboardとAIエージェント向け運用ルー
 
 # install-backlog-hub
 
-`assets/` は配布用の現行SQLite版アプリです。タスクのデータはSQLite DBにあり、すべての操作はREST APIを通します。
+アプリケーションの正本はGitリポジトリ直下の `backlog-dashboard/` です。アプリをスキル配下のassetsからコピーしません。タスクのデータはSQLite DBにあり、すべての操作はREST APIを通します。
 
 ## 新規インストール
 
-1. `assets/backlog-dashboard/` を利用者が指定したインストール先へコピーする。
-2. `config.json` のプレースホルダーを置換する。
-   - `__PORT__`: 利用ポート
-   - `__BACKLOG_DIR__`: SQLite DBを格納するディレクトリ
-   - `__WORKSPACE_PARENT__`: ワークスペース親ディレクトリ
-   - `__PROJECT_FILE__`、`__PROJECT_PREFIX__`、`__PROJECT_NAME__`、`__WORKSPACE_PATH__`: 初期プロジェクト
-3. `npm install` の後に `node server.js` を起動する。
+1. 正本リポジトリを利用者が指定した親ディレクトリへcloneする。
+   ```powershell
+   git clone https://github.com/hidep-hub/vscode-backlog-todo-forClaudeCode.git
+   ```
+2. clone先の `backlog-dashboard/` で `config.json.example` を `config.json` へコピーし、`port`、`backlogDir`、`defaultWorkspaceParent`、`projects[]` を利用環境向けに設定する。
+3. `backlog-dashboard/` で `npm install` の後に `node server.js` を起動する。
 4. `GET /api/health` の200応答を確認する。
-5. 必要に応じて `scripts/register-startup-task.ps1` で自動起動を登録する。
+5. 必要に応じて `backlog-dashboard/scripts/register-startup-task.ps1` で自動起動を登録する。
 
 ## 既存ダッシュボードへのワークスペース追加
 
