@@ -92,16 +92,45 @@ npm start
 
 アプリケーションの正本は、このリポジトリ直下の `backlog-dashboard/` です。AIエージェント用スキル配下のassetsからアプリをコピーせず、正本リポジトリをcloneして導入します。
 
-```powershell
-git clone https://github.com/hidep-hub/vscode-backlog-todo-forClaudeCode.git
-cd vscode-backlog-todo-forClaudeCode\backlog-dashboard
-Copy-Item config.json.example config.json
-# config.json の port、backlogDir、defaultWorkspaceParent、projects[] を利用環境向けに設定する
-npm install
-npm start
-```
+利用者が行う操作は次のとおりです。
 
-起動後に `GET /api/health` が200を返すことを確認してください。既存のダッシュボードへワークスペースを追加する場合は、`POST /api/create-workspace` を使います。
+1. リポジトリをcloneし、設定ファイルを作成します。
+
+   ```powershell
+   git clone https://github.com/hidep-hub/vscode-backlog-todo-forClaudeCode.git
+   cd vscode-backlog-todo-forClaudeCode
+   Copy-Item .\backlog-dashboard\config.json.example .\backlog-dashboard\config.json
+   # config.json の port、backlogDir、defaultWorkspaceParent、projects[] を利用環境向けに設定する
+   ```
+
+2. `config.json` の `backlogDir` と同じディレクトリを作成します。既定値のままなら次のコマンドです。`backlogDir` を変更した場合は、その変更先を指定してください。
+
+   ```powershell
+   New-Item -ItemType Directory -Force -Path "$HOME\.backlog"
+   ```
+
+3. 利用するAIエージェントの運用ルールを配備します。リポジトリのルートで、使うエージェントのスクリプトだけを実行してください。
+
+   ```powershell
+   # Claude Code
+   .\scripts\install-claude-backlog.ps1
+
+   # Codex
+   .\scripts\install-codex-backlog.ps1
+
+   # Kiro
+   .\scripts\install-kiro-backlog.ps1
+   ```
+
+4. ダッシュボードを起動します。
+
+   ```powershell
+   cd .\backlog-dashboard
+   npm install
+   npm start
+   ```
+
+起動後に `GET /api/health` が200を返すことを確認してください。導入スクリプトは既存のエージェント設定をタイムスタンプ付き`.bak`へ退避してから更新します。既存のダッシュボードへワークスペースを追加する場合は、`POST /api/create-workspace` を使います。
 
 ### Windows起動時の自動起動
 
