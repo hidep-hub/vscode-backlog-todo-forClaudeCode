@@ -51,7 +51,7 @@ inclusion: always
 
 ## 新規ワークスペース追加時の初期処理（BT-179で大幅簡略化）
 - トリガー: 新しいワークスペースで「バックログ使いたい」と言われたとき
-- 判定: `GET http://localhost:<port>/api/health` が200 →「既存ダッシュボードへの追加登録」。接続不可 → 新規インストール（`install-backlog-hub` skillを使う）
+- 判定: `GET http://localhost:<port>/api/health` が200 →「既存ダッシュボードへの追加登録」。接続不可 → 正本リポジトリをcloneし、`backlog-dashboard/` を使って新規インストール（AIスキルassetsからアプリをコピーしない）
 - 追加登録の手順（`POST /api/create-workspace {file, prefix, name?, workspace?}` を1回叩くだけで完結する）:
   1. `create-workspace` API呼び出し1本で、①countersテーブルへの行追加 ②config.json `projects[]`への追記 ③workspaceフォルダの新規作成（未存在時）まで全て行われる
      - **mdファイルの雛形作成は不要（DB版のため、そもそも存在しない）**

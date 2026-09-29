@@ -7,6 +7,16 @@ description: Use when a user asks to use backlog-dashboard in a new workspace, a
 
 常時の運用ルールは `.kiro/steering/backlog-hub-rules.md` を読むこと。共通のAPI仕様・安全作法・タスクライフサイクルは `AGENTS.md.sample` と同じである。
 
+## 新規インストール
+
+1. 正本リポジトリを利用者が指定した親ディレクトリへcloneする。
+   ```powershell
+   git clone https://github.com/hidep-hub/vscode-backlog-todo-forClaudeCode.git
+   ```
+2. clone先の `backlog-dashboard/` で `config.json.example` を `config.json` へコピーし、`port`、`backlogDir`、`defaultWorkspaceParent`、`projects[]` を利用環境向けに設定する。
+3. `backlog-dashboard/` で `npm install` の後に `node server.js` を起動し、`GET /api/health` の200応答を確認する。
+4. 必要に応じて `backlog-dashboard/scripts/register-startup-task.ps1` で自動起動を登録する。
+
 ## 既存ダッシュボードへのワークスペース追加
 
 1. `GET http://localhost:<port>/api/health` で稼働中のダッシュボードを確認する。

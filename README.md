@@ -88,7 +88,20 @@ npm start
 
 `config.json` の `backlogDir` にSQLite DBの格納先、`projects[]` に表示するワークスペースを設定します。起動後、`GET /api/health` が `{"status":"ok"}` を返せば利用できます。
 
-新しい環境には `.claude/skills/install-backlog-hub/` の配布assetsと導入手順を利用できます。既存のダッシュボードへワークスペースを追加する場合は、`POST /api/create-workspace` を使います。
+### 新規環境への導入
+
+アプリケーションの正本は、このリポジトリ直下の `backlog-dashboard/` です。AIエージェント用スキル配下のassetsからアプリをコピーせず、正本リポジトリをcloneして導入します。
+
+```powershell
+git clone https://github.com/hidep-hub/vscode-backlog-todo-forClaudeCode.git
+cd vscode-backlog-todo-forClaudeCode\backlog-dashboard
+Copy-Item config.json.example config.json
+# config.json の port、backlogDir、defaultWorkspaceParent、projects[] を利用環境向けに設定する
+npm install
+npm start
+```
+
+起動後に `GET /api/health` が200を返すことを確認してください。既存のダッシュボードへワークスペースを追加する場合は、`POST /api/create-workspace` を使います。
 
 ### Windows起動時の自動起動
 
