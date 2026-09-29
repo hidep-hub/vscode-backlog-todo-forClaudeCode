@@ -136,6 +136,14 @@ npm start
 
 任意で `backlog-dashboard/scripts/register-startup-task.ps1` を実行すると、ログオン時にダッシュボードを非表示で起動できます。解除には `unregister-startup-task.ps1` を使います。
 
+更新後の再起動は、VS Code のPowerShellターミナルまたはWindows Terminalから次を実行します。スクリプトは起動元の端末とは独立したタスクスケジューラ経由でダッシュボードを起動するため、完了後はターミナルを閉じてもダッシュボードは継続します。
+
+```powershell
+.\backlog-dashboard\scripts\restart-startup-task.ps1
+```
+
+このスクリプトはポート3333のプロセスとヘルスエンドポイントを確認し、対象の `node server.js` だけを停止します。再起動後は `package.json` と同じAPIバージョンになったことを確認して終了します。
+
 ## APIと仕様
 
 主要APIは、ボード取得、タスク追加・更新、状態変更、実行中切替、ワークスペース登録、履歴取得を提供します。書き込みはUTF-8の `application/json` を使い、AIエージェントは操作時に `actor` を指定します。
