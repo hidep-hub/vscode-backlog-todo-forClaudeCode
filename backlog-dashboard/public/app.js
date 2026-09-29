@@ -1012,12 +1012,12 @@ function renderBoard(data) {
         ? `<span class="parent-epic-link" data-parent-id="${escapeHtml(item.parentId)}" title="親タスク: ${escapeHtml(item.parentTitle || '')}（クリックでEpic詳細へ）"><span class="material-icon icon-stacks"></span>${escapeHtml(item.parentId)}</span><span class="id-separator">|</span>`
         : '';
 
-      // GitHub風ピルバッジ
+      // GitHub風ピルバッジ（BM-009: 分子がタスク数か完了数か分かりづらいのでチェックマークを付与）
       let badge = '';
       if (showField('badge') && item.childrenTotal) {
         const allDone = item.childrenDone === item.childrenTotal;
         const badgeClass = allDone ? 'badge-done' : '';
-        badge = `<span class="card-badge ${badgeClass}"><span class="badge-num">${item.childrenDone}</span><span class="badge-den">${item.childrenTotal}</span></span>`;
+        badge = `<span class="card-badge ${badgeClass}"><span class="badge-num"><span class="material-icon icon-check"></span>${item.childrenDone}</span><span class="badge-den">${item.childrenTotal}</span></span>`;
       }
 
       // 起源マーク
@@ -2955,7 +2955,7 @@ function renderModalContent(item) {
   if (item.childrenTotal) {
     const allDone = item.childrenDone === item.childrenTotal;
     const badgeClass = allDone ? 'badge-done' : '';
-    badgeHtml = `<span class="card-badge ${badgeClass}"><span class="badge-num">${item.childrenDone}</span><span class="badge-den">/${item.childrenTotal}</span></span>`;
+    badgeHtml = `<span class="card-badge ${badgeClass}"><span class="badge-num"><span class="material-icon icon-check"></span>${item.childrenDone}</span><span class="badge-den">/${item.childrenTotal}</span></span>`;
   }
 
   const desc = buildDescriptionSectionHtml(item.description);
@@ -3776,7 +3776,7 @@ function renderParentPickerList(query) {
 
   listEl.innerHTML = candidates.map(item => {
     const badge = item.childrenTotal
-      ? `<span class="card-badge"><span class="badge-num">${item.childrenDone}</span><span class="badge-den">/${item.childrenTotal}</span></span>`
+      ? `<span class="card-badge"><span class="badge-num"><span class="material-icon icon-check"></span>${item.childrenDone}</span><span class="badge-den">/${item.childrenTotal}</span></span>`
       : '';
     return `<div class="parent-picker-item" data-id="${escapeHtml(item.id)}">
       <span class="parent-picker-item-id">${escapeHtml(item.id)}</span>
