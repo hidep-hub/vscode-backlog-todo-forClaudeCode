@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.1.9（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.1.10（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## データの真実
 - タスクの真のデータは SQLite DB（`<backlogDir>/backlog.sqlite3`）。UIやAPIはその窓（BT-179でmdから移行済み）。
@@ -28,7 +28,7 @@
   - 履歴取得: `GET /api/activity`（BT-243、履歴機能EPIC BT-199配下）— `task_events`を`tasks`/`event_types`と結合し、`taskId`/`taskTitle`/`eventType`/`eventLabel`/`oldValue`/`newValue`/`actor`/`occurredAt`/`parentId`/`parentTitle`を持つイベント配列を`occurred_at`降順で返す。検索・期間絞り込みクエリは未対応（BT-246で追加予定）で、常に全件を返す
   - **【BT-201, BT-240で親のstatus条件を撤廃】`GET /api/board`のDONE列には、完了した子タスクが親の完了/未完了に関わらず`parentId`/`parentTitle`付きの単独itemとしても混在する**（親側の`children`配列にも同じ子は残るため、両方から拾うとカウント二重になる点に注意。`parentId`があるitemは「親側で既にカウント済みの完了子タスクの個別表示」なので、集計時はスキップするか除外して扱うこと）
   - 状態変更: `POST /api/update-status {taskId, newStatus, actor?}` — `newStatus`はcode値 `todo`/`ready`/`do`/`done` のいずれか（**日本語ラベルではない**）
-  - 今日やる: `POST /api/toggle-today {taskId, value?, actor?}` — レスポンスキーは `pinned`
+  - 今日やる: `POST /api/toggle-today {taskId, value?, actor?}` — レスポンスキーは `pinned`。EPICを指定すると子タスクへ一括適用し、旧形式で親自身に残ったpinも解除する。応答の`affectedTaskIds`は操作対象のタスクID配列
   - 実行中: `POST /api/toggle-running {taskId, value?, actor?}`
   - **AI実行者の記録（BT-281）**: AIエージェントが上記3 APIを操作する際は、自身の識別子を`actor`へ必ず渡す（Codexは`"codex"`、Claude Codeは`"claude-code"`、Kiroは`"kiro"`）。未指定時は後方互換として`"user"`になる。`toggle-running`のONで実行セッションを開始し、OFFまたは`done`で終了する。開始AI・停止AIは履歴へ永続記録される。
   - 追加: `POST /api/add-task {title, project?, status?, origin?, parentId?, description?, assignee?, startDate?, dueDate?}`（BT-263で担当/開始日/期日にも対応。登録フォームで最初から入力できる）

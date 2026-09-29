@@ -914,7 +914,9 @@ function renderBoard(data) {
       items = items.filter(item => item.project === currentFilter);
     }
     if (todayFilterActive) {
-      items = items.filter(item => item.todayFlag || item.todayCount > 0);
+      // Epicの今日やるは子タスクの集約だけを正とする。旧データに親自身の
+      // todayFlagが残っていても、ピン数0のEpicをフィルタ結果へ混ぜない。
+      items = items.filter(item => item.childrenTotal > 0 ? item.todayCount > 0 : item.todayFlag);
     }
     // 完了カラム「本日完了だけ」表示（達成感モード）: completedDateが今日(JST)のものだけ
     const doneTodayActive = isCompact && doneTodayOnly;

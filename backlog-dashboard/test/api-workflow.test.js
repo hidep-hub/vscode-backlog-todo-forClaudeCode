@@ -72,6 +72,22 @@ test('serves the core task workflow through the REST API', async () => {
     assert.ok((await request(baseUrl, '/api/board')).body.columns.length >= 4);
     assert.ok((await request(baseUrl, '/api/activity')).body.some(event => event.taskId === taskId));
     assert.equal((await request(baseUrl, '/api/delete-task', { taskId })).body.ok, true);
+
+    const epicCreated = await request(baseUrl, '/api/add-task', { title: 'Epic pin workflow', project: 'extra', status: 'todo' });
+    assert.equal(epicCreated.body.ok, true, JSON.stringify(epicCreated.body));
+    const epic = epicCreated.body.id;
+    const childCreated = await request(baseUrl, '/api/add-task', { title: 'Epic child', project: 'extra', status: 'todo', parentId: epic });
+    assert.equal(childCreated.body.ok, true, JSON.stringify(childCreated.body));
+    const childTask = childCreated.body.id;
+    const pinEpic = await request(baseUrl, '/api/toggle-today', { taskId: epic, value: true, actor: 'codex' });
+    assert.equal(pinEpic.body.pinned, true, JSON.stringify(pinEpic.body));
+    assert.deepEqual(pinEpic.body.affectedTaskIds, [childTask]);
+    const epicDetail = await request(baseUrl, `/api/task/${epic}`);
+    assert.equal(epicDetail.body.todayFlag, false);
+    assert.equal(epicDetail.body.children[0].todayFlag, true);
+    const unpinEpic = await request(baseUrl, '/api/toggle-today', { taskId: epic, value: false, actor: 'codex' });
+    assert.equal(unpinEpic.body.pinned, false);
+    assert.equal((await request(baseUrl, `/api/task/${childTask}`)).body.todayFlag, false);
   } finally {
     if (child.exitCode === null && child.signalCode === null) {
       child.kill();

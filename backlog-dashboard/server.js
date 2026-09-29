@@ -608,7 +608,7 @@ function serveStatic(req, res) {
   }
 
   // API: POST /api/toggle-today (BT-189: DB版。isChildパラメータは廃止(BT-187)、
-  // レスポンスキーもtodayFlag→pinnedに改名)
+  // レスポンスキーもtodayFlag→pinnedに改名。BT-318: Epicは子タスクを一括操作する)
   if (req.url === '/api/toggle-today' && req.method === 'POST') {
     readRequestBody(req).then(({ taskId, value, actor }) => {
       if (!taskId) {
@@ -625,9 +625,19 @@ function serveStatic(req, res) {
       }
       const pinned = value !== false;
       const actionActor = tasksRepo.normalizeActor(actor);
-      tasksRepo.setPin(db, existing.workspace, taskId, pinned, actionActor);
+      const children = tasksRepo.getChildren(db, taskId);
+      if (children.length > 0) {
+        // Epicの「今日やる」は子タスクの集約値だけを正とする。旧実装で残った
+        // 親自身のピンも、この操作を契機に必ず解除して表示との不整合を防ぐ。
+        for (const child of children) {
+          tasksRepo.setPin(db, existing.workspace, child.display_id, pinned, actionActor);
+        }
+        tasksRepo.setPin(db, existing.workspace, taskId, false, actionActor);
+      } else {
+        tasksRepo.setPin(db, existing.workspace, taskId, pinned, actionActor);
+      }
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ ok: true, taskId, pinned, actor: actionActor }));
+      res.end(JSON.stringify({ ok: true, taskId, pinned, actor: actionActor, affectedTaskIds: children.length > 0 ? children.map(child => child.display_id) : [taskId] }));
       broadcast(buildBoard());
     }).catch(e => {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
