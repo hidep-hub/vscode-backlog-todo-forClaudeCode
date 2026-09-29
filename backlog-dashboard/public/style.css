@@ -1196,6 +1196,11 @@ body {
   display: flex;
 }
 
+/* 詳細（1000）・子詳細（1100）の上で操作する確認/選択/入力モーダル。 */
+.modal-overlay.modal-front {
+  z-index: 1200;
+}
+
 .modal-content {
   background: var(--surface);
   border: 1px solid var(--border);

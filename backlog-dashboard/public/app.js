@@ -24,6 +24,34 @@ const settingsGithubStatusEl = document.getElementById('settings-github-status')
 const settingsGithubSaveEl = document.getElementById('settings-github-save');
 const settingsGithubHintEl = document.getElementById('settings-github-hint');
 
+// 重なったモーダルでは、最前面だけを Escape で閉じる。
+// z-index が同じ場合はDOM末尾の要素が前面になるCSSの規則にも従う。
+function isTopmostDialog(el) {
+  const visible = document.querySelectorAll(
+    '.modal-overlay.modal-visible, .settings-overlay.settings-visible, .plan-board-overlay.active, .activity-modal-overlay.modal-visible'
+  );
+  let top = null;
+  let topLayer = -Infinity;
+  for (const candidate of visible) {
+    const layer = Number.parseInt(window.getComputedStyle(candidate).zIndex, 10) || 0;
+    if (layer >= topLayer) {
+      top = candidate;
+      topLayer = layer;
+    }
+  }
+  return top === el;
+}
+
+// capture で消費することで、背後にある詳細モーダルへ Escape が届かないようにする。
+function closeOnEscape(el, visibleClass, close) {
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !el.classList.contains(visibleClass) || !isTopmostDialog(el)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    close();
+  }, true);
+}
+
 // --- State ---
 let currentBoardData = null;
 let currentFilter = ''; // '' = all projects
@@ -309,6 +337,7 @@ settingsClose.addEventListener('click', () => {
 settingsOverlay.addEventListener('click', (e) => {
   if (e.target === settingsOverlay) closeSettings();
 });
+closeOnEscape(settingsOverlay, 'settings-visible', closeSettings);
 
 workspaceThemeSaveEl.addEventListener('click', () => {
   const draft = workspaceThemeDraft;
@@ -407,7 +436,7 @@ function getOrCreateGithubImportModal() {
   if (githubImportEl) return githubImportEl;
   githubImportEl = document.createElement('div');
   githubImportEl.id = 'github-import-overlay';
-  githubImportEl.className = 'modal-overlay';
+  githubImportEl.className = 'modal-overlay modal-front';
   githubImportEl.innerHTML = `
     <div class="modal-content modal-wide github-import-modal">
       <button class="modal-close" id="github-import-close">&times;</button>
@@ -445,9 +474,7 @@ function getOrCreateGithubImportModal() {
     if (e.target.classList.contains('github-issue-checkbox')) updateGithubImportSelection();
   });
   githubImportEl.querySelector('#github-import-execute-btn').addEventListener('click', executeGithubImport);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && githubImportEl.classList.contains('modal-visible')) closeGithubImportModal();
-  });
+  closeOnEscape(githubImportEl, 'modal-visible', closeGithubImportModal);
   return githubImportEl;
 }
 
@@ -1463,7 +1490,7 @@ function getOrCreateSearchModal() {
   if (el) return el;
   el = document.createElement('div');
   el.id = 'search-modal-overlay';
-  el.className = 'modal-overlay';
+  el.className = 'modal-overlay modal-front';
   el.innerHTML = `
     <div class="modal-content search-modal-content">
       <button class="modal-close" id="search-modal-close">&times;</button>
@@ -1476,9 +1503,7 @@ function getOrCreateSearchModal() {
     if (e.target === el) closeSearchModal();
   });
   el.querySelector('#search-modal-close').addEventListener('click', closeSearchModal);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && el.classList.contains('modal-visible')) closeSearchModal();
-  });
+  closeOnEscape(el, 'modal-visible', closeSearchModal);
   const inputEl = el.querySelector('#search-modal-input');
   inputEl.addEventListener('input', (e) => {
     renderSearchResults(e.target.value.trim().toLowerCase());
@@ -2177,6 +2202,7 @@ function getOrCreatePlanBoardModal() {
   document.body.appendChild(overlay);
   overlay.querySelector('#plan-board-close').addEventListener('click', closePlanBoard);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closePlanBoard(); });
+  closeOnEscape(overlay, 'active', closePlanBoard);
   overlay.querySelector('#plan-board-project-filter').addEventListener('change', (e) => {
     currentFilter = e.target.value;
     setSessionFilter(currentFilter);
@@ -2273,9 +2299,7 @@ function getOrCreateModal() {
     if (e.target === modalEl) closeModal();
   });
   modalEl.querySelector('.modal-close').addEventListener('click', closeModal);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && modalEl.classList.contains('modal-visible')) closeModal();
-  });
+  closeOnEscape(modalEl, 'modal-visible', closeModal);
 
   return modalEl;
 }
@@ -2343,12 +2367,7 @@ function getOrCreateChildModal() {
     if (e.target === el) closeChildModal();
   });
   el.querySelector('#child-modal-close').addEventListener('click', closeChildModal);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && el.classList.contains('modal-visible')) {
-      e.stopImmediatePropagation();
-      closeChildModal();
-    }
-  });
+  closeOnEscape(el, 'modal-visible', closeChildModal);
   return el;
 }
 
@@ -2649,15 +2668,13 @@ function getOrCreateDeleteConfirm() {
   if (el) return el;
   el = document.createElement('div');
   el.id = 'delete-confirm-overlay';
-  el.className = 'modal-overlay';
+  el.className = 'modal-overlay modal-front';
   el.innerHTML = `<div class="modal-content delete-confirm-modal"></div>`;
   document.body.appendChild(el);
   el.addEventListener('click', (e) => {
     if (e.target === el) closeDeleteConfirm();
   });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && el.classList.contains('modal-visible')) closeDeleteConfirm();
-  });
+  closeOnEscape(el, 'modal-visible', closeDeleteConfirm);
   return el;
 }
 
@@ -2673,6 +2690,7 @@ function closeDeleteConfirm() {
  */
 function openDeleteConfirm(item, isChild) {
   const el = getOrCreateDeleteConfirm();
+  document.body.appendChild(el);
   const content = el.querySelector('.modal-content');
   content.innerHTML = `
     <button class="modal-close" id="delete-confirm-close">&times;</button>
@@ -2722,15 +2740,13 @@ function getOrCreateGithubLinkModal() {
   if (el) return el;
   el = document.createElement('div');
   el.id = 'github-link-overlay';
-  el.className = 'modal-overlay';
+  el.className = 'modal-overlay modal-front';
   el.innerHTML = `<div class="modal-content github-link-modal"></div>`;
   document.body.appendChild(el);
   el.addEventListener('click', (e) => {
     if (e.target === el) closeGithubLinkModal();
   });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && el.classList.contains('modal-visible')) closeGithubLinkModal();
-  });
+  closeOnEscape(el, 'modal-visible', closeGithubLinkModal);
   return el;
 }
 
@@ -2755,6 +2771,7 @@ function parseIssueNumberInput(raw) {
  */
 function openGithubLinkModal(item) {
   const el = getOrCreateGithubLinkModal();
+  document.body.appendChild(el);
   const content = el.querySelector('.modal-content');
   content.innerHTML = `
     <button class="modal-close" id="github-link-close">&times;</button>
@@ -2807,15 +2824,13 @@ function getOrCreateGithubCreateConfirm() {
   if (el) return el;
   el = document.createElement('div');
   el.id = 'github-create-confirm-overlay';
-  el.className = 'modal-overlay';
+  el.className = 'modal-overlay modal-front';
   el.innerHTML = `<div class="modal-content delete-confirm-modal"></div>`;
   document.body.appendChild(el);
   el.addEventListener('click', (e) => {
     if (e.target === el) closeGithubCreateConfirm();
   });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && el.classList.contains('modal-visible')) closeGithubCreateConfirm();
-  });
+  closeOnEscape(el, 'modal-visible', closeGithubCreateConfirm);
   return el;
 }
 
@@ -2831,6 +2846,7 @@ function closeGithubCreateConfirm() {
  */
 function openGithubCreateConfirm(item, isChild) {
   const el = getOrCreateGithubCreateConfirm();
+  document.body.appendChild(el);
   const content = el.querySelector('.modal-content');
   const isEpic = !isChild && Array.isArray(item.children) && item.children.length > 0;
   const epicNote = isEpic
@@ -2906,6 +2922,7 @@ function openBulkGithubCreateConfirm() {
   }
 
   const el = getOrCreateGithubCreateConfirm();
+  document.body.appendChild(el);
   const content = el.querySelector('.modal-content');
   const skipNote = alreadyLinkedCount > 0
     ? `<p class="delete-confirm-text">連携済みの ${alreadyLinkedCount}件 は対象外にするよ。</p>`
@@ -3623,7 +3640,7 @@ let parentPickerEl = null;
 function getOrCreateParentPicker() {
   if (parentPickerEl) return parentPickerEl;
   parentPickerEl = document.createElement('div');
-  parentPickerEl.className = 'modal-overlay';
+  parentPickerEl.className = 'modal-overlay modal-front';
   parentPickerEl.innerHTML = `
     <div class="modal-content parent-picker-modal">
       <button class="modal-close" id="parent-picker-close">&times;</button>
@@ -3642,6 +3659,7 @@ function getOrCreateParentPicker() {
   parentPickerEl.querySelector('#parent-picker-search').addEventListener('input', (e) => {
     renderParentPickerList(e.target.value);
   });
+  closeOnEscape(parentPickerEl, 'modal-visible', closeParentPicker);
   return parentPickerEl;
 }
 
@@ -3653,7 +3671,7 @@ let movePickerEl = null;
 function getOrCreateMovePicker() {
   if (movePickerEl) return movePickerEl;
   movePickerEl = document.createElement('div');
-  movePickerEl.className = 'modal-overlay';
+  movePickerEl.className = 'modal-overlay modal-front';
   movePickerEl.innerHTML = `
     <div class="modal-content parent-picker-modal">
       <button class="modal-close" id="move-picker-close">&times;</button>
@@ -3666,6 +3684,7 @@ function getOrCreateMovePicker() {
     if (e.target === movePickerEl) closeMovePicker();
   });
   movePickerEl.querySelector('#move-picker-close').addEventListener('click', closeMovePicker);
+  closeOnEscape(movePickerEl, 'modal-visible', closeMovePicker);
   return movePickerEl;
 }
 
@@ -3688,6 +3707,7 @@ function openMovePicker(idsOverride, isChild) {
   const currentProjects = new Set(items.map(i => i.project));
 
   const picker = getOrCreateMovePicker();
+  document.body.appendChild(picker);
   const listEl = picker.querySelector('#move-picker-list');
   const projectFileMap = (currentBoardData && currentBoardData.projectFileMap) || {};
   const projectNames = (currentBoardData && currentBoardData.projects) || [];
@@ -3772,6 +3792,7 @@ function openParentPicker(idsOverride) {
   parentPickerProject = items[0] ? items[0].project : '';
 
   const picker = getOrCreateParentPicker();
+  document.body.appendChild(picker);
   // 新規作成フォームを表示中だった場合に備えて一覧UIへ戻す
   picker.querySelector('.modal-content').innerHTML = `
     <button class="modal-close" id="parent-picker-close">&times;</button>
@@ -3909,7 +3930,7 @@ let workspaceFormEl = null;
 function getOrCreateWorkspaceCreateForm() {
   if (workspaceFormEl) return workspaceFormEl;
   workspaceFormEl = document.createElement('div');
-  workspaceFormEl.className = 'modal-overlay';
+  workspaceFormEl.className = 'modal-overlay modal-front';
   workspaceFormEl.innerHTML = `
     <div class="modal-content add-task-modal">
       <button class="modal-close" id="workspace-form-close">&times;</button>
@@ -3933,6 +3954,7 @@ function getOrCreateWorkspaceCreateForm() {
     if (e.target === workspaceFormEl) closeWorkspaceCreateForm();
   });
   workspaceFormEl.querySelector('#workspace-form-close').addEventListener('click', closeWorkspaceCreateForm);
+  closeOnEscape(workspaceFormEl, 'modal-visible', closeWorkspaceCreateForm);
 
   const fileInput = workspaceFormEl.querySelector('#workspace-form-file');
   const pathPreview = workspaceFormEl.querySelector('#workspace-form-path-preview');
@@ -3950,6 +3972,7 @@ function updateWorkspacePathPreview(fileInput, pathPreview) {
 
 function openWorkspaceCreateForm() {
   const form = getOrCreateWorkspaceCreateForm();
+  document.body.appendChild(form);
   const fileInput = form.querySelector('#workspace-form-file');
   const prefixInput = form.querySelector('#workspace-form-prefix');
   const pathPreview = form.querySelector('#workspace-form-path-preview');
@@ -4014,7 +4037,7 @@ let addFormEl = null;
 function getOrCreateAddForm() {
   if (addFormEl) return addFormEl;
   addFormEl = document.createElement('div');
-  addFormEl.className = 'modal-overlay';
+  addFormEl.className = 'modal-overlay modal-front';
   addFormEl.innerHTML = `
     <div class="modal-content add-task-modal add-task-form-wide">
       <button class="modal-close" id="add-form-close">&times;</button>
@@ -4070,14 +4093,7 @@ function getOrCreateAddForm() {
   });
   addFormEl.querySelector('#add-form-close').addEventListener('click', closeAddForm);
 
-  // 子タスク追加フォームがEPIC詳細の上に開いているときは、Escapeをここで消費する。
-  // 親モーダルのdocumentハンドラへ到達させると、フォームではなくEPICが閉じてしまう。
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && addFormEl.classList.contains('modal-visible')) {
-      e.stopImmediatePropagation();
-      closeAddForm();
-    }
-  }, true);
+  closeOnEscape(addFormEl, 'modal-visible', closeAddForm);
 
   addFormEl.querySelector('#add-task-submit').addEventListener('click', submitAddTask);
 
