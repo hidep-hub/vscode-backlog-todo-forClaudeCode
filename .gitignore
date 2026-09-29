@@ -28,3 +28,10 @@ archive/
 
 # 自動起動スクリプトの実行ログ（個人環境のローカル状態）
 backlog-dashboard/logs/
+
+# PC固有のKiroステアリング上書き（ポート番号など、そのPCだけで効かせる設定。共有ルールは触らずこちらで読み替える）
+.kiro/steering/*.local.md
+.kiro/hooks/
+
+# 現行DB(kiro-backlog-todo-db)からの移行専用ツール（このPCでの一度きり〜数回の運用作業用。配布物ではないため非公開）
+tools/migrate-legacy-db/
