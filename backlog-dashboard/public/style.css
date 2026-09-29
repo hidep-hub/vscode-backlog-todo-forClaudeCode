@@ -1035,9 +1035,17 @@ body {
 }
 
 .card-badge .badge-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   padding: 2px 5px;
   background: var(--badge-numerator-bg);
   color: var(--badge-progress-fg);
+}
+
+.card-badge .badge-num .material-icon {
+  width: 0.85em;
+  height: 0.85em;
 }
 
 .card-badge .badge-den {
