@@ -844,8 +844,11 @@ function renderRunningStrip(data) {
     const agentId = item.agentId || 'user';
     if (!agents.includes(agentId)) agents.push(agentId);
   }
+  const activeAgentIds = running
+    .map(({ item }) => item.agentId || 'user');
+  const orderedAgents = runningAgentOrder.orderAgentsByActivity(agents, activeAgentIds);
   const indexByTaskId = new Map(running.map((entry, index) => [entry.item.id, index]));
-  el.innerHTML = agents.map(agentId => {
+  el.innerHTML = orderedAgents.map(agentId => {
     const meta = runningAgentMeta(agentId);
     const tasks = running.filter(({ item }) => (item.agentId || 'user') === agentId);
     const isActiveAgent = tasks.length > 0 && agentId !== 'user';
