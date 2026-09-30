@@ -5,8 +5,16 @@
 $ErrorActionPreference = 'Stop'
 
 $TaskName = 'BacklogDashboardAutoStart'
-$Port = 3333
 $ServerDir = Split-Path -Parent $PSScriptRoot
+
+# ポート番号はconfig.jsonのport値を使う(BM-011)。config.json未作成(clone直後)の場合はserver.jsと同じ3333にフォールバックする。
+$ConfigPath = Join-Path $ServerDir 'config.json'
+$Port = 3333
+if (Test-Path -LiteralPath $ConfigPath) {
+    $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    if ($config.port) { $Port = $config.port }
+}
+
 $ExpectedVersion = (Get-Content -LiteralPath (Join-Path $ServerDir 'package.json') -Raw | ConvertFrom-Json).version
 $HealthUri = "http://localhost:$Port/api/health"
 $TimeoutSeconds = 15
