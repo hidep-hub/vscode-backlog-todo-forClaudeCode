@@ -1,9 +1,15 @@
 # backlog-dashboard を非表示ウィンドウで起動する(IN-018)
 # タスクスケジューラのログオントリガーから呼ばれる想定。
-# ポート3333が既にLISTEN中なら二重起動せず何もしない。
+# 対象ポートが既にLISTEN中なら二重起動せず何もしない。
+# ポート番号はconfig.jsonのport値を使う(BM-011)。config.json未作成(clone直後)の場合はserver.jsと同じ3333にフォールバックする。
 
-$Port = 3333
 $ServerDir = Split-Path -Parent $PSScriptRoot
+$ConfigPath = Join-Path $ServerDir "config.json"
+$Port = 3333
+if (Test-Path -LiteralPath $ConfigPath) {
+    $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    if ($config.port) { $Port = $config.port }
+}
 $LogFile = Join-Path $PSScriptRoot "..\logs\startup.log"
 
 function Write-Log($message) {
