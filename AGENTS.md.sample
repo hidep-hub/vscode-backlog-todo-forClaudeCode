@@ -1,6 +1,24 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.1.10（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.1.11（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+
+## ルール正本と配布方式
+
+`AGENTS.md.sample` は、Claude Code / Codex / Kiroで共有するバックログ運用ルール本文の**唯一の正本**である。エージェント固有のペルソナ・利用者固有の指示は正本に含めない。
+
+```text
+AGENTS.md.sample（Git管理の唯一の正本）
+  ├─ .claude/skills/install-backlog-hub/assets/backlog-hub-rules.md
+  ├─ .kiro/steering/backlog-hub-rules.md
+  └─ 各PCで scripts/install-agent-rules.ps1 を実行
+       ├─ ~/.claude/steering/backlog-hub-rules.md
+       ├─ ~/.codex/AGENTS.md の managed block
+       └─ ~/.kiro/steering/backlog-hub-rules.md
+```
+
+- 配布物は正本と完全一致させ、正本の直接編集以外でルール本文を変更しない。
+- Codexインストーラは`AGENTS.md`のmanaged blockだけを更新する。ブロックがなければ既存の利用者固有指示を保持して末尾に追加し、空ならブロックだけを作成する。マーカー不整合・重複時は安全のため停止する。
+- 正本またはAPI仕様を更新したら、配布物を同期してから各PCで`install-agent-rules.ps1`を実行し、配置結果を確認する。
 
 ## データの真実
 - タスクの真のデータは SQLite DB（`<backlogDir>/backlog.sqlite3`）。UIやAPIはその窓（BT-179でmdから移行済み）。
@@ -22,6 +40,7 @@
     Invoke-RestMethod -Uri http://localhost:3333/api/update-status -Method Post -ContentType "application/json" -Body $bytes
     ```
   - Bash（Git Bash含む）で`curl -d '{"title":"日本語..."}'`のように日本語をシングルクォート内に直書きしてPOSTすると、Windows環境でエンコーディングが壊れて文字化けする（BT-179で実際に発生）。日本語を含むAPI呼び出しは、JSONを一旦UTF-8のファイルに書き出してから`--data-binary @file`で渡すか、日本語を含まないテスト文言（英数字のみ）を使う
+  - WindowsではPowerShellの`curl`が`Invoke-WebRequest`の別名であるため、curlオプションを前提にしない。日本語を含むPOSTの標準手段は上記の`Invoke-RestMethod`と`UTF8.GetBytes`にする。`curl.exe`を使う場合も、クォートや文字コードを検証してから使う
   - 実行後は文字化けしていないか目視確認する習慣をつける（「テストデータだから」で流さない）
 - **主要API（BT-179でDB版に刷新。`isChild`パラメータは全API廃止、`taskId`（例`BT-181`）単独で親・子どちらも指定できる）**:
   - 単体取得: `GET /api/task/:id`（BT-222）— `/api/board`の全件走査を経由せず1件だけ取得できる。返却形状は`/api/board`のitemと同じ（親を指定すると`children`/`childrenTotal`/`childrenDone`も含む）。存在しないtaskIdは404

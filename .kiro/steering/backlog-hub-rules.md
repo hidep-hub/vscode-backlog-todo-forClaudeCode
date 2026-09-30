@@ -1,10 +1,24 @@
----
-inclusion: always
----
-
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.1.8（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.1.11（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+
+## ルール正本と配布方式
+
+`AGENTS.md.sample` は、Claude Code / Codex / Kiroで共有するバックログ運用ルール本文の**唯一の正本**である。エージェント固有のペルソナ・利用者固有の指示は正本に含めない。
+
+```text
+AGENTS.md.sample（Git管理の唯一の正本）
+  ├─ .claude/skills/install-backlog-hub/assets/backlog-hub-rules.md
+  ├─ .kiro/steering/backlog-hub-rules.md
+  └─ 各PCで scripts/install-agent-rules.ps1 を実行
+       ├─ ~/.claude/steering/backlog-hub-rules.md
+       ├─ ~/.codex/AGENTS.md の managed block
+       └─ ~/.kiro/steering/backlog-hub-rules.md
+```
+
+- 配布物は正本と完全一致させ、正本の直接編集以外でルール本文を変更しない。
+- Codexインストーラは`AGENTS.md`のmanaged blockだけを更新する。ブロックがなければ既存の利用者固有指示を保持して末尾に追加し、空ならブロックだけを作成する。マーカー不整合・重複時は安全のため停止する。
+- 正本またはAPI仕様を更新したら、配布物を同期してから各PCで`install-agent-rules.ps1`を実行し、配置結果を確認する。
 
 ## データの真実
 - タスクの真のデータは SQLite DB（`<backlogDir>/backlog.sqlite3`）。UIやAPIはその窓（BT-179でmdから移行済み）。
@@ -26,13 +40,14 @@ inclusion: always
     Invoke-RestMethod -Uri http://localhost:3333/api/update-status -Method Post -ContentType "application/json" -Body $bytes
     ```
   - Bash（Git Bash含む）で`curl -d '{"title":"日本語..."}'`のように日本語をシングルクォート内に直書きしてPOSTすると、Windows環境でエンコーディングが壊れて文字化けする（BT-179で実際に発生）。日本語を含むAPI呼び出しは、JSONを一旦UTF-8のファイルに書き出してから`--data-binary @file`で渡すか、日本語を含まないテスト文言（英数字のみ）を使う
+  - WindowsではPowerShellの`curl`が`Invoke-WebRequest`の別名であるため、curlオプションを前提にしない。日本語を含むPOSTの標準手段は上記の`Invoke-RestMethod`と`UTF8.GetBytes`にする。`curl.exe`を使う場合も、クォートや文字コードを検証してから使う
   - 実行後は文字化けしていないか目視確認する習慣をつける（「テストデータだから」で流さない）
 - **主要API（BT-179でDB版に刷新。`isChild`パラメータは全API廃止、`taskId`（例`BT-181`）単独で親・子どちらも指定できる）**:
   - 単体取得: `GET /api/task/:id`（BT-222）— `/api/board`の全件走査を経由せず1件だけ取得できる。返却形状は`/api/board`のitemと同じ（親を指定すると`children`/`childrenTotal`/`childrenDone`も含む）。存在しないtaskIdは404
   - 履歴取得: `GET /api/activity`（BT-243、履歴機能EPIC BT-199配下）— `task_events`を`tasks`/`event_types`と結合し、`taskId`/`taskTitle`/`eventType`/`eventLabel`/`oldValue`/`newValue`/`actor`/`occurredAt`/`parentId`/`parentTitle`を持つイベント配列を`occurred_at`降順で返す。検索・期間絞り込みクエリは未対応（BT-246で追加予定）で、常に全件を返す
   - **【BT-201, BT-240で親のstatus条件を撤廃】`GET /api/board`のDONE列には、完了した子タスクが親の完了/未完了に関わらず`parentId`/`parentTitle`付きの単独itemとしても混在する**（親側の`children`配列にも同じ子は残るため、両方から拾うとカウント二重になる点に注意。`parentId`があるitemは「親側で既にカウント済みの完了子タスクの個別表示」なので、集計時はスキップするか除外して扱うこと）
   - 状態変更: `POST /api/update-status {taskId, newStatus, actor?}` — `newStatus`はcode値 `todo`/`ready`/`do`/`done` のいずれか（**日本語ラベルではない**）
-  - 今日やる: `POST /api/toggle-today {taskId, value?, actor?}` — レスポンスキーは `pinned`
+  - 今日やる: `POST /api/toggle-today {taskId, value?, actor?}` — レスポンスキーは `pinned`。EPICを指定すると子タスクへ一括適用し、旧形式で親自身に残ったpinも解除する。応答の`affectedTaskIds`は操作対象のタスクID配列
   - 実行中: `POST /api/toggle-running {taskId, value?, actor?}`
   - **AI実行者の記録（BT-281）**: AIエージェントが上記3 APIを操作する際は、自身の識別子を`actor`へ必ず渡す（Codexは`"codex"`、Claude Codeは`"claude-code"`、Kiroは`"kiro"`）。未指定時は後方互換として`"user"`になる。`toggle-running`のONで実行セッションを開始し、OFFまたは`done`で終了する。開始AI・停止AIは履歴へ永続記録される。
   - 追加: `POST /api/add-task {title, project?, status?, origin?, parentId?, description?, assignee?, startDate?, dueDate?}`（BT-263で担当/開始日/期日にも対応。登録フォームで最初から入力できる）
@@ -73,11 +88,13 @@ inclusion: always
 - 唯一の例外: ユーザーが明示的に「タスク化は不要、直接やって」と発言した場合のみ省略可。
   自己判断（「これは軽微だから」等）でのスキップは一切禁止。
 
-## タスクID指定で始めるときの必須アクション（最初の応答で）
-1. `GET /api/task/:id`（BT-222）でそのタスクの説明欄を読む — `/api/board`の全件取得から探す遠回りはしない
-2. 即座に 状態を `todo`→`do` に変更（`update-status {taskId, newStatus:"do", actor:"<自分のAI識別子>"}`）
-3. 即座に 実行中フラグON（`toggle-running {taskId, value:true, actor:"<自分のAI識別子>"}`）
-4. 説明欄に引き継ぎファイルパスがあれば自動で読み込みコンテキスト復元（`docs/plan`, `docs/report` 配下が置き場所の慣例）
+## タスクID指定時の事前調査・方針合意フロー（最初の応答で）
+1. `GET /api/task/:id`（BT-222）でタスクの説明欄を読む — `/api/board`の全件走査はしない。この時点では状態変更・実行中フラグON・ファイル変更をしない
+2. 説明欄に引き継ぎファイルパスがあれば読み込み、内容を「バグ」「新規要望」「調査・資料・その他」に分類する
+3. 分類に応じて、再現確認・既存実装の確認・影響範囲の把握など、方針を決めるために必要最小限の**読み取り専用の調査**だけを行う。コード編集、設定変更、書き込みAPI、状態変更は行わない
+4. ユーザーへ、調査結果（根拠・影響範囲）、対応方針（選択肢があれば推奨案と理由）、対象外、検証方法を提示し、明示的な承認を待つ
+5. ユーザーが「進めよう」等で承認した後に、合意した方針を説明欄へ記録し、状態を`do`へ変更（`update-status {taskId, newStatus:"do", actor:"<自分のAI識別子>"}`）し、実行中フラグON（`toggle-running {taskId, value:true, actor:"<自分のAI識別子>"}`）にしてから実装・変更を始める
+- 例外: ユーザーが「調査・方針提示は不要、直接進めて」と明示した場合だけ、手順3〜4を省略できる。個人名は記録せず、常に「ユーザー」と表記する
 - 完了時: `newStatus`を`"done"`にする際も`actor:"<自分のAI識別子>"`を渡す。pin（今日やる）/running（実行中）解除・完了日時記録はAPIが自動処理する（下記「完了時の自動処理」参照）
 
 ## 作業内容の記録ルール（説明欄への追記、BT-262で明文化）
@@ -127,20 +144,3 @@ inclusion: always
 - **【重要】config.jsonの`columns[].match`（ステータス値の正当性チェックに直結）を変更する場合、対応するコード（server.js）変更と同時に行うこと**。config.jsonは`fs.watch`でホットリロードされる（保存後300msデバウンスで自動反映）ため、コード側が新しいステータス値の集合に対応していない状態で保存すると、保存した瞬間に書き込み系APIが軒並み400エラーになる
 - 書き換え前に .bak を取り、切り戻し手順を用意する
 - API/コマンド実行後は結果を確認してから成功/失敗を報告する（推測で言わない）
-
-
----
-
-## Kiro固有の設定
-
-- このファイルは共通正本 `AGENTS.md.sample` の本文をそのまま複製し、Kiro固有の追記だけを末尾に加えたものである。共通ルールを変更したら、必ず両方を同期する。
-- Kiroのグローバル配置先は `~/.kiro/steering/backlog-hub-rules.md`。`scripts/install-kiro-backlog.ps1` は既存の配置先をバックアップしてから更新する。
-- KiroカスタムエージェントはSteeringとSkillを自動読込しない。必要なら`resources`へ次を加える。
-
-```json
-[
-  "file://.kiro/steering/**/*.md",
-  "skill://.kiro/skills/**/SKILL.md"
-]
-```
-
