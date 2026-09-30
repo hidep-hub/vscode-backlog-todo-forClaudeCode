@@ -107,28 +107,36 @@ try {
 // ============================================================
 
 /**
- * タスクが属するプロジェクトのワークスペースをVS Codeで開く
+ * タスクが属するプロジェクトのワークスペースをエディタで開く（BM-007）
  * @param {string} taskId
+ * @param {string} [editor] - 'code'（VS Code）または 'kiro'（Kiro）。既定は 'code'
  * @returns {{ success: boolean, workspace?: string, error?: string }}
  */
-// Windowsの`code`はPATH上の.cmdシムのため shell:true でしか解決できない。
+// Windowsの`code`/`kiro`はPATH上の.cmdシムのため shell:true でしか解決できない。
 // shell:true は引数をエスケープせず連結するため、config.json由来とはいえ
 // シェルメタ文字を含むパスは事前に弾いておく（多層防御）。
 const SAFE_WORKSPACE_PATH = /^[A-Za-z0-9 _.:/\\-]+$/;
 
-function spawnVSCode(workspacePath) {
+// サポートするエディタCLIコマンド（BM-007）。ここに無い値はopenWorkspaceで拒否する。
+const SUPPORTED_EDITORS = ['code', 'kiro'];
+
+function spawnEditor(editorCommand, workspacePath) {
   try {
-    const child = spawn('code', [workspacePath], { detached: true, shell: true, stdio: 'ignore' });
+    const child = spawn(editorCommand, [workspacePath], { detached: true, shell: true, stdio: 'ignore' });
     child.unref();
     return true;
   } catch (e) {
-    console.error(`[workspace] Failed to spawn code for ${workspacePath}:`, e.message);
+    console.error(`[workspace] Failed to spawn ${editorCommand} for ${workspacePath}:`, e.message);
     return false;
   }
 }
 
 // BT-193: DB版。タスクのworkspace(DB)からプロジェクトを解決する(旧findProjectEntryForTaskはmd検索のため使わない)
-function openWorkspace(taskId) {
+function openWorkspace(taskId, editor) {
+  const editorCommand = editor || 'code';
+  if (!SUPPORTED_EDITORS.includes(editorCommand)) {
+    return { success: false, error: `Unsupported editor: ${editorCommand}` };
+  }
   const db = getDb(BACKLOG_DIR);
   const task = tasksRepo.getByDisplayId(db, taskId);
   if (!task) {
@@ -148,7 +156,7 @@ function openWorkspace(taskId) {
     return { success: false, error: `Workspace path does not exist: ${project.workspace}` };
   }
 
-  spawnVSCode(project.workspace);
+  spawnEditor(editorCommand, project.workspace);
   return { success: true, workspace: project.workspace };
 }
 
@@ -211,11 +219,7 @@ function createWorkspaceProject({ file, prefix, name, workspace }) {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf8');
   console.log(`[api] Registered project "${file}" (prefix: ${prefix}) in config.json`);
 
-  // 「作って開く」（BT-033の課題1節）を1APIで完結させるため、作成直後にVS Codeを起動する
-  if (workspace) {
-    spawnVSCode(workspace);
-  }
-
+  // BM-007: 作成直後の自動起動は廃止。エディタはユーザーがカードのボタンから選ぶ。
   return { success: true, file, prefix, name: displayName, workspace: workspace || '' };
 }
 
@@ -1077,13 +1081,13 @@ function serveStatic(req, res) {
 
   // API: POST /api/open-workspace
   if (req.url === '/api/open-workspace' && req.method === 'POST') {
-    readRequestBody(req).then(({ taskId }) => {
+    readRequestBody(req).then(({ taskId, editor }) => {
       if (!taskId) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'taskId is required' }));
         return;
       }
-      const result = openWorkspace(taskId);
+      const result = openWorkspace(taskId, editor);
       if (result.success) {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ ok: true, workspace: result.workspace }));
