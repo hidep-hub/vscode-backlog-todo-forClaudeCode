@@ -1397,6 +1397,7 @@ function actionsRow(...btns) {
 
 // ワークスペース導線ボタンのHTMLを生成する（BT-053）
 // プロジェクトにworkspaceパスが設定済みなら「開く」、未設定なら「作る」を出し分ける
+// BM-007: 「開く」はエディタ固定(VS Code)だったため、code/kiroの2ボタンに分ける
 function buildWorkspaceActionHtml(item) {
   if (!item.id || item.id === '-') return '';
   const workspaceMap = currentBoardData && currentBoardData.workspaceMap || {};
@@ -1405,16 +1406,19 @@ function buildWorkspaceActionHtml(item) {
     if (isCurrentUrlWorkspace(item)) {
       return `<button class="add-child-btn workspace-open-current" id="modal-open-workspace-btn" disabled title="現在のワークスペースを表示中です"><span class="material-icon icon-folder-open"></span> 現在のワークスペース</button>`;
     }
-    return `<button class="add-child-btn" id="modal-open-workspace-btn"><span class="material-icon icon-folder-open"></span> ワークスペースを開く</button>`;
+    return [
+      `<button class="add-child-btn" id="modal-open-workspace-code-btn" data-editor="code"><span class="material-icon icon-folder-open"></span> codeで開く</button>`,
+      `<button class="add-child-btn" id="modal-open-workspace-kiro-btn" data-editor="kiro"><span class="material-icon icon-folder-open"></span> KIROで開く</button>`,
+    ].join('');
   }
   return `<button class="add-child-btn btn-add" id="modal-create-workspace-btn"><span class="material-icon icon-construction"></span> ワークスペースを作る</button>`;
 }
 
 function setupWorkspaceActionButtons(body, item) {
-  const openBtn = body.querySelector('#modal-open-workspace-btn');
-  if (openBtn) {
-    openBtn.addEventListener('click', () => openTaskWorkspace(item.id, openBtn));
-  }
+  const openBtns = body.querySelectorAll('#modal-open-workspace-code-btn, #modal-open-workspace-kiro-btn');
+  openBtns.forEach(btn => {
+    btn.addEventListener('click', () => openTaskWorkspace(item.id, btn, btn.dataset.editor));
+  });
   const createBtn = body.querySelector('#modal-create-workspace-btn');
   if (createBtn) {
     createBtn.addEventListener('click', () => openWorkspaceCreateForm());
@@ -1434,7 +1438,7 @@ function setupMoveActionButton(body, item, isChild) {
   }
 }
 
-async function openTaskWorkspace(taskId, btnEl) {
+async function openTaskWorkspace(taskId, btnEl, editor) {
   const originalText = btnEl.textContent;
   btnEl.disabled = true;
   btnEl.textContent = '開いてるよ...';
@@ -1442,7 +1446,7 @@ async function openTaskWorkspace(taskId, btnEl) {
     const resp = await fetch('/api/open-workspace', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ taskId }),
+      body: JSON.stringify({ taskId, editor }),
     });
     const data = await resp.json();
     if (!resp.ok) {
