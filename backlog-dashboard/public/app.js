@@ -83,9 +83,24 @@ function columnSortSelectHtml(colId) {
   return `<select class="column-sort-select" data-col-id="${colId}" aria-label="${colId}の表示順">${options}</select>`;
 }
 
-// --- 週次計画ビュー (BT-264) ---
+// BM-012: 週次計画ビューの列は、メインボードの列ID('todo'/'do'等)と同名のバケットIDを
+// 持つため、保存キーを別名にして混線を避ける（列内ソート状態を共有しない）。
+function planColumnSortMode(bucketId) {
+  return localStorage.getItem(COLUMN_SORT_KEY_PREFIX + 'plan_' + bucketId) || 'manual';
+}
+
+function planColumnSortSelectHtml(bucketId) {
+  const current = planColumnSortMode(bucketId);
+  const options = COLUMN_SORT_OPTIONS.map(([value, label]) =>
+    `<option value="${value}"${value === current ? ' selected' : ''}>${label}</option>`).join('');
+  return `<select class="column-sort-select plan-col-sort-select" data-bucket-id="${bucketId}" aria-label="${bucketId}の表示順">${options}</select>`;
+}
+
+// --- 週次計画ビュー (BT-264, BM-012) ---
 let planDragData = null; // { kind: 'single', id } | { kind: 'group', epicId, childIds: [] }
 let planCollapsedGroups = new Set(); // 折りたたみ中のEPICグループキー('epicId_bucketId')
+let planSearchQuery = ''; // BM-012: ID・件名・親EPICタイトルの部分一致（空文字=絞り込みなし）
+let planPinOnly = false; // BM-012: 📌ピンが付いたタスク（EPICは子の集約）だけ表示する
 
 // --- 複数選択→親付け (BT-034) ---
 let selectionMode = false;
@@ -2009,15 +2024,18 @@ function planAddDays(d, n) {
 // weeksOffset: 今週=0, 来週=1, それ以降(ドロップ時の基準週)=2
 const PLAN_WEEKS_OFFSET = { thisWeek: 0, nextWeek: 1, later: 2 };
 
+// label: 列名（濃い表示） / range: 付随する日付範囲（薄く小さい表示。無ければ空文字）
 function planBucketDef() {
   const todayMonday = planGetMonday(getTodayJST());
-  const mondayOf = (weeksOffset) => planFormatYmd(planAddDays(todayMonday, weeksOffset * 7)).slice(5).replace('-', '/');
+  const mdOf = (weeksOffset, dayOffset) =>
+    planFormatYmd(planAddDays(todayMonday, weeksOffset * 7 + dayOffset)).slice(5).replace('-', '/');
+  const todayLabel = getTodayJST().slice(5).replace('-', '/');
   return [
-    { id: 'todo', label: 'TODO' },
-    { id: 'overdue', label: '遅延' },
-    { id: 'thisWeek', label: `今週(${mondayOf(0)})` },
-    { id: 'nextWeek', label: `来週(${mondayOf(1)})` },
-    { id: 'later', label: 'それ以降' },
+    { id: 'todo', label: 'ストック', range: '' },
+    { id: 'overdue', label: '遅延', range: `〜${todayLabel}` },
+    { id: 'thisWeek', label: '今週', range: `${mdOf(0, 0)}〜${mdOf(0, 4)}` },
+    { id: 'nextWeek', label: '来週', range: `${mdOf(1, 0)}〜${mdOf(1, 4)}` },
+    { id: 'later', label: 'それ以降', range: '' },
   ];
 }
 
@@ -2059,16 +2077,40 @@ function planCollectItems() {
   return result;
 }
 
+// 📌が立っているか。EPICは自身のフラグを持たず子の集計（todayCount）で表される
+function planPinActive(item) {
+  return (item.children && item.children.length > 0) || item.childrenTotal > 0
+    ? (item.todayCount || 0) > 0
+    : !!item.todayFlag;
+}
+
+// BM-012: タイトル絞り込み。対象は ID / 件名 / 分類 / ワークスペース。空白区切りはAND。
+function planMatchesSearch(item, query) {
+  const q = (query || '').trim().toLowerCase();
+  if (!q) return true;
+  const hay = [item.id, item.title, item.category, item.project].filter(Boolean).join(' ').toLowerCase();
+  return q.split(/\s+/).every((term) => hay.includes(term));
+}
+
 function planBuildBuckets(bucketDefs) {
   const buckets = {};
   for (const b of bucketDefs) buckets[b.id] = { singles: [], epicGroups: new Map() };
 
+  const isFiltered = !!planSearchQuery.trim() || planPinOnly;
+
   for (const item of planCollectItems()) {
     const isEpic = (item.children && item.children.length > 0) || item.childrenTotal > 0;
     if (isEpic) {
+      // BM-012: EPIC自身の📌（=子の集約）が立っていれば、絞り込み条件に関わらずEPICごと出す
+      const epicPinned = planPinActive(item);
       for (const child of (item.children || [])) {
         const bucketId = planBucketForDueDate(child.dueDate);
         if (bucketId === 'todo' && child.statusCode === 'done') continue; // 完了済みは期日未設定のままTODOに残さない
+        if (isFiltered) {
+          const matchesPin = !planPinOnly || epicPinned;
+          const matchesSearch = planMatchesSearch(child, planSearchQuery) || planMatchesSearch(item, planSearchQuery);
+          if (!matchesPin || !matchesSearch) continue;
+        }
         let group = buckets[bucketId].epicGroups.get(item.id);
         if (!group) {
           group = { epic: item, children: [] };
@@ -2079,6 +2121,10 @@ function planBuildBuckets(bucketDefs) {
     } else {
       const bucketId = planBucketForDueDate(item.dueDate);
       if (bucketId === 'todo' && item.statusCode === 'done') continue;
+      if (isFiltered) {
+        if (planPinOnly && !planPinActive(item)) continue;
+        if (!planMatchesSearch(item, planSearchQuery)) continue;
+      }
       buckets[bucketId].singles.push(item);
     }
   }
@@ -2103,12 +2149,19 @@ async function planUpdateDueDate(taskId, dueDate) {
 
 function planBuildCard(item, bucketId, parentEpic = null) {
   const isDone = item.statusCode === 'done';
+  const pinActive = !!item.todayFlag; // 子タスク・単発タスク自身のピン（EPIC集約は呼び出し元のグループ見出しで表現）
   const card = document.createElement('div');
-  card.className = 'card plan-card' + (isDone ? ' plan-card-done' : '');
+  card.className = 'card plan-card' + (isDone ? ' plan-card-done' : '') + (pinActive ? ' card-today' : '');
   card.dataset.taskId = item.id;
   const spinner = item.running ? '<span class="running-spinner"></span>' : '';
-  const dueBadge = item.dueDate ? `<div class="card-meta">${renderDueDateBadge(item.dueDate)}</div>` : '';
-  card.innerHTML = `<div class="card-id">${spinner}${escapeHtml(item.id)}</div><div class="card-title">${escapeHtml(item.title)}</div>${dueBadge}`;
+  const pinIcon = pinActive ? '<span class="material-icon icon-keep plan-card-pin"></span>' : '';
+  // BM-012: ワークスペースをALL表示にしているときだけ、カードにワークスペースバッジを出す
+  // （1つに絞っているときは全カード同じ値になり情報量がゼロなので出さない）
+  const wsBadge = (!currentFilter && item.project)
+    ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
+  const dueBadge = item.dueDate ? renderDueDateBadge(item.dueDate) : '';
+  const metaHtml = (wsBadge || dueBadge) ? `<div class="card-meta">${wsBadge}${dueBadge}</div>` : '';
+  card.innerHTML = `<div class="card-id">${spinner}${pinIcon}${escapeHtml(item.id)}</div><div class="card-title">${escapeHtml(item.title)}</div>${metaHtml}`;
 
   if (!isDone) {
     card.setAttribute('draggable', 'true');
@@ -2139,17 +2192,22 @@ function planBuildCard(item, bucketId, parentEpic = null) {
   return card;
 }
 
-function planBuildEpicGroup(group, bucketId) {
+function planBuildEpicGroup(group, bucketId, forceExpand = false) {
   const key = group.epic.id + '_' + bucketId;
-  const isExpanded = !planCollapsedGroups.has(key);
+  const isExpanded = forceExpand || !planCollapsedGroups.has(key);
   const wrap = document.createElement('div');
-  wrap.className = 'plan-epic-group';
+  const epicPinned = planPinActive(group.epic);
+  wrap.className = 'plan-epic-group' + (epicPinned ? ' card-today' : '') + (forceExpand ? ' is-forced' : '');
 
   const header = document.createElement('div');
   header.className = 'plan-epic-header';
-  header.innerHTML = `<span class="plan-epic-handle" title="ドラッグでこのEPICの子タスクをまとめて移動">≡</span><span class="plan-epic-toggle">${isExpanded ? '▾' : '▸'}</span><div class="plan-epic-header-text"><div class="plan-epic-header-row1"><span class="card-id">${escapeHtml(group.epic.id)}</span><span class="count">${group.children.length}</span></div><div class="card-title">${escapeHtml(group.epic.title)}</div></div>`;
+  const pinIcon = epicPinned
+    ? `<span class="material-icon icon-keep plan-card-pin" title="子タスクに📌あり（${group.epic.todayCount || 0}件）"></span>` : '';
+  const toggleTitle = forceExpand ? '絞り込み中は開いたまま表示するよ' : (isExpanded ? '折りたたむ' : '開く');
+  header.innerHTML = `<span class="plan-epic-handle" title="ドラッグでこのEPICの子タスクをまとめて移動">≡</span><span class="plan-epic-toggle" title="${escapeHtml(toggleTitle)}">${isExpanded ? '▾' : '▸'}</span><div class="plan-epic-header-text"><div class="plan-epic-header-row1"><span class="card-id">${pinIcon}${escapeHtml(group.epic.id)}</span><span class="count">${group.children.length}</span></div><div class="card-title">${escapeHtml(group.epic.title)}</div></div>`;
 
   header.addEventListener('click', (e) => {
+    if (forceExpand) return;
     if (e.target.closest('.plan-epic-handle')) return;
     if (planCollapsedGroups.has(key)) planCollapsedGroups.delete(key); else planCollapsedGroups.add(key);
     renderPlanBoard();
@@ -2226,27 +2284,105 @@ function renderPlanBoard() {
   const buckets = planBuildBuckets(bucketDefs);
   container.innerHTML = '';
 
+  // 絞り込み中はストックのEPICグループを開いたまま出す（畳んだままだと絞り込んだ意味が無い）
+  const isFiltered = !!planSearchQuery.trim() || planPinOnly;
+
   for (const b of bucketDefs) {
     const bucket = buckets[b.id];
     const totalCount = bucket.singles.length + Array.from(bucket.epicGroups.values()).reduce((s, g) => s + g.children.length, 0);
+    const sortMode = planColumnSortMode(b.id);
+    const isStock = b.id === 'todo';
 
+    // BM-012: 「全部開く/畳む」はストック列だけの機能なので、共通ヘッダーではなく
+    // ストック列のヘッダー内（列名の右）にアイコンボタンとして置く（他列に効くように誤解されないよう）
+    if (isStock) {
+      planStockGroupKeys = Array.from(bucket.epicGroups.keys()).map((epicId) => epicId + '_todo');
+    }
+    const stockToggleHtml = isStock
+      ? `<button type="button" class="plan-stock-toggle-all-btn" id="plan-stock-toggle-all-btn" title="ストック列のEPICグループをまとめて開閉する">▾</button>`
+      : '';
+
+    const rangeHtml = b.range ? `<span class="plan-col-range">${escapeHtml(b.range)}</span>` : '';
     const colEl = document.createElement('div');
     colEl.className = 'plan-col';
-    colEl.innerHTML = `<div class="plan-col-header"><span>${b.label}</span><span class="count">${totalCount}</span></div><div class="plan-col-body" data-bucket-id="${b.id}"></div>`;
+    colEl.innerHTML = `<div class="plan-col-header"><span class="plan-col-label">${escapeHtml(b.label)}</span>${stockToggleHtml}${rangeHtml}<div class="column-header-right">${planColumnSortSelectHtml(b.id)}<span class="count">${totalCount}</span></div></div><div class="plan-col-body" data-bucket-id="${b.id}"></div>`;
     const body = colEl.querySelector('.plan-col-body');
     planSetupDropZone(body, b.id);
 
-    for (const item of bucket.singles) {
-      body.appendChild(planBuildCard(item, b.id));
-    }
-    for (const group of bucket.epicGroups.values()) {
-      body.appendChild(planBuildEpicGroup(group, b.id));
+    if (totalCount === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'plan-col-empty';
+      empty.textContent = b.id === 'overdue' || b.id === 'later' ? '（なし）' : 'ここにドロップ';
+      body.appendChild(empty);
+    } else {
+      const sortedSingles = columnSort.sortItems(bucket.singles, sortMode);
+      for (const item of sortedSingles) {
+        body.appendChild(planBuildCard(item, b.id));
+      }
+      for (const group of bucket.epicGroups.values()) {
+        group.children = columnSort.sortItems(group.children, sortMode);
+        body.appendChild(planBuildEpicGroup(group, b.id, isStock && isFiltered));
+      }
     }
 
     container.appendChild(colEl);
     // scrollTopはDOM接続後でないと反映されない(接続前は高さが確定せず0にクランプされる)
     if (scrollPositions[b.id] != null) body.scrollTop = scrollPositions[b.id];
   }
+
+  container.querySelectorAll('.plan-col-sort-select').forEach((select) => {
+    select.addEventListener('change', (e) => {
+      localStorage.setItem(COLUMN_SORT_KEY_PREFIX + 'plan_' + e.target.dataset.bucketId, e.target.value);
+      renderPlanBoard();
+    });
+  });
+
+  // BM-012: ストック列の「全部開く/畳む」アイコン。対象なし/絞り込み中は無効化する
+  // （disabledでも表示は保つ。列内に置くボタンなので他要素との位置ズレは元々気にしなくてよい）
+  const stockToggleBtn = container.querySelector('#plan-stock-toggle-all-btn');
+  if (stockToggleBtn) {
+    const usable = planStockGroupKeys.length > 0 && !isFiltered;
+    stockToggleBtn.disabled = !usable;
+    const anyCollapsed = usable && planStockGroupKeys.some((k) => planCollapsedGroups.has(k));
+    stockToggleBtn.textContent = anyCollapsed ? '▸' : '▾';
+    stockToggleBtn.title = usable
+      ? (anyCollapsed ? 'ストック列のEPICグループを全部開く' : 'ストック列のEPICグループを全部畳む')
+      : '絞り込み中は開いたまま表示するよ';
+    stockToggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      planToggleAllGroups();
+    });
+  }
+
+  planUpdateHeaderControls();
+}
+
+// BM-012: 共通ヘッダーのピン件数・絞込クリアボタンの表示を最新状態に合わせる
+function planUpdateHeaderControls() {
+  const overlay = document.getElementById('plan-board-overlay');
+  if (!overlay) return;
+
+  // ピン件数はストック列（planCollectItemsの全件、フィルタ前）を対象に数える
+  const allItems = planCollectItems();
+  let pinCount = 0;
+  for (const item of allItems) {
+    const isEpic = (item.children && item.children.length > 0) || item.childrenTotal > 0;
+    if (isEpic) {
+      if (planPinActive(item)) pinCount++;
+    } else if (item.todayFlag) {
+      pinCount++;
+    }
+  }
+  const pinBtn = overlay.querySelector('#plan-pin-filter-btn');
+  if (pinBtn) {
+    pinBtn.classList.toggle('filter-active', planPinOnly);
+    pinBtn.title = `📌ピンを付けたタスクだけ表示する（${pinCount}件）`;
+  }
+  const pinCountEl = overlay.querySelector('#plan-pin-count');
+  if (pinCountEl) pinCountEl.textContent = pinCount > 0 ? String(pinCount) : '';
+
+  const clearBtn = overlay.querySelector('#plan-search-clear-btn');
+  if (clearBtn) clearBtn.style.visibility = planSearchQuery ? 'visible' : 'hidden';
 }
 
 function getOrCreatePlanBoardModal() {
@@ -2260,6 +2396,11 @@ function getOrCreatePlanBoardModal() {
       <div class="plan-board-header">
         <h3><span class="material-icon icon-calendar-month"></span> 週次計画</h3>
         <select class="filter-select" id="plan-board-project-filter" title="Workspace filter"></select>
+        <div class="plan-search-wrap">
+          <input type="text" class="plan-search-input" id="plan-search-input" placeholder="絞り込み（ID・件名・分類）">
+          <button type="button" class="plan-search-clear-btn" id="plan-search-clear-btn" title="絞込解除">&#10005;</button>
+        </div>
+        <button type="button" class="plan-pin-filter-btn" id="plan-pin-filter-btn" title="📌ピンを付けたタスクだけ表示する（EPICは子に📌があればEPICごと表示）"><span class="material-icon icon-keep"></span><span class="plan-pin-count" id="plan-pin-count"></span></button>
         <button class="plan-board-close" id="plan-board-close">&times;</button>
       </div>
       <div class="plan-board-columns" id="plan-board-columns"></div>
@@ -2276,7 +2417,40 @@ function getOrCreatePlanBoardModal() {
     if (currentBoardData) renderBoard(currentBoardData);
     renderPlanBoard();
   });
+
+  // BM-012: キーワード絞り込み
+  const searchInput = overlay.querySelector('#plan-search-input');
+  searchInput.addEventListener('input', () => {
+    planSearchQuery = searchInput.value;
+    renderPlanBoard();
+  });
+  overlay.querySelector('#plan-search-clear-btn').addEventListener('click', () => {
+    planSearchQuery = '';
+    searchInput.value = '';
+    searchInput.focus();
+    renderPlanBoard();
+  });
+
+  // BM-012: 📌ピンだけ表示のトグル
+  overlay.querySelector('#plan-pin-filter-btn').addEventListener('click', () => {
+    planPinOnly = !planPinOnly;
+    renderPlanBoard();
+  });
+
   return overlay;
+}
+
+// 直近の描画で「ストック列」に出したEPICグループのキー（全部開く/畳むの対象）
+let planStockGroupKeys = [];
+
+function planToggleAllGroups() {
+  const keys = planStockGroupKeys;
+  if (!keys.length) return;
+  const anyCollapsed = keys.some((k) => planCollapsedGroups.has(k));
+  keys.forEach((k) => {
+    if (anyCollapsed) planCollapsedGroups.delete(k); else planCollapsedGroups.add(k);
+  });
+  renderPlanBoard();
 }
 
 function openPlanBoard() {
