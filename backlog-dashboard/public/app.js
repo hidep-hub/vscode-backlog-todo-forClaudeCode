@@ -899,6 +899,8 @@ function renderRunningStrip(data) {
   const el = document.getElementById('running-strip-agents');
   if (!el) return;
   const running = collectRunningTasks(data);
+  const countEl = document.getElementById('running-strip-count');
+  if (countEl) countEl.textContent = `進行中: ${running.length}件`;
   const agents = ['codex', 'claude-code', 'kiro'];
   for (const { item } of running) {
     const agentId = item.agentId || 'user';
