@@ -44,11 +44,16 @@ if ([regex]::Matches($existing, [regex]::Escape($startMarker)).Count -gt 0 -or [
     $updated = $managedBlock
 } else {
     $legacyMatches = [regex]::Matches($existing, '(?m)^# .*backlog-dashboard .*Codex.*$')
-    if ($legacyMatches.Count -ne 1) {
-        throw 'A single legacy backlog-rules heading was not found. No files were changed.'
+    if ($legacyMatches.Count -eq 0) {
+        # The user may already have unrelated global instructions (for example a
+        # persona) but no backlog label yet. Preserve them and append our block.
+        $updated = "$($existing.TrimEnd())$([Environment]::NewLine)$([Environment]::NewLine)$managedBlock"
+    } elseif ($legacyMatches.Count -eq 1) {
+        $prefix = $existing.Substring(0, $legacyMatches[0].Index).TrimEnd()
+        $updated = if ($prefix) { "$prefix$([Environment]::NewLine)$([Environment]::NewLine)$managedBlock" } else { $managedBlock }
+    } else {
+        throw 'Codex legacy backlog-rules headings are duplicated. No files were changed.'
     }
-    $prefix = $existing.Substring(0, $legacyMatches[0].Index).TrimEnd()
-    $updated = if ($prefix) { "$prefix$([Environment]::NewLine)$([Environment]::NewLine)$managedBlock" } else { $managedBlock }
 }
 
 Backup-Target -Path $target

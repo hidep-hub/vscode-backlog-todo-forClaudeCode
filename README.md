@@ -122,6 +122,12 @@ npm start
    .\scripts\install-kiro-backlog.ps1
    ```
 
+   複数のエージェントを使うPCでは、まとめて同期できます。
+
+   ```powershell
+   .\scripts\install-agent-rules.ps1
+   ```
+
 4. ダッシュボードを起動します。
 
    ```powershell
@@ -131,6 +137,16 @@ npm start
    ```
 
 起動後に `GET /api/health` が200を返すことを確認してください。導入スクリプトは既存のエージェント設定をタイムスタンプ付き`.bak`へ退避してから更新します。既存のダッシュボードへワークスペースを追加する場合は、`POST /api/create-workspace` を使います。
+
+### 更新時のルール同期
+
+`git pull` はリポジトリ内のルール正本を更新しますが、ホームディレクトリにあるClaude Code / Codex / Kiroのグローバル設定は更新しません。APIの追加・変更・廃止を含む運用ルールを取り込むには、pull後に次を実行してください。
+
+```powershell
+.\scripts\install-agent-rules.ps1
+```
+
+このスクリプトはversionだけを更新するものではなく、正本のルール全文とエージェント用スキルをバックアップ付きで配備します。API実装の変更履歴は `git log -p -- backlog-dashboard/server.js` で確認できます。
 
 ### Windows起動時の自動起動
 

@@ -18,6 +18,10 @@ description: SQLite版backlog-dashboardとAIエージェント向け運用ルー
 4. `GET /api/health` の200応答を確認する。
 5. 必要に応じて `backlog-dashboard/scripts/register-startup-task.ps1` で自動起動を登録する。
 
+## Claude Code / Codex / Kiroルールの配置・更新
+
+clone直後、およびリポジトリをpullした後は、リポジトリ直下で `scripts/install-agent-rules.ps1` を実行する。この同期はversion文字列だけでなく、API仕様を含むルール正本の全文をグローバル設定へバックアップ付きで配備する。個別に更新するときは `install-claude-backlog.ps1`、`install-codex-backlog.ps1`、`install-kiro-backlog.ps1` を使う。
+
 ## 既存ダッシュボードへのワークスペース追加
 
 1. `GET /api/health` で接続を確認する。
