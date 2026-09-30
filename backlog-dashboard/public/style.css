@@ -3787,13 +3787,58 @@ body {
 }
 
 .plan-col-header {
-  padding: 10px 14px;
-  font-size: 0.85rem;
+  padding: 8px 10px;
+  font-size: 0.8rem;
   font-weight: 600;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
+}
+
+.plan-col-label {
+  flex-shrink: 0;
+}
+
+/* BM-012: ストック列だけの「EPICグループを全部開く/畳む」。列名の右に置き、他列に効くように
+   見えないようにする（以前は共通ヘッダーに置いていたが、全列に効くと誤解されやすかった） */
+.plan-stock-toggle-all-btn {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  line-height: 1;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+
+.plan-stock-toggle-all-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.plan-stock-toggle-all-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* 日付範囲（今週mm/dd〜mm/dd 等）。列名より控えめに出す（BM-012） */
+.plan-col-range {
+  font-size: 0.65rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.plan-col-header .column-header-right {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .plan-col-header .count {
@@ -3930,6 +3975,121 @@ body {
   padding-left: 16px;
   border-left: 2px solid var(--border);
   margin-left: 8px;
+}
+
+/* --- BM-012: ヘッダーの絞り込み・ピン・グループ開閉 --- */
+.plan-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 220px;
+  min-width: 100px;
+}
+
+.plan-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.plan-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.plan-search-clear-btn {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  padding: 4px 7px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.plan-search-clear-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.plan-pin-filter-btn,
+.plan-group-expand-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.plan-pin-filter-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.plan-pin-filter-btn.filter-active {
+  color: var(--today-accent, #ff6b6b);
+  border-color: var(--today-accent, #ff6b6b);
+}
+
+.plan-pin-count:not(:empty) {
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+/* --- ストック列が0件のときの「ここにドロップ」表示（旧schedule-col-emptyと同じ語彙） --- */
+.plan-col-empty {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 18px 6px;
+}
+
+.plan-col-body.drop-over .plan-col-empty {
+  color: var(--accent);
+}
+
+/* --- BM-012: 📌ピン（子タスク・単発タスク自身） --- */
+.plan-card-pin {
+  color: var(--today-accent, #ff6b6b);
+  margin-right: 2px;
+}
+
+/* EPICグループ見出しに📌が立っている場合の強調（.cardを継承しない要素なので個別に定義） */
+.plan-epic-group.card-today .plan-epic-header {
+  background: var(--card-today-bg);
+  border-radius: 4px;
+  box-shadow: inset 2px 0 0 0 var(--today-border);
+}
+
+.plan-epic-group.card-today .plan-epic-header:hover {
+  background: var(--card-today-bg);
+}
+
+.plan-epic-toggle {
+  cursor: pointer;
+}
+
+.plan-epic-group.is-forced .plan-epic-toggle {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* 絞り込みUIが増えたぶん、幅が足りない画面ではタイトルの折り返しを崩さないよう縮められるものを縮める */
+.plan-board-header h3 {
+  flex-shrink: 0;
 }
 
 .card-tag.due-badge {
