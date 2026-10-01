@@ -46,6 +46,8 @@
 .material-icon.icon-psychiatry    { -webkit-mask-image: url('icons/psychiatry.svg'); mask-image: url('icons/psychiatry.svg'); }
 .material-icon.icon-timer         { -webkit-mask-image: url('icons/timer.svg'); mask-image: url('icons/timer.svg'); }
 .material-icon.icon-check-box     { -webkit-mask-image: url('icons/check_box.svg'); mask-image: url('icons/check_box.svg'); }
+.material-icon.icon-play-arrow    { -webkit-mask-image: url('icons/play_arrow.svg'); mask-image: url('icons/play_arrow.svg'); }
+.material-icon.icon-arrow-forward { -webkit-mask-image: url('icons/arrow_forward.svg'); mask-image: url('icons/arrow_forward.svg'); }
 
 /* --- Theme Variables --- */
 :root,
@@ -919,10 +921,92 @@ body {
   border-radius: 2px;
 }
 
+/* --- Narrow Rail (BM-018: 狭幅時にカラム縦積みの中で迷子にならないための左サイドバー) ---
+   通常幅では非表示。@media (max-width: 800px) の時だけ表示する。 */
+.narrow-rail {
+  display: none;
+  position: fixed;
+  /* top はJS側(positionNarrowRail)で .board の表示領域の中央に動的に合わせる。
+     ヘッダーはワークスペース数で縦に伸びるため、画面全体の50%固定だと
+     ヘッダーの裏に隠れることがある(BM-018バグ報告)。 */
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  z-index: 8;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: none;
+  border-radius: 0 10px 10px 0;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+
+.narrow-rail-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 42px;
+  padding: 5px 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+
+.narrow-rail-btn:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+
+.narrow-rail-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.narrow-rail-btn .material-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.narrow-rail-label {
+  font-size: 0.55rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.narrow-rail-count {
+  font-size: 0.55rem;
+  color: var(--text-muted);
+  background: var(--card);
+  border-radius: 8px;
+  padding: 0 4px;
+  min-width: 14px;
+  text-align: center;
+}
+
+.narrow-rail-btn.active .narrow-rail-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.narrow-rail-history-btn {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 7px;
+}
+
 /* --- Responsive --- */
 @media (max-width: 800px) {
   .board {
     overflow-y: auto;
+    padding-left: 54px;
   }
   .board-columns {
     flex: 0 0 auto;
@@ -933,6 +1017,9 @@ body {
   .column {
     flex: 0 0 320px;
     max-width: 100%;
+  }
+  .narrow-rail {
+    display: flex;
   }
 }
 
