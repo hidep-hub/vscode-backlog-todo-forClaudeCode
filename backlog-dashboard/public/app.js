@@ -854,9 +854,54 @@ function scheduleReconnect() {
   }, 3000);
 }
 
+// BM-014: 右端に浮いていた「live」テキストバッジを廃止し、ロゴ右下の状態ドットに統合。
+// 「接続中（live）」は当たり前の状態なので常時は表示しない。表示するのは次の3パターンだけ：
+//   1. 接続した瞬間だけ一瞬光らせる（起動/再接続の確認サイン、2.5秒でフェードアウト）
+//   2. 進行中タスクがある間（＝誰か/何かが実際に動いている間）は消さず脈動を継続する
+//   3. 切断中（異常）は赤で表示し続ける（最優先、再接続まで居座る）
+let statusHideTimer = null;
+let connStatusCls = 'connected';
+let connStatusText = 'connecting...';
+let hasRunningTasksForDot = false;
+
 function setStatus(cls, text) {
-  statusEl.className = `status ${cls}`;
-  statusEl.textContent = text;
+  connStatusCls = cls;
+  connStatusText = text;
+  if (statusHideTimer) {
+    clearTimeout(statusHideTimer);
+    statusHideTimer = null;
+  }
+  renderConnStatusDot();
+  if (cls === 'connected') {
+    // 接続確認の一瞬だけ必ず見せる。進行中タスクがあれば、この後もrenderConnStatusDotが表示を継続する。
+    statusHideTimer = setTimeout(() => {
+      statusHideTimer = null;
+      renderConnStatusDot();
+    }, 2500);
+  }
+  // disconnected はタイマーを張らない。renderConnStatusDotが最優先で表示し続ける。
+}
+
+// 進行中タスクの有無が変わった時だけ呼ばれる（renderRunningStripから）。
+function setRunningTasksPresence(hasRunning) {
+  if (hasRunningTasksForDot === hasRunning) return;
+  hasRunningTasksForDot = hasRunning;
+  renderConnStatusDot();
+}
+
+function renderConnStatusDot() {
+  if (connStatusCls === 'disconnected') {
+    statusEl.className = 'conn-status-dot show disconnected';
+    statusEl.title = connStatusText;
+    statusEl.setAttribute('aria-label', connStatusText);
+    return;
+  }
+  const justConnected = statusHideTimer !== null;
+  const visible = justConnected || hasRunningTasksForDot;
+  const text = hasRunningTasksForDot ? '実行中のタスクがあります' : connStatusText;
+  statusEl.className = `conn-status-dot connected${visible ? ' show' : ''}`;
+  statusEl.title = text;
+  statusEl.setAttribute('aria-label', text);
 }
 
 // --- 進行中タスク表示（ステータスバー / BT-059） ---
@@ -904,6 +949,8 @@ function renderRunningStrip(data) {
     countEl.textContent = `進行中: ${running.length}件`;
     countEl.hidden = running.length === 0;
   }
+  // BM-014: 進行中タスクがある間は、ロゴ右下の接続状態ドットを消さず脈動させ続ける。
+  setRunningTasksPresence(running.length > 0);
   const agents = ['codex', 'claude-code', 'kiro'];
   for (const { item } of running) {
     const agentId = item.agentId || 'user';
