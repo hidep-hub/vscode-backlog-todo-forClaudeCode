@@ -235,6 +235,27 @@ function saveSettings(settings) {
   localStorage.setItem('backlog-dashboard-settings', JSON.stringify(settings));
 }
 
+// --- カード文字サイズ S/M/L (BT-339, localStorageに保存。Lが従来の通常カード) ---
+const CARD_SIZES = ['s', 'm', 'l'];
+
+function applyCardSize(size) {
+  const value = CARD_SIZES.includes(size) ? size : 'l';
+  document.documentElement.setAttribute('data-card-size', value);
+  document.querySelectorAll('#card-size-group .card-size-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.size === value);
+  });
+}
+
+applyCardSize(loadSettings().cardSize);
+document.querySelectorAll('#card-size-group .card-size-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const settings = loadSettings();
+    settings.cardSize = btn.dataset.size;
+    saveSettings(settings);
+    applyCardSize(settings.cardSize);
+  });
+});
+
 function normalizedSettings() {
   const settings = loadSettings();
   if (!['dark', 'light', 'system'].includes(settings.theme)) settings.theme = 'system';
