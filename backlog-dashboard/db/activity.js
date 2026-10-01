@@ -69,4 +69,52 @@ function buildActivity(db, config) {
   });
 }
 
-module.exports = { buildActivity };
+/**
+ * BM-020: ヘッダーのティッカー表示用。履歴モーダル(buildActivity)の全件取得は
+ * 562件規模(2026-10時点)でも226KB超あり、board操作のたびにbroadcastへ乗せると
+ * 無駄に重くなる。主キー(id)の降順LIMITだけで済む軽量版を別関数として用意し、
+ * 「直近イベントを少数だけ流す」用途に限定する。JOIN構造はbuildActivityと同じ。
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {object} config
+ * @param {number} limit - 取得件数(既定30)
+ */
+function buildRecentEvents(db, config, limit = 30) {
+  const workspaceToProjectName = {};
+  for (const p of config.projects || []) {
+    if (p.file) workspaceToProjectName[p.file] = p.name;
+  }
+
+  const rows = db.prepare(`
+    SELECT
+      te.id AS id,
+      te.task_display_id AS taskId,
+      te.event_type AS eventType,
+      te.old_value AS oldValue,
+      te.new_value AS newValue,
+      te.actor AS actor,
+      te.occurred_at AS occurredAt,
+      et.label AS eventLabel,
+      t.title AS taskTitle,
+      t.workspace AS workspace
+    FROM task_events te
+    LEFT JOIN event_types et ON et.code = te.event_type
+    LEFT JOIN tasks t ON t.id = te.task_id
+    ORDER BY te.id DESC
+    LIMIT ?
+  `).all(limit);
+
+  return rows.map(row => ({
+    id: row.id,
+    taskId: row.taskId,
+    taskTitle: row.taskTitle,
+    project: workspaceToProjectName[row.workspace] || row.workspace || null,
+    eventType: row.eventType,
+    eventLabel: row.eventLabel,
+    oldValue: row.oldValue,
+    newValue: row.newValue,
+    actor: row.actor,
+    occurredAt: row.occurredAt,
+  }));
+}
+
+module.exports = { buildActivity, buildRecentEvents };

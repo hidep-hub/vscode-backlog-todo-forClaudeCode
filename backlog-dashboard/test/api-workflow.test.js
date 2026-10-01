@@ -69,7 +69,11 @@ test('serves the core task workflow through the REST API', async () => {
     const detail = await request(baseUrl, `/api/task/${taskId}`);
     assert.equal(detail.body.statusCode, 'done');
     assert.deepEqual(detail.body.artifacts, ['docs/result.txt']);
-    assert.ok((await request(baseUrl, '/api/board')).body.columns.length >= 4);
+    const board = (await request(baseUrl, '/api/board')).body;
+    assert.ok(board.columns.length >= 4);
+    // BM-020: ヘッダーティッカー用の直近イベントがboard broadcastに相乗りしていることを確認する
+    assert.ok(Array.isArray(board.recentEvents));
+    assert.ok(board.recentEvents.some(event => event.taskId === taskId));
     assert.ok((await request(baseUrl, '/api/activity')).body.some(event => event.taskId === taskId));
     assert.equal((await request(baseUrl, '/api/delete-task', { taskId })).body.ok, true);
 

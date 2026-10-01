@@ -48,6 +48,7 @@
 .material-icon.icon-check-box     { -webkit-mask-image: url('icons/check_box.svg'); mask-image: url('icons/check_box.svg'); }
 .material-icon.icon-play-arrow    { -webkit-mask-image: url('icons/play_arrow.svg'); mask-image: url('icons/play_arrow.svg'); }
 .material-icon.icon-arrow-forward { -webkit-mask-image: url('icons/arrow_forward.svg'); mask-image: url('icons/arrow_forward.svg'); }
+.material-icon.icon-terminal      { -webkit-mask-image: url('icons/terminal.svg'); mask-image: url('icons/terminal.svg'); }
 
 /* --- Theme Variables --- */
 :root,
@@ -254,7 +255,10 @@ body {
 
 .header-top-row {
   display: flex;
-  align-items: center;
+  /* BM-020: ティッカー(.header-ticker)を3行表示できる高さにすると.header-controls側
+     より高くなるため、align-items:centerのままだと検索ボックス側が中央寄せで
+     下にずれ、ティッカーの上に余白が空いて見える。flex-startに変えて両者の上端を揃える。 */
+  align-items: flex-start;
   gap: 12px;
   width: 100%;
 }
@@ -270,6 +274,125 @@ body {
   display: flex;
   align-items: center;
   width: 100%;
+}
+
+/* BM-020: ロゴ(header-brand)と機能ボタン群(header-controls)の間にできる空きスペースを
+   使って、直近の操作ログをコンソール風に縦積みで流すティッカー。
+   flex: 1 1 auto で可変幅を占有し、両端のブロックの幅が変わっても追従する。
+   トグルOFF時は.header-ticker.ticker-hiddenでdisplay:noneにし、
+   「何もない空白」という元のレイアウトへそのまま戻す(BM-020要望)。
+   height: 68pxは、3行完全表示+4行目グラデという表示から逆算した値(BM-020フィードバック)。
+   1行の実高さ14.125px+gap1pxが4行分、padding(上下4px)を含めて収まる高さ。
+   .header-top-rowはalign-items:centerだとブロックの高さの違いが中央寄せの余白になり
+   「上マージンが大きい」ように見えるため、.header-top-row側をflex-start(上揃え)にして
+   このズレ自体を解消した(下記.header-top-row定義を参照)。 */
+.header-ticker {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 68px;
+  margin: 0 4px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  position: relative;
+  /* 下端に近づくほど薄くなるマスクで「古い行がフェードアウトしていく」感を出す。
+     新しい行はJS側で先頭に追加し、はみ出した古い行はこのマスクで自然に消える。
+     3行分(約75%)は完全不透明、残り(4行目)でフェードアウトする
+     (BM-020フィードバック: 「3行は視認できて、4行目からグラデ」)。 */
+  -webkit-mask-image: linear-gradient(to bottom, black 75%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 75%, transparent 100%);
+}
+
+.header-ticker.ticker-hidden {
+  display: none;
+}
+
+.header-ticker-list {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  height: 100%;
+  gap: 1px;
+}
+
+.header-ticker-line {
+  font-family: ui-monospace, 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+  font-size: 0.68rem;
+  line-height: 1.3;
+  color: var(--brand-fg-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transform: translateY(4px);
+  animation: header-ticker-enter 0.35s ease-out forwards;
+  /* flex-shrink:0必須。.header-ticker-listはheight固定(44px)のflexコンテナのため、
+     これが無いと全行の高さの合計がコンテナ高を超えた分だけ各行が圧縮され、
+     文字が潰れて判読不能になる(実機で確認、BM-020)。 */
+  flex-shrink: 0;
+}
+
+.header-ticker-line .ticker-ts {
+  opacity: 0.75;
+  margin-right: 6px;
+}
+
+.header-ticker-line .ticker-id {
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+/* BM-020フィードバック: 「RUN/Stopのような動詞をもっと太く、イベントとしてわからせたい」。
+   文字サイズは視認性の限界(これ以上縮めない)なので、太さ+色のコントラストだけで強調する。 */
+.header-ticker-line .ticker-action {
+  font-weight: 800;
+  color: var(--brand-fg);
+}
+
+.header-ticker-line .ticker-detail {
+  opacity: 0.85;
+}
+
+@keyframes header-ticker-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header-ticker-line {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .header-ticker {
+    display: none;
+  }
+}
+
+.ticker-toggle-btn {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ticker-toggle-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.ticker-toggle-btn.filter-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 
 .header-logo {

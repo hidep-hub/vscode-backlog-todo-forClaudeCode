@@ -9,7 +9,7 @@ const { spawn, execFileSync } = require('child_process');
 const githubClient = require('./github-client');
 const { getDb } = require('./db/connection');
 const { buildBoardFromDb, buildTaskDetail } = require('./db/board');
-const { buildActivity } = require('./db/activity');
+const { buildActivity, buildRecentEvents } = require('./db/activity');
 const tasksRepo = require('./db/tasks-repo');
 const { version: API_VERSION } = require('./package.json');
 
@@ -414,6 +414,10 @@ function buildBoard() {
     workspaceFilterMap: getWorkspaceFilterMap(),
     projectFileMap: getProjectFileMap(),
     projectPrefixMap: getProjectPrefixMap(),
+    // BM-020: ヘッダーのティッカー表示用。buildBoard()は既存のbroadcast経路に
+    // 相乗りさせるだけなので、新規の配信チャンネルは作らない(直近30件のみ、
+    // id降順LIMITなので board全体のクエリコストに対して無視できる負荷)。
+    recentEvents: buildRecentEvents(db, config, 30),
   };
 }
 
