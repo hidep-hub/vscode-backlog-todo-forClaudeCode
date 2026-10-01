@@ -952,6 +952,9 @@ function renderBoard(data) {
   boardColumnsEl.className = 'board-columns';
   boardEl.appendChild(boardColumnsEl);
 
+  // 狭幅時サイドバー(BM-018)用: カラムごとの全件数(limit適用前)を集めておく
+  const railCounts = {};
+
   // プロジェクト別残タスクバッジ表示（クリックでフィルタ連携）
   const badgesEl = document.getElementById('project-badges');
   if (badgesEl && data.remainingByProject) {
@@ -1008,6 +1011,8 @@ function renderBoard(data) {
 
     const colEl = document.createElement('div');
     colEl.className = 'column' + (isCompact ? ' column-compact' : '');
+    colEl.id = 'narrow-rail-target-' + col.id;
+    railCounts[col.id] = totalBeforeLimit;
 
     // 完了カラム用「本日完了だけ」トグルチップ
     const doneTodayToggleHtml = isCompact
@@ -1289,6 +1294,129 @@ function renderBoard(data) {
   });
 
   updateSelectionBar();
+  renderNarrowRail(data.columns, railCounts);
+}
+
+// --- Narrow Rail (BM-018) ---
+// 狭幅(800px以下)でカラムが縦積みになる時に迷子にならないための左サイドバー。
+// DO/READY/TODO/DONEへのジャンプ + 履歴ダイアログへの入口をまとめる。
+const NARROW_RAIL_DEFS = [
+  { colId: 'in_progress', label: 'DO', icon: 'play-arrow' },
+  { colId: 'ready', label: 'READY', icon: 'arrow-forward' },
+  { colId: 'todo', label: 'TODO', icon: 'folder-open' },
+  { colId: 'done', label: 'DONE', icon: 'check' },
+];
+
+let narrowRailObserver = null;
+// IntersectionObserverのentriesには「比率が変化したターゲットだけ」が渡される。
+// 呼び出しごとにentries内だけで最大値を取ると、クリック直後などentriesに
+// 含まれなかったカラムの比率を見落として選択状態が更新されない。
+// 全ターゲットの最新比率をここに保持し、callbackではこのMapを更新してから
+// 全体の中で最大のものを選ぶ。
+const narrowRailRatios = new Map();
+
+// .board の実際の表示領域(ヘッダー/running-stripに隠れない範囲)の縦中央にバーを置く。
+// ヘッダーはワークスペース数で高さが変わるため、画面全体の50%固定だと
+// バーがヘッダーの裏に隠れることがある(BM-018バグ報告)。
+function positionNarrowRail() {
+  const railEl = document.getElementById('narrow-rail');
+  if (!railEl || getComputedStyle(railEl).display === 'none') return;
+  const boardRect = boardEl.getBoundingClientRect();
+  const railHeight = railEl.offsetHeight;
+  const minTop = boardRect.top + 8;
+  const maxTop = boardRect.bottom - railHeight - 8;
+  const centerTop = boardRect.top + (boardRect.height - railHeight) / 2;
+  const top = Math.max(minTop, Math.min(maxTop, centerTop));
+  railEl.style.top = `${Math.max(8, top)}px`;
+  railEl.style.transform = 'none';
+}
+
+window.addEventListener('resize', positionNarrowRail);
+
+function renderNarrowRail(columns, railCounts) {
+  const railEl = document.getElementById('narrow-rail');
+  if (!railEl) return;
+
+  const existingCols = new Set((columns || []).map(c => c.id));
+  const buttonsHtml = NARROW_RAIL_DEFS
+    .filter(def => existingCols.has(def.colId))
+    .map(def => {
+      const count = railCounts[def.colId] || 0;
+      return `<button type="button" class="narrow-rail-btn" data-col-id="${def.colId}" title="${def.label}へ移動">
+        <span class="material-icon icon-${def.icon}"></span>
+        <span class="narrow-rail-label">${def.label}</span>
+        <span class="narrow-rail-count">${count}</span>
+      </button>`;
+    }).join('');
+
+  railEl.innerHTML = `${buttonsHtml}
+    <button type="button" class="narrow-rail-btn narrow-rail-history-btn" data-action="history" title="履歴を開く">
+      <span class="material-icon icon-history"></span>
+      <span class="narrow-rail-label">履歴</span>
+    </button>`;
+
+  railEl.querySelectorAll('.narrow-rail-btn[data-col-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = document.getElementById('narrow-rail-target-' + btn.dataset.colId);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  const historyBtn = railEl.querySelector('[data-action="history"]');
+  if (historyBtn) {
+    historyBtn.addEventListener('click', () => {
+      if (typeof openActivityView === 'function') openActivityView();
+    });
+  }
+
+  setupNarrowRailScrollSpy();
+  // レンダリング直後はバーの行数(=offsetHeight)が確定した後でないと中央計算がずれるため、
+  // 描画が終わった次フレームで位置を合わせる。
+  requestAnimationFrame(positionNarrowRail);
+}
+
+// メイン領域(.board)のスクロールに合わせて、今見えているカラムのバーボタンをハイライトする。
+function setupNarrowRailScrollSpy() {
+  if (narrowRailObserver) {
+    narrowRailObserver.disconnect();
+    narrowRailObserver = null;
+  }
+
+  const railEl = document.getElementById('narrow-rail');
+  if (!railEl) return;
+
+  const targets = NARROW_RAIL_DEFS
+    .map(def => document.getElementById('narrow-rail-target-' + def.colId))
+    .filter(Boolean);
+  if (targets.length === 0) return;
+
+  const setActive = (colId) => {
+    railEl.querySelectorAll('.narrow-rail-btn[data-col-id]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.colId === colId);
+    });
+  };
+
+  narrowRailRatios.clear();
+  narrowRailObserver = new IntersectionObserver((entries) => {
+    // entriesには比率が変化したターゲットだけが入るため、まず最新値をMapへ反映し、
+    // 全ターゲット分のMapの中から最も大きく見えているものを選ぶ（entries内だけで
+    // 比較すると、クリックジャンプ直後などentriesに含まれなかったカラムを見落とす）。
+    for (const entry of entries) {
+      const colId = entry.target.id.replace('narrow-rail-target-', '');
+      narrowRailRatios.set(colId, entry.isIntersecting ? entry.intersectionRatio : 0);
+    }
+    let bestColId = null;
+    let bestRatio = 0;
+    for (const [colId, ratio] of narrowRailRatios) {
+      if (ratio > bestRatio) {
+        bestRatio = ratio;
+        bestColId = colId;
+      }
+    }
+    if (bestColId) setActive(bestColId);
+  }, { root: boardEl, threshold: [0, 0.25, 0.5, 0.75, 1] });
+
+  targets.forEach(t => narrowRailObserver.observe(t));
 }
 
 function renderWorkspaceSummary(data) {
