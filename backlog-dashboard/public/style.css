@@ -984,7 +984,7 @@ body {
   padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--card-col-gap, 8px);
   overflow-y: auto;
   flex: 1;
   min-height: 0;
@@ -994,7 +994,7 @@ body {
 .card {
   background: var(--card);
   border-radius: 6px;
-  padding: 10px 12px;
+  padding: var(--card-pad, 10px 12px);
   transition: background 0.15s;
   cursor: default;
   border-left: 3px solid transparent;
@@ -1005,19 +1005,19 @@ body {
 }
 
 .card-id {
-  font-size: 0.7rem;
+  font-size: var(--fs-id, 0.7rem);
   color: var(--accent);
   font-weight: 600;
-  margin-bottom: 3px;
+  margin-bottom: var(--card-gap-id, 3px);
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
 .card-title {
-  font-size: 0.82rem;
-  line-height: 1.3;
-  margin-bottom: 6px;
+  font-size: var(--fs-title, 0.82rem);
+  line-height: var(--card-lh, 1.3);
+  margin-bottom: var(--card-gap-title, 6px);
 }
 
 .card-meta {
@@ -1027,8 +1027,8 @@ body {
 }
 
 .card-tag {
-  font-size: 0.65rem;
-  padding: 2px 6px;
+  font-size: var(--fs-tag, 0.65rem);
+  padding: var(--card-tag-pad, 2px 6px);
   border-radius: 4px;
   background: var(--bg);
   color: var(--text-muted);
@@ -1215,7 +1215,7 @@ body {
 }
 
 .card-compact {
-  padding: 6px 8px;
+  padding: var(--card-c-pad, 6px 8px);
   border-left-width: 2px;
   background: var(--compact-card-bg);
   opacity: 0.75;
@@ -1227,14 +1227,14 @@ body {
 }
 
 .card-compact .card-id {
-  font-size: 0.62rem;
+  font-size: var(--fs-c-id, 0.62rem);
   margin-bottom: 1px;
   color: var(--text-muted);
 }
 
 .card-compact .card-title {
-  font-size: 0.75rem;
-  margin-bottom: 3px;
+  font-size: var(--fs-c-title, 0.75rem);
+  margin-bottom: var(--card-c-gap-title, 3px);
   line-height: 1.2;
   color: var(--text-muted);
 }
@@ -1244,7 +1244,7 @@ body {
 }
 
 .card-compact .card-tag {
-  font-size: 0.6rem;
+  font-size: var(--fs-c-tag, 0.6rem);
   padding: 1px 4px;
   color: var(--text-muted);
 }
@@ -1253,6 +1253,48 @@ body {
   font-size: 0.6rem;
   padding: 1px 4px;
 }
+
+/* --- カード文字サイズ切替 (BT-339) ---
+   L=従来の通常カード / M=従来のDONE(compact) / S=さらに小さく。
+   DONE列は通常カードがM/Sの時だけXSへ縮める（Lは従来どおり）。 */
+:root[data-card-size="m"] {
+  --fs-id: 0.62rem; --fs-title: 0.75rem; --fs-tag: 0.6rem;
+  --fs-c-id: 0.5rem; --fs-c-title: 0.58rem; --fs-c-tag: 0.46rem;
+  --card-pad: 6px 8px; --card-gap-id: 1px; --card-gap-title: 3px; --card-lh: 1.2;
+  --card-tag-pad: 1px 4px; --card-col-gap: 6px;
+  --card-c-pad: 3px 6px; --card-c-gap-title: 2px;
+}
+:root[data-card-size="s"] {
+  --fs-id: 0.54rem; --fs-title: 0.64rem; --fs-tag: 0.52rem;
+  --fs-c-id: 0.5rem; --fs-c-title: 0.58rem; --fs-c-tag: 0.46rem;
+  --card-pad: 4px 7px; --card-gap-id: 0px; --card-gap-title: 2px; --card-lh: 1.15;
+  --card-tag-pad: 0px 3px; --card-col-gap: 4px;
+  --card-c-pad: 3px 6px; --card-c-gap-title: 2px;
+}
+
+.card-size-group {
+  display: inline-flex;
+  align-items: baseline;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  overflow: hidden;
+}
+.card-size-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  font-weight: 700;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.card-size-btn[data-size="s"] { font-size: 0.65rem; }
+.card-size-btn[data-size="m"] { font-size: 0.8rem; }
+.card-size-btn[data-size="l"] { font-size: 0.95rem; }
+.card-size-btn:hover { color: var(--text); }
+.card-size-btn.active { background: var(--accent); color: #fff; }
 
 /* --- 完了カラム「他N件」まとめカード --- */
 .card-summary {
