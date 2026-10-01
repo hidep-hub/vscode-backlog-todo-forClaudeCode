@@ -18,6 +18,7 @@
     running_started: 'Run',
     running_stopped: 'Stop',
     assigned: 'Assign',
+    due_date_changed: 'Due',
     deleted: 'Delete',
   };
 
@@ -50,6 +51,10 @@
       return { action, detail: `(${from}→${to})` };
     }
     if (ev.eventType === 'assigned') {
+      const to = ev.newValue || '(未設定)';
+      return { action, detail: `→ ${to}` };
+    }
+    if (ev.eventType === 'due_date_changed') {
       const to = ev.newValue || '(未設定)';
       return { action, detail: `→ ${to}` };
     }

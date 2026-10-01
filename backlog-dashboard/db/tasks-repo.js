@@ -236,6 +236,7 @@ function setArtifacts(db, displayId, artifacts) {
  * title/description/category/assignee/startDate/dueDateのうち渡されたものだけ更新する。
  * assigneeが渡され、かつ実際に値が変化した場合のみtask_eventsにassignedを記録する
  * (title等だけの編集ではイベントを残さない、BT-241決定)。
+ * dueDateが渡され、かつ実際に変化した場合(null/空文字は同一視)はdue_date_changedを記録する(BT-336)。
  */
 function updateFields(db, displayId, fields) {
   const allowed = { title: 'title', description: 'description', category: 'category', assignee: 'assignee', startDate: 'start_date', dueDate: 'due_date' };
@@ -252,6 +253,8 @@ function updateFields(db, displayId, fields) {
   const existing = getByDisplayId(db, displayId);
   const assigneeChanged = Object.prototype.hasOwnProperty.call(fields, 'assignee')
     && existing && existing.assignee !== fields.assignee;
+  const dueDateChanged = Object.prototype.hasOwnProperty.call(fields, 'dueDate')
+    && existing && (existing.due_date || null) !== (fields.dueDate || null);
 
   sets.push('updated_at = ?', 'updated_by = ?');
   values.push(nowIso(), 'user');
@@ -265,12 +268,35 @@ function updateFields(db, displayId, fields) {
         oldValue: existing.assignee, newValue: fields.assignee, actor: 'user',
       });
     }
+    if (dueDateChanged) {
+      insertEvent(db, {
+        taskId: existing.id, taskDisplayId: displayId, eventType: 'due_date_changed',
+        oldValue: existing.due_date || null, newValue: fields.dueDate || null, actor: 'user',
+      });
+    }
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');
     throw e;
   }
   return getByDisplayId(db, displayId);
+}
+
+/**
+ * 期日の変更履歴を古い順で返す(BT-336)。taskIdsは内部ID(tasks.id)の配列。
+ * @returns {Object<number, Array<{from: string|null, to: string|null, at: string, actor: string}>>}
+ */
+function listDueDateHistory(db, taskIds) {
+  const result = {};
+  if (taskIds.length === 0) return result;
+  const placeholders = taskIds.map(() => '?').join(',');
+  const rows = db.prepare(`SELECT task_id, old_value, new_value, actor, occurred_at FROM task_events
+    WHERE event_type = 'due_date_changed' AND task_id IN (${placeholders})
+    ORDER BY occurred_at, id`).all(...taskIds);
+  for (const r of rows) {
+    (result[r.task_id] = result[r.task_id] || []).push({ from: r.old_value, to: r.new_value, at: r.occurred_at, actor: r.actor });
+  }
+  return result;
 }
 
 /**
@@ -475,4 +501,5 @@ module.exports = {
   setPin, setRunning, isPinned, isRunning, updateFields, updateCommitHash, setArtifacts, softDelete,
   attachToParent, detachFromParent, reorder, moveWorkspace, getEffectiveStatus,
   setGithubLink, getChildren, findByGithubIssueNumber, listGithubLinkedNumbers, insertEvent, normalizeActor,
+  listDueDateHistory,
 };

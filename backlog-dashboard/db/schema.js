@@ -107,6 +107,7 @@ const EVENT_TYPE_SEED = [
   { code: 'running_stopped', label: '実行中を解除', sort_order: 6 },
   { code: 'assigned', label: '担当変更', sort_order: 7 },
   { code: 'deleted', label: '削除', sort_order: 8 },
+  { code: 'due_date_changed', label: '期日変更', sort_order: 9 },
 ];
 
 /**

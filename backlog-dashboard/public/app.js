@@ -1237,7 +1237,7 @@ function renderBoard(data) {
       const projectTag = showField('project') ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
       const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>' : '';
       const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
-      const dueBadge = item.dueDate ? renderDueDateBadge(item.dueDate) : '';
+      const dueBadge = item.dueDate ? renderDueDateBadge(item.dueDate, item.statusCode) : '';
       const metaParts = [projectTag, category, artifactIndicator, githubBadge, dueBadge, completedDate].filter(Boolean);
       if (badge) metaParts.push(badge);
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
@@ -1617,17 +1617,42 @@ function openChildCardEditDirect(childWithProject, epic) {
   enterEditMode(childWithProject, body, false, openChildModal);
 }
 
+// 期日が期限切れ（期日 <= 今日(JST)）かつ未完了か判定する（BT-336）
+function isDueOverdue(dueDate, statusCode) {
+  return !!dueDate && statusCode !== 'done' && dueDate <= getTodayJST();
+}
+
+// 期日の表示（BT-336）。「期日: 現在 (←直前)」の1行を基本とし、変更が2回以上なら
+// 「▶変更履歴(n件)」を折り畳みで添える（開くと当初→現在を縦積み、新しいものが上）。
+function buildDueDateTrailHtml(item) {
+  const history = item.dueDateHistory || [];
+  const values = history.length > 0 ? [history[0].from, ...history.map(h => h.to)] : [];
+  while (values.length > 0 && !values[0]) values.shift(); // 先頭の「未設定」は経緯に含めない
+  if (!item.dueDate && values.length < 2) return '';
+  const label = v => (v ? escapeHtml(v) : '未設定');
+  const currentCls = isDueOverdue(item.dueDate, item.statusCode) ? ' class="due-overdue"' : '';
+  const changes = values.length - 1;
+  const prev = changes >= 1 ? ` <span class="due-prev">(←${label(values[values.length - 2])})</span>` : '';
+  let trailHtml = '';
+  if (changes >= 2) {
+    const rows = values.slice().reverse().map(v => `<div>${label(v)}</div>`).join('<div class="due-arrow">↑</div>');
+    trailHtml = `<details class="due-mid"><summary>変更履歴（${changes}件）</summary><div class="due-trail">${rows}</div></details>`;
+  }
+  return `<li class="detail-due"><strong>期日:</strong> <span${currentCls}>${label(item.dueDate)}</span>${prev}${trailHtml}</li>`;
+}
+
 // 情報セクション（担当・日付・トラッキング情報）のHTML生成。
 // 単発/子/EPICの3種で別々に組んでいたものをBT-261で1箇所に統一。
 function buildMetaHtml(item) {
   const metaParts = [];
   if (item.assignee) metaParts.push(`<li><strong>担当:</strong> ${escapeHtml(item.assignee)}</li>`);
   if (item.startDate) metaParts.push(`<li><strong>開始日:</strong> ${escapeHtml(item.startDate)}</li>`);
-  if (item.dueDate) metaParts.push(`<li><strong>期日:</strong> ${escapeHtml(item.dueDate)}</li>`);
   if (item.completedDate) metaParts.push(`<li><strong>完了日:</strong> ${escapeHtml(item.completedDate)}</li>`);
   if (item.createdAt) metaParts.push(`<li><strong>作成日:</strong> ${escapeHtml(formatDateTimeJst(item.createdAt))}</li>`);
   if (item.updatedAt) metaParts.push(`<li><strong>更新日:</strong> ${escapeHtml(formatDateTimeJst(item.updatedAt))}</li>`);
   if (item.updatedBy) metaParts.push(`<li><strong>更新者:</strong> ${escapeHtml(item.updatedBy)}</li>`);
+  const dueHtml = buildDueDateTrailHtml(item);
+  if (dueHtml) metaParts.push(dueHtml);
   return metaParts.length > 0 ? `<div class="detail-section"><h4>情報</h4><ul class="detail-meta">${metaParts.join('')}</ul></div>` : '';
 }
 
@@ -2247,9 +2272,10 @@ function planFormatDueBadge(dueDate) {
   return `${d.getMonth() + 1}/${d.getDate()}(${PLAN_WEEKDAY_JA[d.getDay()]})`;
 }
 
-function renderDueDateBadge(dueDate) {
+function renderDueDateBadge(dueDate, statusCode) {
   const label = planFormatDueBadge(dueDate);
-  return `<span class="card-tag due-badge" title="期日"><span class="material-icon icon-timer"></span><span>${escapeHtml(label)}</span></span>`;
+  const overdue = isDueOverdue(dueDate, statusCode) ? ' due-overdue' : '';
+  return `<span class="card-tag due-badge${overdue}" title="期日"><span class="material-icon icon-timer"></span><span>${escapeHtml(label)}</span></span>`;
 }
 
 function renderCompletedDateBadge(completedDate) {
@@ -2415,7 +2441,7 @@ function planBuildCard(item, bucketId, parentEpic = null) {
   // （1つに絞っているときは全カード同じ値になり情報量がゼロなので出さない）
   const wsBadge = (!currentFilter && item.project)
     ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
-  const dueBadge = item.dueDate ? renderDueDateBadge(item.dueDate) : '';
+  const dueBadge = item.dueDate ? renderDueDateBadge(item.dueDate, item.statusCode) : '';
   const metaHtml = (wsBadge || dueBadge) ? `<div class="card-meta">${wsBadge}${dueBadge}</div>` : '';
   card.innerHTML = `<div class="card-id">${spinner}${pinIcon}${escapeHtml(item.id)}</div><div class="card-title">${escapeHtml(item.title)}</div>${metaHtml}`;
 
@@ -3767,7 +3793,7 @@ function buildMiniBoard(epic) {
         mParts.push(renderGithubIssueBadge(child.githubIssueNumber, child.githubIssueUrl));
       }
       if (child.dueDate) {
-        mParts.push(renderDueDateBadge(child.dueDate));
+        mParts.push(renderDueDateBadge(child.dueDate, child.statusCode));
       }
       if (child.completedDate) {
         mParts.push(renderCompletedDateBadge(child.completedDate));

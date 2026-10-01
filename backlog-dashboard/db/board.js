@@ -47,6 +47,7 @@ function toTaskItem(row, { statusLabelMap, projectName }) {
     updatedAt: row.updated_at,
     updatedBy: row.updated_by,
     artifacts: deliverables.length ? deliverables.map(d => d.path).filter(Boolean) : undefined,
+    dueDateHistory: row.__dueDateHistory || [],
   };
 }
 
@@ -100,7 +101,11 @@ function buildBoardFromDb(db, config) {
       .map(row => [row.task_id, row.agent_id])
   );
 
-  for (const row of allRows) row.__deliverables = deliverablesByTaskId[row.id] || [];
+  const dueHistoryByTaskId = tasksRepo.listDueDateHistory(db, allRows.map(r => r.id));
+  for (const row of allRows) {
+    row.__deliverables = deliverablesByTaskId[row.id] || [];
+    row.__dueDateHistory = dueHistoryByTaskId[row.id] || [];
+  }
 
   const rowsById = {};
   for (const row of allRows) rowsById[row.id] = row;
@@ -239,6 +244,9 @@ function buildTaskDetail(db, config, displayId) {
   }
   row.__deliverables = deliverablesByTaskId[row.id] || [];
   for (const c of childRows) c.__deliverables = deliverablesByTaskId[c.id] || [];
+  const dueHistoryByTaskId = tasksRepo.listDueDateHistory(db, relevantIds);
+  row.__dueDateHistory = dueHistoryByTaskId[row.id] || [];
+  for (const c of childRows) c.__dueDateHistory = dueHistoryByTaskId[c.id] || [];
 
   const pinnedTaskIds = new Set(db.prepare(`SELECT task_id FROM pins WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
   const runningTaskIds = new Set(db.prepare(`SELECT task_id FROM running_tasks WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
