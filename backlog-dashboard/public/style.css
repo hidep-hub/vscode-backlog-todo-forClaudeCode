@@ -1256,15 +1256,16 @@ body {
 
 /* --- カード文字サイズ切替 (BT-339) ---
    L=従来の通常カード / M=従来のDONE(compact) / S=さらに小さく。
-   DONE列は通常カードがM/Sの時だけXSへ縮める（Lは従来どおり）。 */
-:root[data-card-size="m"] {
+   DONE列は通常カードがM/Sの時だけXSへ縮める（Lは従来どおり）。
+   適用範囲はメインボード(#board)のみ。EPICボード・週次計画・履歴等は対象外。 */
+:root[data-card-size="m"] #board {
   --fs-id: 0.62rem; --fs-title: 0.75rem; --fs-tag: 0.6rem;
   --fs-c-id: 0.5rem; --fs-c-title: 0.58rem; --fs-c-tag: 0.46rem;
   --card-pad: 6px 8px; --card-gap-id: 1px; --card-gap-title: 3px; --card-lh: 1.2;
   --card-tag-pad: 1px 4px; --card-col-gap: 6px;
   --card-c-pad: 3px 6px; --card-c-gap-title: 2px;
 }
-:root[data-card-size="s"] {
+:root[data-card-size="s"] #board {
   --fs-id: 0.54rem; --fs-title: 0.64rem; --fs-tag: 0.52rem;
   --fs-c-id: 0.5rem; --fs-c-title: 0.58rem; --fs-c-tag: 0.46rem;
   --card-pad: 4px 7px; --card-gap-id: 0px; --card-gap-title: 2px; --card-lh: 1.15;
