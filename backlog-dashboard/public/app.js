@@ -786,6 +786,81 @@ selectModeBtn.addEventListener('click', () => {
   if (currentBoardData) renderBoard(currentBoardData);
 });
 
+// --- Header Ticker (BM-020) ---
+// ロゴ〜機能ボタン間の空きスペースに、直近の操作ログをコンソール風に縦積みで流す。
+// データはWebSocketのboard broadcastに相乗りしたdata.recentEvents(server.js buildBoard())。
+// トグルOFF中はrenderHeaderTicker自体を呼ばない設計(app.js側のWSハンドラでも
+// 条件分岐はせず常に呼ぶが、関数先頭でtickerActiveを見て即returnし、DOM更新コストをゼロにする)。
+let tickerActive = localStorage.getItem('tickerActive') !== 'false'; // 既定ON
+let headerTickerLastMaxId = -1; // 直前の描画で先頭だった最大id。これより大きいidだけ新規フェードインさせる
+const headerTickerEl = document.getElementById('header-ticker');
+const headerTickerListEl = document.getElementById('header-ticker-list');
+const tickerToggleBtn = document.getElementById('ticker-toggle-btn');
+
+function applyTickerVisibility() {
+  if (!headerTickerEl) return;
+  headerTickerEl.classList.toggle('ticker-hidden', !tickerActive);
+  if (tickerToggleBtn) tickerToggleBtn.classList.toggle('filter-active', tickerActive);
+}
+applyTickerVisibility();
+
+if (tickerToggleBtn) {
+  tickerToggleBtn.addEventListener('click', () => {
+    tickerActive = !tickerActive;
+    localStorage.setItem('tickerActive', tickerActive);
+    applyTickerVisibility();
+    // OFF→ONに切り替えた瞬間、直近データがキャッシュ済みなら即座に反映する
+    if (tickerActive && currentBoardData) renderHeaderTicker(currentBoardData.recentEvents);
+  });
+}
+
+function headerTickerLineHtml(line) {
+  return `<div class="header-ticker-line" data-ticker-id="${line.id}" title="${escapeHtml(line.title)}">` +
+    `<span class="ticker-ts">${escapeHtml(line.time)}</span>` +
+    `<span class="ticker-id">${escapeHtml(line.taskId || '')}</span>` +
+    `<span class="ticker-action">${escapeHtml(line.action)}</span>` +
+    (line.detail ? ` <span class="ticker-detail">${escapeHtml(line.detail)}</span>` : '') +
+    (line.title ? ` <span class="ticker-title">${escapeHtml(line.title)}</span>` : '') +
+    `</div>`;
+}
+
+// data.recentEvents(occurred_at降順、buildRecentEvents()由来)を受け取り、ティッカーのDOMを更新する。
+// 既存行は再アニメーションさせず、新規行(id > 前回描画時の最大id)だけを先頭に差分追加する
+// 「コンソールにログが流れる」見た目に近づける(全行を毎回作り直すと既存行まで毎回フェードインし直して
+// ちらつくため、差分方式にした)。古い行はCSSのmaskで下端が自然にフェードアウトする。
+function renderHeaderTicker(events) {
+  if (!tickerActive || !headerTickerListEl) return; // OFF中はDOM更新コストをかけない
+  if (!Array.isArray(events) || typeof headerTicker === 'undefined') return;
+
+  const lines = headerTicker.toTickerLines(events); // 新しい順(先頭が最新)
+  const isFirstRender = headerTickerListEl.children.length === 0;
+
+  if (isFirstRender) {
+    // 初回表示は全件を一括表示する。流れてきた風のアニメーションは不要なので付けない。
+    headerTickerListEl.innerHTML = lines.map(headerTickerLineHtml).join('');
+    headerTickerListEl.querySelectorAll('.header-ticker-line').forEach(el => {
+      el.style.animation = 'none';
+      el.style.opacity = '1';
+      el.style.transform = 'none';
+    });
+  } else {
+    const newLines = lines.filter(line => line.id > headerTickerLastMaxId);
+    // newLinesは新しい順。DOM先頭に古い方から順に挿してprependすると、
+    // 最終的に一番新しい行がDOM最先頭(見た目の最上段)に来る。
+    for (let i = newLines.length - 1; i >= 0; i--) {
+      headerTickerListEl.insertAdjacentHTML('afterbegin', headerTickerLineHtml(newLines[i]));
+    }
+  }
+
+  // サーバー側がLIMIT 30で返す件数に合わせてDOM側も同じ件数まで切り詰める
+  // (差分追加だけだと長時間稼働でDOMが無限に増えるため)。
+  while (headerTickerListEl.children.length > lines.length) {
+    headerTickerListEl.removeChild(headerTickerListEl.lastElementChild);
+  }
+
+  if (lines.length > 0 && lines[0].id > headerTickerLastMaxId) headerTickerLastMaxId = lines[0].id;
+}
+
 function updateProjectFilter(projects) {
   const current = currentFilter; // currentFilter を使う（sessionStorage/URL由来の値を反映）
   projectFilterEl.innerHTML = '<option value="">All Projects</option>';
@@ -830,6 +905,7 @@ function connect() {
       if (data.projects) updateProjectFilter(data.projects);
       applySettings();
       renderBoard(currentBoardData);
+      renderHeaderTicker(data.recentEvents);
       refreshModalIfOpen();
       refreshPlanBoardIfOpen();
     } catch (e) {
