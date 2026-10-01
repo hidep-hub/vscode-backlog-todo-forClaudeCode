@@ -1518,6 +1518,14 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* 右カラムに「期日: yyyy-mm-dd (←yyyy-mm-dd)」を1行で収めるため詳細モーダルだけ広げる（BT-336）。
+     EPIC(.modal-wide)は後続の定義が優先されるため従来幅のまま */
+  max-width: 860px;
+}
+
+.modal-content.detail-modal-content .detail-fixed-layout > .detail-side,
+.modal-content.detail-modal-content .detail-scroll-side {
+  flex: 0 0 250px;
 }
 
 .modal-content.detail-modal-content .modal-body {
@@ -1748,6 +1756,41 @@ body {
 
 .detail-meta li strong {
   color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* 期日: 現在 (←直前) と、2回以上変更時の折り畳み履歴（当初→現在の縦積み）（BT-336） */
+.due-prev {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.due-trail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.due-arrow {
+  color: var(--text-muted);
+  padding-left: 6px;
+  line-height: 1;
+}
+
+.due-mid summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.due-mid .due-trail {
+  margin-top: 2px;
+}
+
+.due-overdue {
+  color: #e5484d;
   font-weight: 600;
 }
 
@@ -4378,6 +4421,12 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+}
+
+/* 期日 <= 今日(JST) かつ未完了は赤字（BT-336） */
+.card-tag.due-badge.due-overdue {
+  color: #e5484d;
+  border-color: #e5484d;
 }
 
 .card-tag.completed-date {

@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.1.11（BT-212。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.1.12（BT-212、BT-336。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## ルール正本と配布方式
 
@@ -43,7 +43,7 @@ AGENTS.md.sample（Git管理の唯一の正本）
   - WindowsではPowerShellの`curl`が`Invoke-WebRequest`の別名であるため、curlオプションを前提にしない。日本語を含むPOSTの標準手段は上記の`Invoke-RestMethod`と`UTF8.GetBytes`にする。`curl.exe`を使う場合も、クォートや文字コードを検証してから使う
   - 実行後は文字化けしていないか目視確認する習慣をつける（「テストデータだから」で流さない）
 - **主要API（BT-179でDB版に刷新。`isChild`パラメータは全API廃止、`taskId`（例`BT-181`）単独で親・子どちらも指定できる）**:
-  - 単体取得: `GET /api/task/:id`（BT-222）— `/api/board`の全件走査を経由せず1件だけ取得できる。返却形状は`/api/board`のitemと同じ（親を指定すると`children`/`childrenTotal`/`childrenDone`も含む）。存在しないtaskIdは404
+  - 単体取得: `GET /api/task/:id`（BT-222）— `/api/board`の全件走査を経由せず1件だけ取得できる。返却形状は`/api/board`のitemと同じ（BT-336で期日の変更履歴`dueDateHistory`＝`[{from,to,at,actor}]`古い順を追加。親を指定すると`children`/`childrenTotal`/`childrenDone`も含む）。存在しないtaskIdは404
   - 履歴取得: `GET /api/activity`（BT-243、履歴機能EPIC BT-199配下）— `task_events`を`tasks`/`event_types`と結合し、`taskId`/`taskTitle`/`eventType`/`eventLabel`/`oldValue`/`newValue`/`actor`/`occurredAt`/`parentId`/`parentTitle`を持つイベント配列を`occurred_at`降順で返す。検索・期間絞り込みクエリは未対応（BT-246で追加予定）で、常に全件を返す
   - **【BT-201, BT-240で親のstatus条件を撤廃】`GET /api/board`のDONE列には、完了した子タスクが親の完了/未完了に関わらず`parentId`/`parentTitle`付きの単独itemとしても混在する**（親側の`children`配列にも同じ子は残るため、両方から拾うとカウント二重になる点に注意。`parentId`があるitemは「親側で既にカウント済みの完了子タスクの個別表示」なので、集計時はスキップするか除外して扱うこと）
   - 状態変更: `POST /api/update-status {taskId, newStatus, actor?}` — `newStatus`はcode値 `todo`/`ready`/`do`/`done` のいずれか（**日本語ラベルではない**）

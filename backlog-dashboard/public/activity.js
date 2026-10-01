@@ -90,6 +90,7 @@ const ACTIVITY_EVENT_LABEL = {
   running_started: '実行中に設定',
   running_stopped: '実行中を解除',
   assigned: '担当変更',
+  due_date_changed: '期日変更',
   deleted: '削除',
 };
 
