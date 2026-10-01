@@ -142,11 +142,69 @@ body.dev-instance {
   white-space: nowrap;
 }
 
-.status-stack {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+/* BM-014: 接続状態インジケーター（旧「live」テキストバッジ）。
+   ヘッダー右端に単独で浮いていたのをやめ、ロゴ右下に重ねて縦幅を増やさずに表示する。
+   「接続中（live）」は当たり前の状態なので常時表示しない。接続した瞬間だけ一瞬光らせて
+   確認のサインとし、自動でフェードアウトする。切断中（異常）だけ赤ドットが消えずに居座る。 */
+.header-logo-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.conn-status-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--brand);
+  box-sizing: content-box;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
+.conn-status-dot.show {
+  opacity: 1;
+}
+
+.conn-status-dot.connected {
+  background: #4ade80;
+}
+
+.conn-status-dot.disconnected {
+  background: #f07070;
+}
+
+/* 接続直後の一瞬だけ、心拍のようにリングが広がって消えるパルス（控えめな強調）。
+   .show が外れる（フェードアウトする）と同時にこの::after自体が消え、アニメーションも止まる。 */
+.conn-status-dot.connected.show::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #4ade80;
+  animation: conn-status-pulse 2.4s ease-out infinite;
+}
+
+@keyframes conn-status-pulse {
+  0% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conn-status-dot.connected.show::after {
+    animation: none;
+    display: none;
+  }
 }
 
 .version-badge {
