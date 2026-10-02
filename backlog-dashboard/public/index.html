@@ -19,8 +19,11 @@
         <h1><span class="header-title-main">BackLog</span><span class="header-title-sub">Dashboard</span><span id="version-badge" class="version-badge" title="Dashboard/API version"></span></h1>
         <span id="dev-instance-badge" class="dev-instance-badge" hidden></span>
       </div>
-      <div class="header-ticker" id="header-ticker" aria-live="off" aria-hidden="true">
-        <div class="header-ticker-list" id="header-ticker-list"></div>
+      <div class="header-ticker-wrap">
+        <button class="ticker-toggle-btn" id="ticker-toggle-btn" title="直近ログの表示切替"><span class="material-icon icon-terminal"></span></button>
+        <div class="header-ticker" id="header-ticker" aria-live="off" aria-hidden="true">
+          <div class="header-ticker-list" id="header-ticker-list"></div>
+        </div>
       </div>
       <div class="header-controls">
         <div class="header-action-row">
@@ -30,7 +33,6 @@
         <button class="today-filter-btn" id="today-filter-btn" title="今日やるフィルター"><span class="material-icon icon-keep"></span></button>
         <button class="select-mode-btn" id="select-mode-btn" title="複数選択して親タスクにまとめる"><span class="material-icon icon-check"></span></button>
         <button class="activity-btn" id="activity-btn" title="履歴"><span class="material-icon icon-history"></span></button>
-        <button class="ticker-toggle-btn" id="ticker-toggle-btn" title="直近ログの表示切替"><span class="material-icon icon-terminal"></span></button>
         </div>
         <div class="header-action-row header-workspace-row">
         <select class="filter-select" id="project-filter" title="Workspace filter">

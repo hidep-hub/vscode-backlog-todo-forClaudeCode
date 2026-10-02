@@ -286,22 +286,34 @@ body {
    .header-top-rowはalign-items:centerだとブロックの高さの違いが中央寄せの余白になり
    「上マージンが大きい」ように見えるため、.header-top-row側をflex-start(上揃え)にして
    このズレ自体を解消した(下記.header-top-row定義を参照)。 */
-.header-ticker {
+/* BT-340: ティッカー枠とトグルボタンを束ねるラッパー。
+   高さは自前で持たず、トップ行(=右ボタン群の高さ)にstretchで追従する。
+   contain:sizeで内容高さを寄与させず、ON/OFFでワークスペースバッジ位置が動かないようにする。
+   ティッカー本体はabsoluteで全面に敷き、ボタンは枠の左上に重ねて「ウインドウに付いている」見た目にする。 */
+.header-ticker-wrap {
   flex: 1 1 auto;
   min-width: 0;
-  height: 68px;
+  align-self: stretch;
+  contain: size;
+  position: relative;
   margin: 0 4px;
-  padding: 4px 10px;
+}
+
+.header-ticker {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  /* 左はトグルボタン(.ticker-toggle-btn)の分を空ける */
+  padding: 4px 10px 4px 34px;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.12);
   overflow: hidden;
-  position: relative;
   /* 下端に近づくほど薄くなるマスクで「古い行がフェードアウトしていく」感を出す。
      新しい行はJS側で先頭に追加し、はみ出した古い行はこのマスクで自然に消える。
      3行分(約75%)は完全不透明、残り(4行目)でフェードアウトする
      (BM-020フィードバック: 「3行は視認できて、4行目からグラデ」)。 */
-  -webkit-mask-image: linear-gradient(to bottom, black 75%, transparent 100%);
-  mask-image: linear-gradient(to bottom, black 75%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
 }
 
 .header-ticker.ticker-hidden {
@@ -368,31 +380,34 @@ body {
 }
 
 @media (max-width: 900px) {
-  .header-ticker {
+  .header-ticker-wrap {
     display: none;
   }
 }
 
+/* BT-340: ロゴ隣に移動。ボタン感を消す(背景・枠なし)＋アイコンを通常サイズに拡大。ON時はアイコン色だけで示す */
 .ticker-toggle-btn {
-  background: var(--card);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  padding: 4px 8px;
+  background: transparent;
+  border: 0;
+  color: var(--brand-fg-soft);
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  z-index: 1;
+  padding: 4px;
   border-radius: 6px;
-  font-size: 0.75rem;
+  font-size: 1.1rem;
+  line-height: 1;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: color 0.15s;
 }
 
 .ticker-toggle-btn:hover {
-  color: var(--text);
-  border-color: var(--accent);
+  color: var(--brand-fg);
 }
 
 .ticker-toggle-btn.filter-active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+  color: var(--brand-fg);
 }
 
 .header-logo {
