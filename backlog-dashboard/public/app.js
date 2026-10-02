@@ -344,9 +344,11 @@ function renderWorkspaceThemeSettings(settings, workspace) {
   themePresetGridEl.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => {
     workspaceThemeDraft = { workspace, theme: { preset: button.dataset.preset } };
     renderWorkspaceThemeSettings(settings, workspace);
+    applyPalette(workspaceThemeDraft.theme); // BM-015: 保存前にその場でプレビュー
   }));
   themePresetGridEl.querySelector('#workspace-custom-accent').addEventListener('input', event => {
     workspaceThemeDraft = { workspace, theme: { custom: event.target.value, mode: systemMode() } };
+    applyPalette(workspaceThemeDraft.theme); // BM-015: 保存前にその場でプレビュー
   });
 }
 

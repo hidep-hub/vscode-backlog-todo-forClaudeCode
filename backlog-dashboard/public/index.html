@@ -72,31 +72,37 @@
     <div class="settings-panel">
       <button class="settings-close" id="settings-close">&times;</button>
       <h3>Settings</h3>
-      <div class="settings-group">
-        <label>Theme</label>
-        <select id="settings-theme">
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
-          <option value="system">System</option>
-        </select>
-      </div>
-      <div class="settings-group workspace-theme-settings" id="settings-workspace-theme" hidden>
-        <label id="settings-workspace-theme-label">Workspace Theme</label>
-        <p class="settings-theme-hint">プリセットまたはカスタム色を選んでから保存すると、このワークスペースだけに適用されます。</p>
-        <div class="theme-preset-grid" id="theme-preset-grid"></div>
-        <div class="settings-theme-footer">
-          <button id="settings-workspace-theme-save">保存</button>
+      <div class="settings-columns">
+        <div class="settings-column settings-column-theme">
+          <div class="settings-group">
+            <label>Theme</label>
+            <select id="settings-theme">
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="system">System</option>
+            </select>
+          </div>
+          <div class="settings-group workspace-theme-settings" id="settings-workspace-theme" hidden>
+            <label id="settings-workspace-theme-label">Workspace Theme</label>
+            <p class="settings-theme-hint">プリセットまたはカスタム色を選ぶと、その場でプレビューされます。「保存」を押すとこのワークスペースに適用されます。</p>
+            <div class="theme-preset-grid" id="theme-preset-grid"></div>
+            <div class="settings-theme-footer">
+              <button id="settings-workspace-theme-save">保存</button>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="settings-group settings-group-github">
-        <label>GitHub連携（ワークスペース単位）</label>
-        <select id="settings-github-project"></select>
-        <input type="text" id="settings-github-repo-url" placeholder="https://github.com/owner/repo">
-        <input type="password" id="settings-github-token" placeholder="トークンを入力（未入力なら既存を保持）">
-        <p class="settings-github-hint" id="settings-github-hint">Fine-grained PAT発行時は Repository permissions に「Issues: Read and write」を追加してください（Contents権限だけでは取得はできても作成・更新ができません）</p>
-        <div class="settings-github-footer">
-          <span id="settings-github-status"></span>
-          <button id="settings-github-save">保存</button>
+        <div class="settings-column settings-column-github">
+          <div class="settings-group settings-group-github">
+            <label>GitHub連携（ワークスペース単位）</label>
+            <select id="settings-github-project"></select>
+            <input type="text" id="settings-github-repo-url" placeholder="https://github.com/owner/repo">
+            <input type="password" id="settings-github-token" placeholder="トークンを入力（未入力なら既存を保持）">
+            <p class="settings-github-hint" id="settings-github-hint">Fine-grained PAT発行時は Repository permissions に「Issues: Read and write」を追加してください（Contents権限だけでは取得はできても作成・更新ができません）</p>
+            <div class="settings-github-footer">
+              <span id="settings-github-status"></span>
+              <button id="settings-github-save">保存</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
