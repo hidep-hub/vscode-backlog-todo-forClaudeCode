@@ -11,14 +11,26 @@ function getStatusList(db) {
   return db.prepare('SELECT code, label, sort_order FROM statuses ORDER BY sort_order').all();
 }
 
+// completed_atはUTCのISO文字列で保存される。画面に出す完了日・完了時刻はJST(+9h)に変換する(BT-343)。
+// 日付のみ等でDateとして解釈できない値は従来どおり文字列の切り出しにフォールバックする。
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+function toJstIso(completedAt) {
+  if (!completedAt || completedAt.length < 19) return null;
+  const ms = Date.parse(completedAt);
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms + JST_OFFSET_MS).toISOString();
+}
+
 function toDateOnly(completedAt) {
   if (!completedAt) return null;
-  return completedAt.slice(0, 10);
+  const jst = toJstIso(completedAt);
+  return (jst || completedAt).slice(0, 10);
 }
 
 function toTimeOnly(completedAt) {
-  if (!completedAt || completedAt.length < 19) return null;
-  return completedAt.slice(11, 19);
+  const jst = toJstIso(completedAt);
+  return jst ? jst.slice(11, 19) : null;
 }
 
 /**
