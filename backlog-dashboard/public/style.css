@@ -1727,6 +1727,15 @@ body {
   margin-bottom: 6px;
 }
 
+/* BM-021: 説明欄の見出し（もっと見る/閉じるボタン）をスクロール対象から外し、常に見える位置に固定する */
+.detail-description-section .detail-section-heading {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+  padding-bottom: 4px;
+}
+
 .detail-section h4 {
   font-size: 0.75rem;
   font-weight: 600;
@@ -1749,12 +1758,14 @@ body {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  cursor: pointer;
 }
 
 .description-collapsible.expanded .description-text {
   display: block;
   -webkit-line-clamp: unset;
   overflow: visible;
+  cursor: default;
 }
 
 .description-toggle-btn {
