@@ -1,5 +1,18 @@
 'use strict';
 
+// BT-341: ワークスペースバッジの集計対象モード（localStorageに保存）
+const BADGE_MODES = {
+  do: { label: 'DOのみ', codes: ['do'] },
+  doReady: { label: 'DO+READY', codes: ['do', 'ready'] },
+  notDone: { label: 'DONE以外', codes: ['todo', 'ready', 'do'] },
+};
+const BADGE_MODE_KEY = 'badgeMode';
+let badgeMode = 'notDone';
+try {
+  const saved = localStorage.getItem(BADGE_MODE_KEY);
+  if (saved && BADGE_MODES[saved]) badgeMode = saved;
+} catch (_) {}
+
 const boardEl = document.getElementById('board');
 const statusEl = document.getElementById('status');
 const projectFilterEl = document.getElementById('project-filter');
@@ -768,6 +781,42 @@ if (projectBadgesEl) {
   });
 }
 
+// --- BT-341: ワークスペースバッジの集計対象メニュー ---
+const badgeModeBtn = document.getElementById('badge-mode-btn');
+const badgeModeMenu = document.getElementById('badge-mode-menu');
+function renderBadgeModeMenu() {
+  badgeModeMenu.innerHTML = Object.entries(BADGE_MODES).map(([key, m]) =>
+    `<button type="button" class="badge-mode-item${key === badgeMode ? ' active' : ''}" role="menuitemradio" aria-checked="${key === badgeMode}" data-mode="${key}">${m.label}</button>`
+  ).join('');
+}
+function closeBadgeModeMenu() {
+  badgeModeMenu.hidden = true;
+  badgeModeBtn.setAttribute('aria-expanded', 'false');
+}
+if (badgeModeBtn && badgeModeMenu) {
+  badgeModeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!badgeModeMenu.hidden) { closeBadgeModeMenu(); return; }
+    renderBadgeModeMenu();
+    badgeModeMenu.hidden = false;
+    badgeModeBtn.setAttribute('aria-expanded', 'true');
+  });
+  badgeModeMenu.addEventListener('click', (e) => {
+    const item = e.target.closest('.badge-mode-item');
+    if (!item) return;
+    badgeMode = item.dataset.mode;
+    try { localStorage.setItem(BADGE_MODE_KEY, badgeMode); } catch (_) {}
+    closeBadgeModeMenu();
+    if (currentBoardData) renderBoard(currentBoardData);
+  });
+  document.addEventListener('click', (e) => {
+    if (!badgeModeMenu.hidden && !e.target.closest('.badge-mode-wrap')) closeBadgeModeMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !badgeModeMenu.hidden) closeBadgeModeMenu();
+  });
+}
+
 // --- Search Modal ---
 searchBtn.addEventListener('click', () => openSearchModal(headerSearchInput.value));
 headerSearchInput.addEventListener('keydown', (e) => {
@@ -1106,7 +1155,16 @@ function renderBoard(data) {
   if (badgesEl && data.remainingByProject) {
     // 描画中のボードデータを直接使う。WebSocket再接続や初回描画の順序に左右されず、
     // URLで開いたワークスペースを確実に強調できる。
-    const entries = Object.entries(data.remainingByProject)
+    // BT-341: 集計対象はバッジ設定メニューで選んだモード。親に紐づく完了子の個別表示(parentIdあり)は除外する。
+    const badgeCodes = BADGE_MODES[badgeMode].codes;
+    const badgeCounts = {};
+    for (const col of data.columns) {
+      for (const item of col.items) {
+        if (item.parentId || !item.project || !badgeCodes.includes(item.statusCode)) continue;
+        badgeCounts[item.project] = (badgeCounts[item.project] || 0) + 1;
+      }
+    }
+    const entries = Object.entries(badgeCounts)
       .filter(([, count]) => count > 0)
       .sort((a, b) => b[1] - a[1]);
     badgesEl.innerHTML = entries.map(([proj, count]) => {
