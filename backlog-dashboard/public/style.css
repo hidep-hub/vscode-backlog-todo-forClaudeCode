@@ -447,7 +447,94 @@ body {
 .project-badges {
   display: inline-flex;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap; /* BT-341: 常に1段。あふれた分は横スクロール */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.proj-badge {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* BT-341: バッジ行左端の集計対象メニュー */
+.header-badges-row {
+  gap: 8px;
+}
+
+.badge-mode-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.badge-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--brand-fg, var(--text));
+  cursor: pointer;
+}
+
+.badge-mode-btn:hover,
+.badge-mode-btn[aria-expanded="true"] {
+  opacity: 1;
+  background: var(--card);
+}
+
+.badge-mode-btn .material-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.badge-mode-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.badge-mode-menu[hidden] {
+  display: none;
+}
+
+.badge-mode-item {
+  text-align: left;
+  font-size: 0.75rem;
+  padding: 6px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.badge-mode-item:hover {
+  background: var(--border);
+}
+
+.badge-mode-item.active {
+  color: var(--accent, #6366f1);
+  font-weight: 700;
+}
+
+.badge-mode-item.active::before {
+  content: '✓ ';
 }
 
 .proj-badge {
@@ -481,21 +568,16 @@ body {
 }
 
 /* URL の ?workspace= で開いた文脈を、現在のフィルタ状態とは別に示す。 */
+/* BT-341: バッジ行はoverflow-x:autoでoutline/box-shadowが切れるため、
+   現在地の印はborderだけで描く（色はヘッダ上で読めるテーマ追従色）。 */
 .proj-badge.workspace-context {
-  border: 3px solid var(--accent, #6366f1);
-  outline: 2px solid var(--accent, #6366f1);
-  outline-offset: 1px;
+  border: 3px solid var(--brand-fg, #fff);
   padding: 0 6px;
-}
-
-.proj-badge.workspace-context.active {
-  box-shadow: 0 0 0 1px var(--card);
 }
 
 /* フィルタの対象外になっても、URLで指定された現在地の印は薄くしない。 */
 .proj-badge.workspace-context.dimmed {
   opacity: 1;
-  box-shadow: 0 0 0 1px var(--card), 0 0 0 4px var(--accent, #6366f1);
 }
 
 .proj-badge.dimmed {
