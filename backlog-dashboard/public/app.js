@@ -2949,6 +2949,11 @@ function openChildModal(item) {
 
   const detailSpinner = item.running ? '<span class="running-spinner detail-spinner"></span>' : '';
 
+  // BM-028: 子タスクも実行中ならそのタスクだけを停止できる（renderModalContentの親/単体用ロジックと同じ条件）。
+  const stopRunningBtnHtml = (item.id && item.id !== '-' && item.running)
+    ? `<button class="detail-action-btn btn-stop-running" id="modal-stop-running-btn"><span class="material-icon icon-stop"></span> 停止</button>`
+    : '';
+
   // 親から外すボタン（BT-034: attachの逆操作。単に外すだけで他の親には付け替えない）
   const detachBtn = (item.id && item.id !== '-')
     ? `<button class="add-child-btn detach-btn" id="modal-detach-btn"><span class="material-icon icon-lock-open"></span> 親から外す</button>`
@@ -2981,13 +2986,19 @@ function openChildModal(item) {
       ${project}${category}${githubBadge}
     </div>
     <h3 class="detail-title">${escapeHtml(item.title)}</h3>
-    ${actionsRow(editBtnHtml, deleteBtnHtml, workspaceActionHtml, moveActionHtml, detachBtn, githubLinkBtnHtml, githubCreateBtnHtml)}
+    ${actionsRow(stopRunningBtnHtml, editBtnHtml, deleteBtnHtml, workspaceActionHtml, moveActionHtml, detachBtn, githubLinkBtnHtml, githubCreateBtnHtml)}
   `;
 
   body.innerHTML = `
     ${buildDetailColumnsHtml(headerHtml, metaHtml)}
     ${buildScrollableDetailHtml(desc, artifactsHtml)}
   `;
+
+  // 停止ボタンのイベント（BM-028）
+  const stopRunningBtnEl = body.querySelector('#modal-stop-running-btn');
+  if (stopRunningBtnEl) {
+    stopRunningBtnEl.addEventListener('click', () => stopRunningTask(item.id, stopRunningBtnEl));
+  }
 
   // 親から外すボタンのイベント
   const detachBtnEl = body.querySelector('#modal-detach-btn');
