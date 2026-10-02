@@ -2056,6 +2056,14 @@ function setupDescriptionToggle(container) {
       btn.textContent = expanded ? '▲ 閉じる' : '▼ もっと見る';
       btn.setAttribute('aria-expanded', String(expanded));
     });
+    // BM-021: 省略表示（...）されている本文クリックでも展開できるようにする。
+    // ただし読んでいる途中の誤クリックで閉じてしまうと困るため、本文クリックは展開のみ（閉じない）。閉じるのはボタンのみ。
+    text.addEventListener('click', () => {
+      if (wrap.classList.contains('expanded')) return;
+      wrap.classList.add('expanded');
+      btn.textContent = '▲ 閉じる';
+      btn.setAttribute('aria-expanded', 'true');
+    });
   });
 }
 
