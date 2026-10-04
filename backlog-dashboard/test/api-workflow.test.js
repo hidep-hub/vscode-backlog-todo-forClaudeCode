@@ -59,6 +59,12 @@ test('serves the core task workflow through the REST API', async () => {
       if (attempt === 29) throw new Error('test server did not start');
     }
     assert.equal((await request(baseUrl, '/api/create-workspace', { file: 'extra', prefix: 'EX', name: 'Extra' })).body.ok, true);
+    // BT-360: 作成エントリはsummaryを持ち、書込前にconfig.json.bakを残す
+    const savedConfig = JSON.parse(fs.readFileSync(path.join(fixtureRoot, 'config.json'), 'utf8'));
+    assert.equal(savedConfig.projects.find(p => p.file === 'extra').summary, '');
+    assert.equal(fs.existsSync(path.join(fixtureRoot, 'config.json.bak')), true);
+    // 同じfile/prefixでの再作成は400で拒否される
+    assert.equal((await request(baseUrl, '/api/create-workspace', { file: 'extra2', prefix: 'EX' })).status, 400);
     const added = await request(baseUrl, '/api/add-task', { title: 'API workflow', project: 'extra', status: 'todo' });
     assert.equal(added.body.ok, true);
     const taskId = added.body.id;

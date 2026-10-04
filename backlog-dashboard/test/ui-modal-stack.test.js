@@ -12,7 +12,7 @@ const css = fs.readFileSync(path.join(publicDir, 'style.css'), 'utf8');
 test('前面モーダルは子タスク詳細より上のレイヤーを使う', () => {
   assert.match(css, /\.modal-overlay\.modal-front\s*\{\s*z-index:\s*1200;/);
   for (const id of [
-    'githubImportEl', 'parentPickerEl', 'movePickerEl', 'workspaceFormEl', 'addFormEl',
+    'githubImportEl', 'parentPickerEl', 'movePickerEl', 'addFormEl',
   ]) {
     assert.match(app, new RegExp(`${id}\\.className = 'modal-overlay modal-front'`));
   }
@@ -26,7 +26,7 @@ test('Escape は最前面のモーダルで消費して一段だけ戻る', () =
     'closeSettings', 'closeGithubImportModal', 'closeSearchModal', 'closePlanBoard',
     'closeModal', 'closeChildModal', 'closeDeleteConfirm', 'closeGithubLinkModal',
     'closeGithubCreateConfirm', 'closeParentPicker', 'closeMovePicker',
-    'closeWorkspaceCreateForm', 'closeAddForm',
+    'closeAddForm',
   ]) {
     assert.match(app, new RegExp(`closeOnEscape\\([^\\n]+, [^\\n]+, ${closer}\\)`));
   }
