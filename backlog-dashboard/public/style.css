@@ -4666,6 +4666,44 @@ body {
   flex-shrink: 0;
 }
 
+.plan-done-filter-btn.filter-active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* --- BT-315: 週次カードの期日ボタン／列内の完了グループ --- */
+.plan-card { position: relative; }
+
+.plan-card-actions {
+  right: 6px;
+  top: 4px;
+}
+
+.plan-done-group {
+  margin-top: 8px;
+  border-top: 1px dashed var(--border);
+  padding-top: 4px;
+}
+
+.plan-done-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  border-radius: 4px;
+}
+
+.plan-done-header:hover {
+  background: var(--card-hover);
+}
+
+.plan-done-header .count {
+  margin-left: auto;
+}
+
 .plan-pin-filter-btn:hover {
   color: var(--text);
   border-color: var(--accent);
