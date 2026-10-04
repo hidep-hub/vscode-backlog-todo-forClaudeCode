@@ -59,6 +59,7 @@ function isTopmostDialog(el) {
 function closeOnEscape(el, visibleClass, close) {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !el.classList.contains(visibleClass) || !isTopmostDialog(el)) return;
+    if (dueDatePickerEl) return; // 期日カレンダー表示中は、カレンダー側のEscで先に閉じる（BT-354）
     e.preventDefault();
     e.stopImmediatePropagation();
     close();
@@ -1342,6 +1343,7 @@ function renderBoard(data) {
       let cardActionsHtml = '';
       if (!isCompact && item.id && item.id !== '-') {
         cardActionsHtml = `<div class="card-actions">
+          <button class="card-action-btn card-due-btn" data-task-id="${item.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
           <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集"><span class="material-icon icon-edit"></span></button>
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
@@ -1449,6 +1451,16 @@ function renderBoard(data) {
       const taskId = btn.dataset.taskId;
       const isActive = btn.classList.contains('pin-active');
       toggleTodayFlag(taskId, !isActive);
+    });
+  });
+
+  // カード期日ボタン（BT-354）: カレンダーを開き、選択した日付をそのまま保存する（履歴はAPI側で自動記録）
+  boardEl.querySelectorAll('.card-due-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const item = findItemById(btn.dataset.taskId);
+      if (item) openDueDatePicker(btn, item.dueDate, (date) => planUpdateDueDate(item.id, date));
     });
   });
 
@@ -2065,6 +2077,154 @@ function getTodayJST() {
   const jst = new Date(now.getTime() + (now.getTimezoneOffset() + 540) * 60000);
   return jst.toISOString().slice(0, 10);
 }
+
+// --- 期日クイック選択・カレンダー (BT-354) ---
+// 日付計算はすべてUTC基準のDate.UTCで行い、ローカルTZに依存させない（BT-343の教訓）。
+function addDaysYMD(ymd, days) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+function getDueQuickOptions() {
+  const today = getTodayJST();
+  const [y, m, d] = today.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=日
+  // 週は月曜始まり（週次計画ビューと同じ）。今週/来週は期限として金曜に置く
+  const thisFriday = addDaysYMD(today, 4 - ((dow + 6) % 7));
+  return [
+    { label: '今日', date: today },
+    { label: '明日', date: addDaysYMD(today, 1) },
+    { label: '今週', date: thisFriday > today ? thisFriday : today }, // 土日は過去日にならないよう今日
+    { label: '来週', date: addDaysYMD(thisFriday, 7) },
+  ];
+}
+
+function renderDueQuickButtonsHtml(extraClass = '') {
+  const btns = getDueQuickOptions()
+    .map(o => `<button type="button" class="due-quick-btn${extraClass}" data-date="${o.date}" title="${o.date}">${o.label}</button>`)
+    .join('');
+  return `${btns}<button type="button" class="due-quick-btn${extraClass} due-quick-clear" data-date="">クリア</button>`;
+}
+
+let dueDatePickerEl = null;
+let dueDatePickerCleanup = null;
+
+function closeDueDatePicker() {
+  if (dueDatePickerCleanup) dueDatePickerCleanup();
+  dueDatePickerCleanup = null;
+  if (dueDatePickerEl) dueDatePickerEl.remove();
+  dueDatePickerEl = null;
+}
+
+// anchor直下に月グリッドのカレンダーを出す。日付クリック/クイック選択/クリアで onPick(ymd|'') を呼んで閉じる。
+function openDueDatePicker(anchor, currentDue, onPick) {
+  closeDueDatePicker();
+  const pad = (n) => String(n).padStart(2, '0');
+  const today = getTodayJST();
+  let [viewY, viewM] = (currentDue || today).split('-').map(Number);
+
+  const el = document.createElement('div');
+  el.className = 'due-picker';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-label', '期日を設定');
+
+  const render = () => {
+    const startOffset = (new Date(Date.UTC(viewY, viewM - 1, 1)).getUTCDay() + 6) % 7; // 月曜始まり
+    const daysInMonth = new Date(Date.UTC(viewY, viewM, 0)).getUTCDate();
+    let cells = '<span class="due-picker-blank"></span>'.repeat(startOffset);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ymd = `${viewY}-${pad(viewM)}-${pad(d)}`;
+      const weekday = (startOffset + d - 1) % 7; // 0=月 … 5=土 6=日
+      const holidayName = globalThis.jpHolidays ? globalThis.jpHolidays.getHolidayName(ymd) : null;
+      const cls = 'due-picker-day'
+        + (weekday === 5 ? ' is-sat' : '')
+        + (weekday === 6 || holidayName ? ' is-sun' : '') // 日曜と祝日は同色
+        + (holidayName ? ' is-holiday' : '')
+        + (ymd === today ? ' is-today' : '')
+        + (ymd === currentDue ? ' is-selected' : '');
+      const title = holidayName ? ` title="${escapeHtml(holidayName)}"` : '';
+      cells += `<button type="button" class="${cls}" data-date="${ymd}"${title}>${d}</button>`;
+    }
+    el.innerHTML = `
+      <div class="due-picker-quick">${renderDueQuickButtonsHtml()}</div>
+      <div class="due-picker-head">
+        <button type="button" class="due-picker-nav" data-nav="-1" title="前の月">◀</button>
+        <span class="due-picker-month">${viewY}年${viewM}月</span>
+        <button type="button" class="due-picker-nav" data-nav="1" title="次の月">▶</button>
+      </div>
+      <div class="due-picker-grid">
+        ${['月', '火', '水', '木', '金', '土', '日'].map((w, i) => `<span class="due-picker-wd${i === 5 ? ' is-sat' : i === 6 ? ' is-sun' : ''}">${w}</span>`).join('')}
+        ${cells}
+      </div>`;
+  };
+
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const nav = e.target.closest('[data-nav]');
+    if (nav) {
+      viewM += Number(nav.dataset.nav);
+      if (viewM < 1) { viewM = 12; viewY--; } else if (viewM > 12) { viewM = 1; viewY++; }
+      render();
+      return;
+    }
+    const pick = e.target.closest('[data-date]');
+    if (pick) {
+      closeDueDatePicker();
+      onPick(pick.dataset.date);
+    }
+  });
+  el.addEventListener('contextmenu', (e) => e.stopPropagation());
+
+  render();
+  document.body.appendChild(el);
+  dueDatePickerEl = el;
+
+  const margin = 8;
+  const rect = anchor.getBoundingClientRect();
+  const left = Math.min(rect.left, window.innerWidth - el.offsetWidth - margin);
+  const top = rect.bottom + 4 + el.offsetHeight > window.innerHeight - margin
+    ? rect.top - el.offsetHeight - 4
+    : rect.bottom + 4;
+  el.style.left = `${Math.max(margin, left)}px`;
+  el.style.top = `${Math.max(margin, top)}px`;
+
+  const onPointerDown = (e) => { if (!el.contains(e.target)) closeDueDatePicker(); };
+  // Escはカレンダーが先に消費する（背後のモーダルまで一緒に閉じないように）
+  const onKeyDown = (e) => {
+    if (e.key !== 'Escape') return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    closeDueDatePicker();
+  };
+  const onScroll = (e) => { if (!el.contains(e.target)) closeDueDatePicker(); };
+  document.addEventListener('pointerdown', onPointerDown, true);
+  document.addEventListener('keydown', onKeyDown, true);
+  window.addEventListener('resize', closeDueDatePicker);
+  window.addEventListener('scroll', onScroll, true);
+  dueDatePickerCleanup = () => {
+    document.removeEventListener('pointerdown', onPointerDown, true);
+    document.removeEventListener('keydown', onKeyDown, true);
+    window.removeEventListener('resize', closeDueDatePicker);
+    window.removeEventListener('scroll', onScroll, true);
+  };
+}
+
+// 日付入力欄（input.date-field）は読み取り専用のテキスト欄で、クリックすると共通カレンダーを開く。
+// ブラウザ標準のinput[type=date]は祝日・曜日色を出せないため置き換えている。
+// 動的に描画される入力欄でも効くよう、documentでの委譲で1回だけ配線する。値は 'YYYY-MM-DD' または ''。
+function renderDateFieldHtml(id, value, { title = '' } = {}) {
+  const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
+  return `<input type="text" class="date-field" id="${id}" readonly autocomplete="off" placeholder="日付を選択" value="${escapeHtml(value || '')}"${titleAttr}>`;
+}
+
+document.addEventListener('click', (e) => {
+  const field = e.target.closest && e.target.closest('input.date-field');
+  if (!field) return;
+  openDueDatePicker(field, field.value, (date) => {
+    field.value = date;
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+});
 
 // created_at/updated_at(UTC ISO文字列)をJSTの "YYYY-MM-DD HH:mm" 表示に変換する（BT-261）
 function formatDateTimeJst(iso) {
@@ -3210,11 +3370,12 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
         </div>
         <div class="settings-group">
           <label>開始日（任意）</label>
-          <input type="date" id="edit-task-start-date" value="${escapeHtml(item.startDate || '')}">
+          ${renderDateFieldHtml('edit-task-start-date', item.startDate)}
         </div>
         <div class="settings-group">
           <label>期日（任意）</label>
-          <input type="date" id="edit-task-due-date" value="${escapeHtml(item.dueDate || '')}">
+          ${renderDateFieldHtml('edit-task-due-date', item.dueDate)}
+          <div class="due-quick-row">${renderDueQuickButtonsHtml()}</div>
         </div>
       </div>
     </div>
@@ -3237,6 +3398,11 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
   const cancelBtn = body.querySelector('#edit-task-cancel');
 
   cancelBtn.addEventListener('click', () => renderFn(item));
+
+  // 期日クイック選択（BT-354）: 入力欄に反映するだけで、保存は「保存」ボタンで行う
+  body.querySelectorAll('.due-quick-row .due-quick-btn').forEach(btn => {
+    btn.addEventListener('click', () => { dueDateInput.value = btn.dataset.date; });
+  });
 
   saveBtn.addEventListener('click', async () => {
     const newTitle = titleInput.value.trim();
@@ -3941,6 +4107,7 @@ function buildMiniBoard(epic) {
       // 編集・GitHub紐付け・削除ボタン（ミニボード子カード、BT-041: 子タスクは常に単独削除可。BT-122でGitHub紐付けボタンを追加）
       const childActionsHtml = child.id
         ? `<div class="card-actions">
+            <button class="card-action-btn card-child-due-btn" data-task-id="${child.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
             <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集"><span class="material-icon icon-edit"></span></button>
             ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
             ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-create-btn" data-task-id="${child.id}" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
@@ -3957,6 +4124,16 @@ function buildMiniBoard(epic) {
         const childWithProject = { ...child, project: epic.project };
         openCardDetail(childWithProject, epic);
       });
+
+      // 期日ボタンのイベント（BT-354）
+      const childDueBtnEl = card.querySelector('.card-child-due-btn');
+      if (childDueBtnEl) {
+        childDueBtnEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          openDueDatePicker(childDueBtnEl, child.dueDate, (date) => planUpdateDueDate(child.id, date));
+        });
+      }
 
       // 編集ボタンのイベント（BT-041）
       const childEditBtnEl = card.querySelector('.card-child-edit-btn');
@@ -4155,7 +4332,7 @@ function buildTaskQuickTipHtml(item) {
   if (item.category && item.category !== '-') meta.push(`<span class="task-quick-tip-tag">${escapeHtml(item.category)}</span>`);
   if (item.assignee) meta.push(`<span class="task-quick-tip-tag">担当: ${escapeHtml(item.assignee)}</span>`);
   if (item.startDate) meta.push(`<span class="task-quick-tip-tag">開始: ${escapeHtml(item.startDate)}</span>`);
-  if (item.dueDate) meta.push(`<span class="task-quick-tip-tag">期日: ${escapeHtml(item.dueDate)}</span>`);
+  meta.push(`<span class="task-quick-tip-tag">期日: ${item.dueDate ? escapeHtml(item.dueDate) : '未設定'}</span>`);
   const artifacts = (item.artifacts || []).slice(0, 3)
     .map(path => `<li><code>${escapeHtml(path)}</code></li>`).join('');
   const moreArtifacts = item.artifacts && item.artifacts.length > 3
@@ -4729,11 +4906,11 @@ function getOrCreateAddForm() {
           </div>
           <div class="settings-group">
             <label>開始日（任意）</label>
-            <input type="date" id="add-task-start-date">
+            ${renderDateFieldHtml('add-task-start-date', '')}
           </div>
           <div class="settings-group">
             <label>期日（任意）</label>
-            <input type="date" id="add-task-due-date">
+            ${renderDateFieldHtml('add-task-due-date', '')}
           </div>
         </div>
       </div>
