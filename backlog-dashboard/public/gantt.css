@@ -1,0 +1,527 @@
+/* ガントチャート (BT-268) — gantt.js 専用のスタイル。週次計画ダイアログ内で使う */
+
+.plan-gantt-root {
+  flex: 1;
+  min-height: 0;
+  display: none;
+  flex-direction: column;
+}
+
+.plan-board-panel.is-gantt .plan-gantt-root { display: flex; }
+.plan-board-panel.is-gantt .plan-board-columns { display: none; }
+
+/* 週次/ガント切り替え */
+.plan-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.plan-view-toggle button {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.plan-view-toggle button + button { border-left: 1px solid var(--border); }
+.plan-view-toggle button:hover { color: var(--text); }
+.plan-view-toggle button.is-on {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ---- ツールバー ---- */
+.gantt-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.gantt-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.78rem;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.gantt-btn:hover { border-color: var(--accent); }
+.gantt-btn.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.gantt-zoom { display: inline-flex; gap: 0; }
+.gantt-zoom .gantt-btn { border-radius: 0; }
+.gantt-zoom .gantt-btn:first-child { border-radius: 6px 0 0 6px; }
+.gantt-zoom .gantt-btn:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+.gantt-check { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.gantt-stats { display: inline-flex; align-items: center; gap: 6px; }
+
+.gantt-stat {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 0.74rem;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+button.gantt-stat { cursor: pointer; }
+.gantt-stat-overdue { color: #e5484d; border-color: #e5484d; }
+.gantt-stat-late { color: #d98a0b; border-color: #d98a0b; }
+.gantt-hint { margin-left: auto; font-size: 0.72rem; opacity: 0.8; }
+
+/* ---- グリッド ---- */
+.gantt-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.gantt-grid {
+  position: relative;
+  min-height: 100%;
+}
+
+.gantt-head {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  height: var(--gantt-head-h);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.gantt-corner {
+  justify-content: space-between;
+  position: sticky;
+  left: 0;
+  z-index: 7;
+  flex: none;
+  width: var(--gantt-label-w);
+  box-sizing: border-box;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.gantt-head-days { flex: none; position: relative; overflow: clip; } /* 日付の文字がタスク列の上へはみ出さないように */
+.gantt-months, .gantt-days { position: relative; height: 22px; }
+.gantt-month, .gantt-day { position: absolute; top: 0; height: 100%; box-sizing: border-box; }
+
+.gantt-month {
+  font-size: 0.72rem;
+  line-height: 22px;
+  color: var(--text);
+  border-left: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: clip; /* hiddenだと中のstickyが効かなくなるのでclip */
+}
+
+/* 横スクロールしても月名が見える位置に残る(タスク列の幅ぶん右にずらす) */
+.gantt-month-label {
+  position: sticky;
+  left: calc(var(--gantt-label-w) + 6px);
+  padding-right: 6px;
+}
+
+.gantt-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.66rem;
+  line-height: 1;
+  overflow: hidden;
+  color: var(--text-muted);
+  border-left: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.gantt-day.is-off { color: #e5484d; }
+.gantt-day.is-today { background: var(--accent); color: #fff; border-radius: 4px; }
+.gantt-dnum { font-weight: 600; }
+.gantt-dow { font-size: 0.58rem; opacity: 0.85; }
+
+.gantt-bands {
+  left: var(--gantt-label-w);
+  position: absolute;
+  top: var(--gantt-head-h);
+  bottom: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.gantt-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(128, 128, 128, 0.1);
+}
+
+.gantt-band.is-hol { background: rgba(229, 72, 77, 0.1); }
+
+.gantt-today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+
+/* ---- 行 ---- */
+.gantt-row {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  height: var(--gantt-row-h);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.gantt-row-task:hover .gantt-label { background: var(--card-hover); }
+.gantt-row-head, .gantt-row-epic { background: color-mix(in srgb, var(--surface) 70%, transparent); }
+
+.gantt-label {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  flex: none;
+  width: var(--gantt-label-w);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.gantt-label-task { cursor: pointer; }
+.gantt-label-task.is-child { padding-left: 26px; }
+.gantt-label-epic { cursor: pointer; font-weight: 600; }
+.gantt-label-head { font-weight: 600; color: var(--text-muted); cursor: pointer; }
+.gantt-toggle { width: 12px; color: var(--text-muted); flex: none; }
+.gantt-id { color: var(--text-muted); font-size: 0.7rem; flex: none; }
+.gantt-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+
+.gantt-count {
+  margin-left: auto;
+  flex: none;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.gantt-pin { flex: none; font-size: 0.7rem; }
+.gantt-running {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  border-top-color: transparent;
+  animation: gantt-spin 0.9s linear infinite;
+}
+
+@keyframes gantt-spin { to { transform: rotate(360deg); } }
+
+.gantt-status {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid var(--text-muted);
+  box-sizing: border-box;
+}
+
+.gantt-status.st-ready { border-color: var(--accent); }
+.gantt-status.st-do { border-color: var(--accent); background: var(--accent); }
+.gantt-status.st-done { border-color: #6fcf97; background: #6fcf97; }
+.gantt-row-task.is-done .gantt-title { color: var(--text-muted); text-decoration: line-through; }
+
+.gantt-track { position: relative; flex: none; height: 100%; }
+.gantt-track.is-empty { cursor: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2728%27%20height=%2728%27%20viewBox=%270%200%2024%2024%27%3E%3Crect%20x=%273%27%20y=%274.5%27%20width=%2718%27%20height=%2716.5%27%20rx=%272.5%27%20fill=%27white%27%20stroke=%27%232f6fdb%27%20stroke-width=%272%27/%3E%3Cpath%20d=%27M3%2010h18%27%20stroke=%27%232f6fdb%27%20stroke-width=%272%27/%3E%3Cpath%20d=%27M8%202.5v4M16%202.5v4%27%20stroke=%27%232f6fdb%27%20stroke-width=%272%27%20stroke-linecap=%27round%27/%3E%3Crect%20x=%277%27%20y=%2713%27%20width=%273.2%27%20height=%273.2%27%20fill=%27%232f6fdb%27/%3E%3C/svg%3E") 14 14, pointer; } /* カレンダーアイコン: 「日付を置く」操作だと分かるように */
+.gantt-track.is-empty:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
+.gantt-empty { padding: 24px; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
+
+/* ---- バー ---- */
+.gantt-bar {
+  position: absolute;
+  top: 4px;
+  height: calc(var(--gantt-row-h) - 9px);
+  box-sizing: border-box;
+  border-radius: 4px;
+  font-size: 0.66rem;
+  line-height: 1;
+  color: var(--text);
+  user-select: none;
+  cursor: grab;
+  touch-action: none;
+}
+
+/* 日付はバーの右の外側に出す(バー内だと短いバーで見切れるため。通常バー・EPIC・完了◆すべて共通) */
+.gantt-bar-date {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 6px;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.gantt-bar.j-overdue .gantt-bar-date { color: #e5484d; }
+.gantt-bar.j-late-start .gantt-bar-date { color: #d98a0b; }
+.gantt-bar.st-todo { background: color-mix(in srgb, var(--accent) 22%, transparent); border: 1px solid var(--accent); }
+.gantt-bar.st-ready { background: color-mix(in srgb, var(--accent) 45%, transparent); border: 1px solid var(--accent); }
+.gantt-bar.st-do { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
+.gantt-bar.st-done { background: rgba(111, 207, 151, 0.35); border: 1px solid #6fcf97; cursor: pointer; }
+.gantt-bar.j-late-start { background: #f59e0b; border-color: #d98a0b; color: #1b1b1b; }
+.gantt-bar.j-overdue { background: #e5484d; border-color: #c93a3f; color: #fff; }
+.gantt-bar.is-dragging { opacity: 0.85; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); z-index: 5; }
+
+.gantt-bar-epic {
+  top: 8px;
+  height: 12px;
+  cursor: default;
+  /* 完了ぶん(--pct)を緑、残りをグレーで塗り分ける */
+  background: linear-gradient(to right, #6fcf97 var(--pct, 0%), color-mix(in srgb, var(--text-muted) 55%, transparent) var(--pct, 0%));
+  border-radius: 3px;
+}
+
+
+.gantt-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.gantt-handle-l { left: 0; border-radius: 4px 0 0 4px; }
+.gantt-handle-r { right: 0; border-radius: 0 4px 4px 0; }
+.gantt-bar:not(.is-done):hover .gantt-handle { background: rgba(255, 255, 255, 0.28); }
+
+.gantt-bar-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 0.65rem;
+  line-height: 14px;
+  text-align: center;
+  cursor: pointer;
+  z-index: 3;
+}
+
+.gantt-bar:hover .gantt-bar-clear { display: block; }
+
+.gantt-ghost {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  border: 1px dashed var(--accent);
+  pointer-events: none;
+  cursor: crosshair;
+}
+
+.gantt-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+}
+
+.gantt-marker i {
+  position: absolute;
+  top: 50%;
+  left: -5px;
+  width: 9px;
+  height: 9px;
+  margin-top: -5px;
+  background: #6fcf97;
+  transform: rotate(45deg);
+}
+
+.gantt-marker .gantt-bar-date { margin-left: 10px; }
+
+.gantt-offrange {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+body.gantt-dragging, body.gantt-dragging * { cursor: grabbing !important; user-select: none; }
+
+/* ---- ホバーのチップヘルプ ---- */
+.gantt-tip {
+  position: fixed;
+  z-index: 1300;
+  max-width: 380px;
+  min-width: 220px;
+  padding: 10px 12px;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-size: 0.78rem;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.gantt-tip.gantt-tip-visible { opacity: 1; visibility: visible; pointer-events: auto; }
+.gantt-tip-head { display: flex; gap: 6px; align-items: baseline; margin-bottom: 4px; }
+.gantt-tip-id { color: var(--text-muted); font-size: 0.7rem; flex: none; }
+.gantt-tip-title { font-weight: 600; }
+.gantt-tip-warn { margin: 4px 0; font-size: 0.72rem; color: #e5484d; }
+.gantt-tip-warn.is-late { color: #d98a0b; }
+.gantt-tip-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 6px; font-size: 0.7rem; color: var(--text-muted); }
+
+.gantt-tip-desc {
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.gantt-tip-none { color: var(--text-muted); }
+
+/* ---- ワークスペース見出し(ALL表示時): スクロールしても日付ヘッダーの直下に残す ---- */
+.gantt-row-ws {
+  position: sticky;
+  top: var(--gantt-head-h);
+  z-index: 4;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.gantt-label-ws {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--tag-project-fg);
+  background: var(--tag-project-bg);
+}
+
+/* ---- 期日欄 / タスク列の幅変更 ---- */
+.gantt-corner-due { width: 92px; flex: none; }
+
+.gantt-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 8;
+  border-right: 2px solid color-mix(in srgb, var(--text-muted) 55%, transparent); /* 常に見える境界線 */
+  box-sizing: border-box;
+}
+
+.gantt-resizer:hover, body.gantt-resizing .gantt-resizer {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-right-color: var(--accent);
+}
+body.gantt-resizing, body.gantt-resizing * { cursor: col-resize !important; user-select: none; }
+
+.gantt-due-input, .gantt-due-text {
+  flex: none;
+  width: 92px;
+  box-sizing: border-box;
+  height: 20px;
+  padding: 0 4px;
+  font-size: 0.72rem;
+  text-align: center;
+  color: var(--text);
+}
+
+.gantt-due-input {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.gantt-due-input:hover { border-color: var(--accent); background: var(--surface); }
+.gantt-due-input::placeholder { color: var(--text-muted); opacity: 0.55; }
+.gantt-due-input.is-overdue { color: #e5484d; font-weight: 600; }
+.gantt-due-text { line-height: 20px; color: var(--text-muted); }
+
+/* 期日欄の左側の薄い線(こちらでも幅変更できる)。label右端のpadding(10px)+期日欄(92px)の分だけ内側 */
+.gantt-resizer-due {
+  right: 102px;
+  width: 9px;
+  border-right: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+}
+
+/* 進行中だが実行中フラグOFF: 回さず薄く表示(動いている/止まっているを見分けるため) */
+.gantt-running.is-idle { animation: none; opacity: 0.45; }
+.gantt-running { margin-left: 2px; }
+
+/* 未計画行のホバー位置(1日ぶんの枠 + 曜日付き日付)。作成ドラッグ中もカレンダーカーソルのまま */
+.gantt-hover-day {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  box-sizing: border-box;
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  pointer-events: none;
+}
+
+.gantt-hover-day .gantt-bar-date { color: var(--accent); font-weight: 600; }
+body.gantt-dragging.gantt-creating, body.gantt-dragging.gantt-creating * { cursor: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2728%27%20height=%2728%27%20viewBox=%270%200%2024%2024%27%3E%3Crect%20x=%273%27%20y=%274.5%27%20width=%2718%27%20height=%2716.5%27%20rx=%272.5%27%20fill=%27white%27%20stroke=%27%232f6fdb%27%20stroke-width=%272%27/%3E%3Cpath%20d=%27M3%2010h18%27%20stroke=%27%232f6fdb%27%20stroke-width=%272%27/%3E%3Cpath%20d=%27M8%202.5v4M16%202.5v4%27%20stroke=%27%232f6fdb%27%20stroke-width=%272%27%20stroke-linecap=%27round%27/%3E%3Crect%20x=%277%27%20y=%2713%27%20width=%273.2%27%20height=%273.2%27%20fill=%27%232f6fdb%27/%3E%3C/svg%3E") 14 14, pointer !important; }
+
+/* バーの日付ラベルの前のスピナー(進行中) */
+.gantt-bar-date .gantt-running { display: inline-block; vertical-align: middle; margin: -2px 4px 0 0; }
+
+.gantt-epic-pct { color: var(--text); font-weight: 600; }
+
+.gantt-epic-solo {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
