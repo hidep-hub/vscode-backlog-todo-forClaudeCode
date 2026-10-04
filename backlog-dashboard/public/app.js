@@ -115,6 +115,9 @@ let planDragData = null; // { kind: 'single', id } | { kind: 'group', epicId, ch
 let planCollapsedGroups = new Set(); // 折りたたみ中のEPICグループキー('epicId_bucketId')
 let planSearchQuery = ''; // BM-012: ID・件名・親EPICタイトルの部分一致（空文字=絞り込みなし）
 let planPinOnly = false; // BM-012: 📌ピンが付いたタスク（EPICは子の集約）だけ表示する
+let planShowDone = true; // BT-315: 週次カンバンで完了タスクを(列内の折りたたみグループとして)出すか。選択はlocalStorageに保持
+let planExpandedDone = new Set(); // BT-315: 開いている完了グループのバケットID（既定は折りたたみ）
+try { if (localStorage.getItem('planShowDone') === '0') planShowDone = false; } catch { /* 無視 */ }
 let planViewMode = 'week'; // BT-268: 'week'(週次カンバン) | 'gantt'(ガント)。選択はlocalStorageに保持
 try { if (localStorage.getItem('planViewMode') === 'gantt') planViewMode = 'gantt'; } catch { /* 無視 */ }
 
@@ -2625,9 +2628,16 @@ function planMatchesSearch(item, query) {
   return q.split(/\s+/).every((term) => hay.includes(term));
 }
 
+// BT-315: 完了タスクの置き場。遅延列には出さない（終わったものは遅延としない）／ヘッダーのトグルOFFなら出さない。
+// 出す場合は通常カードに混ぜず、列内の折りたたみグループ(doneItems)へ振り分ける。
+function planPushDone(bucket, bucketId, item, epic) {
+  if (bucketId === 'overdue' || !planShowDone) return;
+  bucket.doneItems.push({ item, epic });
+}
+
 function planBuildBuckets(bucketDefs) {
   const buckets = {};
-  for (const b of bucketDefs) buckets[b.id] = { singles: [], epicGroups: new Map() };
+  for (const b of bucketDefs) buckets[b.id] = { singles: [], epicGroups: new Map(), doneItems: [] };
 
   const isFiltered = !!planSearchQuery.trim() || planPinOnly;
 
@@ -2644,6 +2654,7 @@ function planBuildBuckets(bucketDefs) {
           const matchesSearch = planMatchesSearch(child, planSearchQuery) || planMatchesSearch(item, planSearchQuery);
           if (!matchesPin || !matchesSearch) continue;
         }
+        if (child.statusCode === 'done') { planPushDone(buckets[bucketId], bucketId, child, item); continue; }
         let group = buckets[bucketId].epicGroups.get(item.id);
         if (!group) {
           group = { epic: item, children: [] };
@@ -2658,6 +2669,7 @@ function planBuildBuckets(bucketDefs) {
         if (planPinOnly && !planPinActive(item)) continue;
         if (!planMatchesSearch(item, planSearchQuery)) continue;
       }
+      if (item.statusCode === 'done') { planPushDone(buckets[bucketId], bucketId, item, null); continue; }
       buckets[bucketId].singles.push(item);
     }
   }
@@ -2694,7 +2706,23 @@ function planBuildCard(item, bucketId, parentEpic = null) {
     ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
   const dueBadge = item.dueDate ? renderDueDateBadge(item.dueDate, item.statusCode) : '';
   const metaHtml = (wsBadge || dueBadge) ? `<div class="card-meta">${wsBadge}${dueBadge}</div>` : '';
-  card.innerHTML = `<div class="card-id">${spinner}${pinIcon}${escapeHtml(item.id)}</div><div class="card-title">${escapeHtml(item.title)}</div>${metaHtml}`;
+  // BT-315: ホバーで出る期日カレンダーボタン（メインボードのカードと同じ操作）。完了済みは期日を触らない
+  const dueBtnHtml = isDone ? ''
+    : `<div class="card-actions plan-card-actions"><button type="button" class="card-action-btn plan-card-due-btn" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button></div>`;
+  card.innerHTML = `${dueBtnHtml}<div class="card-id">${spinner}${pinIcon}${escapeHtml(item.id)}</div><div class="card-title">${escapeHtml(item.title)}</div>${metaHtml}`;
+  const dueBtn = card.querySelector('.plan-card-due-btn');
+  if (dueBtn) {
+    dueBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      openDueDatePicker(dueBtn, item.dueDate, async (date) => {
+        await planUpdateDueDate(item.id, date);
+        renderPlanBoard();
+      });
+    });
+    // ボタン上ではカード全体のドラッグを始めない
+    dueBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+  }
 
   if (!isDone) {
     card.setAttribute('draggable', 'true');
@@ -2771,6 +2799,32 @@ function planBuildEpicGroup(group, bucketId, forceExpand = false) {
 
   wrap.appendChild(header);
   wrap.appendChild(childrenEl);
+  return wrap;
+}
+
+// BT-315: 列内の「完了 N件」折りたたみグループ。親EPICの子は親IDバッジ付きで並べる
+function planBuildDoneGroup(bucketId, doneItems, sortMode) {
+  const isExpanded = planExpandedDone.has(bucketId);
+  const wrap = document.createElement('div');
+  wrap.className = 'plan-done-group';
+  const header = document.createElement('div');
+  header.className = 'plan-done-header';
+  header.innerHTML = `<span class="plan-epic-toggle">${isExpanded ? '▾' : '▸'}</span><span class="material-icon icon-check-box"></span><span class="plan-done-label">完了</span><span class="count">${doneItems.length}</span>`;
+  header.title = isExpanded ? '完了タスクを折りたたむ' : '完了タスクを開く';
+  header.addEventListener('click', () => {
+    if (planExpandedDone.has(bucketId)) planExpandedDone.delete(bucketId); else planExpandedDone.add(bucketId);
+    renderPlanBoard();
+  });
+  wrap.appendChild(header);
+  if (isExpanded) {
+    const epicOf = new Map(doneItems.map((d) => [d.item.id, d.epic]));
+    const list = document.createElement('div');
+    list.className = 'plan-done-list';
+    for (const item of columnSort.sortItems(doneItems.map((d) => d.item), sortMode)) {
+      list.appendChild(planBuildCard(item, bucketId, epicOf.get(item.id) || null));
+    }
+    wrap.appendChild(list);
+  }
   return wrap;
 }
 
@@ -2934,7 +2988,7 @@ function renderPlanBoard() {
     const body = colEl.querySelector('.plan-col-body');
     planSetupDropZone(body, b.id);
 
-    if (totalCount === 0) {
+    if (totalCount === 0 && bucket.doneItems.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'plan-col-empty';
       empty.textContent = b.id === 'overdue' || b.id === 'later' ? '（なし）' : 'ここにドロップ';
@@ -2949,6 +3003,7 @@ function renderPlanBoard() {
         body.appendChild(planBuildEpicGroup(group, b.id, isStock && isFiltered));
       }
     }
+    if (bucket.doneItems.length > 0) body.appendChild(planBuildDoneGroup(b.id, bucket.doneItems, sortMode));
 
     container.appendChild(colEl);
     // scrollTopはDOM接続後でないと反映されない(接続前は高さが確定せず0にクランプされる)
@@ -3006,6 +3061,15 @@ function planUpdateHeaderControls() {
   const pinCountEl = overlay.querySelector('#plan-pin-count');
   if (pinCountEl) pinCountEl.textContent = pinCount > 0 ? String(pinCount) : '';
 
+  const doneBtn = overlay.querySelector('#plan-done-filter-btn');
+  if (doneBtn) {
+    doneBtn.classList.toggle('filter-active', planShowDone);
+    doneBtn.style.display = planViewMode === 'gantt' ? 'none' : '';
+    doneBtn.title = planShowDone
+      ? '完了タスクを表示中（クリックで非表示）。遅延列には出ないよ'
+      : '完了タスクは非表示（クリックで表示）';
+  }
+
   const clearBtn = overlay.querySelector('#plan-search-clear-btn');
   if (clearBtn) clearBtn.style.visibility = planSearchQuery ? 'visible' : 'hidden';
 }
@@ -3030,6 +3094,7 @@ function getOrCreatePlanBoardModal() {
           <button type="button" class="plan-search-clear-btn" id="plan-search-clear-btn" title="絞込解除">&#10005;</button>
         </div>
         <button type="button" class="plan-pin-filter-btn" id="plan-pin-filter-btn" title="📌ピンを付けたタスクだけ表示する（EPICは子に📌があればEPICごと表示）"><span class="material-icon icon-keep"></span><span class="plan-pin-count" id="plan-pin-count"></span></button>
+        <button type="button" class="plan-pin-filter-btn plan-done-filter-btn" id="plan-done-filter-btn"><span class="material-icon icon-check-box"></span></button>
         <button class="plan-board-close" id="plan-board-close">&times;</button>
       </div>
       <div class="plan-board-columns" id="plan-board-columns"></div>
@@ -3073,6 +3138,13 @@ function getOrCreatePlanBoardModal() {
   // BM-012: 📌ピンだけ表示のトグル
   overlay.querySelector('#plan-pin-filter-btn').addEventListener('click', () => {
     planPinOnly = !planPinOnly;
+    renderPlanBoard();
+  });
+
+  // BT-315: 完了タスクを出すかどうかのトグル（週次カンバンのみ）
+  overlay.querySelector('#plan-done-filter-btn').addEventListener('click', () => {
+    planShowDone = !planShowDone;
+    try { localStorage.setItem('planShowDone', planShowDone ? '1' : '0'); } catch { /* 無視 */ }
     renderPlanBoard();
   });
 
