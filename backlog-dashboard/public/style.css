@@ -1769,6 +1769,40 @@ body {
   color: var(--tag-category-fg);
 }
 
+/* BT-355: 子タスク詳細の識別表示。親パンくず（さりげない色） */
+.detail-parent-crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-bottom: 6px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.detail-parent-crumb:hover {
+  color: var(--text);
+}
+
+.detail-parent-crumb-id {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: var(--tag-parent-fg);
+  opacity: 0.85;
+}
+
+.detail-parent-crumb-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-parent-crumb-arrow {
+  flex: 0 0 auto;
+}
+
 .detail-title {
   font-size: 1.1rem;
   font-weight: 600;
