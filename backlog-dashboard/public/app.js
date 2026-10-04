@@ -22,7 +22,6 @@ const themeSelectEl = document.getElementById('theme-select');
 const headerSearchInput = document.getElementById('header-search-input');
 const githubImportBtn = document.getElementById('github-import-btn');
 const headerLogoEl = document.getElementById('header-logo');
-const settingsBtn = document.getElementById('settings-btn');
 const settingsOverlay = document.getElementById('settings-overlay');
 const settingsClose = document.getElementById('settings-close');
 const settingsThemeEl = document.getElementById('settings-theme');
@@ -388,7 +387,6 @@ function openSettingsPanel(workspace = activeWorkspace()) {
   onSettingsWorkspaceChanged();
 }
 
-if (settingsBtn) settingsBtn.addEventListener('click', () => openSettingsPanel());
 
 settingsClose.addEventListener('click', () => {
   closeSettings();
@@ -406,7 +404,7 @@ workspaceThemeSaveEl.addEventListener('click', () => {
   settings.workspaceThemes[draft.workspace] = draft.theme;
   settings.workspaceThemeEnabled[draft.workspace] = true;
   saveSettings(settings);
-  applySettings();
+  applyMainFilter(draft.workspace); // BT-360: 保存したワークスペースをメインボードの選択状態にする
   closeSettings();
 });
 
@@ -420,13 +418,19 @@ if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEven
 
 // --- GitHub連携設定 (BT-077) ---
 // Inbox等、実ワークスペース(workspace)を持たない架空プロジェクトはGitHub連携の対象外
+// BT-360: ワークスペース選択に「＋ 新規作成」を追加。この値を選んだ時だけ作成フォームを出す
+const NEW_WORKSPACE_VALUE = '__new__';
+
 function populateSettingsWorkspaceSelect(selected) {
   const workspaceMap = (currentBoardData && currentBoardData.workspaceMap) || {};
   const names = Object.keys(workspaceMap).sort();
   settingsWorkspaceEl.innerHTML = `<option value="">（未選択）</option>` +
-    names.map(name => `<option value="${name}">${name}</option>`).join('');
-  settingsWorkspaceEl.value = names.includes(selected) ? selected : '';
-  settingsWorkspace = settingsWorkspaceEl.value;
+    names.map(name => `<option value="${name}">${name}</option>`).join('') +
+    `<option value="${NEW_WORKSPACE_VALUE}">＋ 新規作成</option>`;
+  const valid = names.includes(selected) || selected === NEW_WORKSPACE_VALUE;
+  settingsWorkspaceEl.value = valid ? selected : '';
+  // 新規作成中はどのワークスペースも選択していない扱い（テーマ/GitHub設定の対象なし）
+  settingsWorkspace = settingsWorkspaceEl.value === NEW_WORKSPACE_VALUE ? '' : settingsWorkspaceEl.value;
 }
 
 // GitHub設定の対象prefix。ワークスペース未選択、またはprefixを持たない場合は''
@@ -436,11 +440,92 @@ function settingsGithubPrefix() {
 }
 
 function onSettingsWorkspaceChanged() {
-  settingsWorkspace = settingsWorkspaceEl.value;
+  const creating = settingsWorkspaceEl.value === NEW_WORKSPACE_VALUE;
+  settingsWorkspace = creating ? '' : settingsWorkspaceEl.value;
   workspaceThemeDraft = null;
+  showWorkspaceCreate(creating);
   applySettings(); // 切替前のプレビューを破棄し、選択ワークスペースのテーマ欄を描画し直す
   loadGithubSettingsForSelectedProject();
 }
+
+// --- ワークスペース新規作成 (BT-360) ---
+// 既存の POST /api/create-workspace を使う。サーバー側にも同じ検証があるため、
+// ここは入力中に気づけるようにするための事前チェック（countersの過去残骸だけはサーバーの400で検知）
+const workspaceCreateEl = document.getElementById('settings-workspace-create');
+const settingsColumnsEl = document.getElementById('settings-columns');
+const workspaceCreateFileEl = document.getElementById('workspace-create-file');
+const workspaceCreatePrefixEl = document.getElementById('workspace-create-prefix');
+const workspaceCreateBaseEl = document.getElementById('workspace-create-base');
+const workspaceCreatePreviewEl = document.getElementById('workspace-create-path-preview');
+const workspaceCreateErrorEl = document.getElementById('workspace-create-error');
+const workspaceCreateSubmitEl = document.getElementById('workspace-create-submit');
+
+function showWorkspaceCreate(creating) {
+  workspaceCreateEl.hidden = !creating;
+  settingsColumnsEl.hidden = creating;
+  if (!creating) return;
+  workspaceCreateFileEl.value = '';
+  workspaceCreatePrefixEl.value = '';
+  validateWorkspaceCreate();
+  setTimeout(() => workspaceCreateFileEl.focus(), 50);
+}
+
+// 入力値を検証し、エラー文言（問題なければ''）を返す。未入力は文言なしで作成不可にする
+function workspaceCreateProblem(file, prefix) {
+  const fileMap = (currentBoardData && currentBoardData.projectFileMap) || {};
+  const prefixMap = (currentBoardData && currentBoardData.projectPrefixMap) || {};
+  if (file && !/^[A-Za-z0-9_-]+$/.test(file)) return 'フォルダ名は英数字・_-のみで入力してね';
+  if (file && Object.values(fileMap).some(f => f.toLowerCase() === file.toLowerCase())) return `「${file}」は既に登録済みだよ`;
+  if (prefix && !/^[A-Z]{0,2}$/.test(prefix)) return 'プレフィクスは英大文字2文字で入力してね';
+  if (prefix.length === 2) {
+    const owner = Object.keys(prefixMap).find(name => prefixMap[name] === prefix);
+    if (owner) return `プレフィクス「${prefix}」は ${owner} で使用中だよ`;
+  }
+  return '';
+}
+
+function validateWorkspaceCreate() {
+  const file = workspaceCreateFileEl.value.trim();
+  const prefix = workspaceCreatePrefixEl.value.trim().toUpperCase();
+  const parent = (currentBoardData && currentBoardData.defaultWorkspaceParent) || '';
+  workspaceCreateBaseEl.textContent = parent || '（未設定: config.jsonのdefaultWorkspaceParentを設定してね）';
+  workspaceCreatePreviewEl.textContent = `作成されるフォルダ: ${parent}/${file || '（フォルダ名）'}`;
+  const problem = workspaceCreateProblem(file, prefix);
+  workspaceCreateErrorEl.textContent = problem;
+  // ベース未設定だと相対パスで作られてしまうため、作成不可にする
+  workspaceCreateSubmitEl.disabled = !!problem || !file || prefix.length !== 2 || !parent;
+}
+
+workspaceCreateFileEl.addEventListener('input', validateWorkspaceCreate);
+workspaceCreatePrefixEl.addEventListener('input', () => {
+  workspaceCreatePrefixEl.value = workspaceCreatePrefixEl.value.toUpperCase();
+  validateWorkspaceCreate();
+});
+
+workspaceCreateSubmitEl.addEventListener('click', async () => {
+  const file = workspaceCreateFileEl.value.trim();
+  const prefix = workspaceCreatePrefixEl.value.trim().toUpperCase();
+  const parent = (currentBoardData && currentBoardData.defaultWorkspaceParent) || '';
+  workspaceCreateSubmitEl.disabled = true;
+  workspaceCreateErrorEl.textContent = '作成中...';
+  try {
+    const res = await fetch('/api/create-workspace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file, prefix, workspace: parent ? `${parent}/${file}` : file }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '作成に失敗しました');
+    // WS配信より先にセレクトを再描画するため、最新のboardを取り直して新ワークスペースを選択状態にする
+    const board = await (await fetch('/api/board')).json();
+    currentBoardData = board;
+    populateSettingsWorkspaceSelect(data.name || file);
+    onSettingsWorkspaceChanged();
+  } catch (e) {
+    workspaceCreateErrorEl.textContent = `作成に失敗したよ: ${e.message}`;
+    workspaceCreateSubmitEl.disabled = false;
+  }
+});
 
 async function loadGithubSettingsForSelectedProject() {
   const prefix = settingsGithubPrefix();
@@ -488,6 +573,7 @@ settingsGithubSaveEl.addEventListener('click', async () => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || '保存に失敗しました');
     await loadGithubSettingsForSelectedProject();
+    applyMainFilter(settingsWorkspace); // BT-360: 保存したワークスペースをメインボードの選択状態にする
     settingsOverlay.classList.remove('settings-visible');
   } catch (e) {
     settingsGithubStatusEl.textContent = `エラー: ${e.message}`;
@@ -784,12 +870,23 @@ headerLogoEl.addEventListener('click', async () => {
 });
 
 // --- Project Filter ---
-projectFilterEl.addEventListener('change', () => {
-  currentFilter = projectFilterEl.value;
+// メインボードの絞り込みを切り替える（ヘッダのセレクト操作と、設定パネルでの保存の両方から使う）
+function applyMainFilter(project) {
+  currentFilter = project;
+  projectFilterEl.value = currentFilter;
   applySettings();
   setSessionFilter(currentFilter); // ユーザー操作を記憶
   if (currentBoardData) renderBoard(currentBoardData);
   if (typeof syncActivityProjectFilterFromMain === 'function') syncActivityProjectFilterFromMain();
+}
+
+projectFilterEl.addEventListener('change', () => {
+  if (projectFilterEl.value === NEW_WORKSPACE_VALUE) {
+    projectFilterEl.value = currentFilter; // 絞り込みは変えず、新規作成モードで設定パネルを開く
+    openSettingsPanel(NEW_WORKSPACE_VALUE);
+    return;
+  }
+  applyMainFilter(projectFilterEl.value);
 });
 
 // ワークスペースバッジクリック → フィルタ連携（トグル対応）
@@ -969,6 +1066,8 @@ function updateProjectFilter(projects) {
     opt.textContent = p;
     projectFilterEl.appendChild(opt);
   }
+  // BT-360: 絞り込みではなく、設定パネルの新規作成モードを開くための操作項目
+  projectFilterEl.appendChild(new Option('＋ 新規ワークスペース…', NEW_WORKSPACE_VALUE));
   projectFilterEl.value = current;
 }
 
@@ -1836,7 +1935,7 @@ function setupWorkspaceActionButtons(body, item) {
   });
   const createBtn = body.querySelector('#modal-create-workspace-btn');
   if (createBtn) {
-    createBtn.addEventListener('click', () => openWorkspaceCreateForm());
+    createBtn.addEventListener('click', () => openSettingsPanel(NEW_WORKSPACE_VALUE)); // BT-360: 新規作成は設定パネルに一本化
   }
 }
 
@@ -3190,6 +3289,7 @@ function openPlanBoard() {
   const sel = overlay.querySelector('#plan-board-project-filter');
   if (sel && projectFilterEl) {
     sel.innerHTML = projectFilterEl.innerHTML;
+    sel.querySelector(`option[value="${NEW_WORKSPACE_VALUE}"]`)?.remove(); // 操作項目は絞り込みではないので除く
     sel.value = currentFilter;
   }
   overlay.classList.add('active');
@@ -4957,113 +5057,6 @@ async function confirmAttach(parentId) {
     renderBoard(lastBoardData);
   } catch (e) {
     console.error('[attach] Network error:', e);
-  }
-}
-
-// --- Workspace Create Form (BT-053) ---
-let workspaceFormEl = null;
-
-function getOrCreateWorkspaceCreateForm() {
-  if (workspaceFormEl) return workspaceFormEl;
-  workspaceFormEl = document.createElement('div');
-  workspaceFormEl.className = 'modal-overlay modal-front';
-  workspaceFormEl.innerHTML = `
-    <div class="modal-content add-task-modal">
-      <button class="modal-close" id="workspace-form-close">&times;</button>
-      <h3 class="add-form-title">ワークスペースを作る</h3>
-      <div class="settings-group">
-        <label>フォルダ名（英数字・_-のみ）</label>
-        <input type="text" id="workspace-form-file" placeholder="my-project">
-        <p class="workspace-form-path-preview" id="workspace-form-path-preview"></p>
-      </div>
-      <div class="settings-group">
-        <label>プレフィクス（英大文字2文字・タスクIDの接頭辞）</label>
-        <input type="text" id="workspace-form-prefix" maxlength="2" placeholder="MP">
-      </div>
-      <p class="edit-task-error" id="workspace-form-error" style="display:none;"></p>
-      <button class="add-task-submit" id="workspace-form-submit">作って開く</button>
-    </div>
-  `;
-  document.body.appendChild(workspaceFormEl);
-
-  workspaceFormEl.addEventListener('click', (e) => {
-    if (e.target === workspaceFormEl) closeWorkspaceCreateForm();
-  });
-  workspaceFormEl.querySelector('#workspace-form-close').addEventListener('click', closeWorkspaceCreateForm);
-  closeOnEscape(workspaceFormEl, 'modal-visible', closeWorkspaceCreateForm);
-
-  const fileInput = workspaceFormEl.querySelector('#workspace-form-file');
-  const pathPreview = workspaceFormEl.querySelector('#workspace-form-path-preview');
-  fileInput.addEventListener('input', () => updateWorkspacePathPreview(fileInput, pathPreview));
-
-  workspaceFormEl.querySelector('#workspace-form-submit').addEventListener('click', submitCreateWorkspace);
-
-  return workspaceFormEl;
-}
-
-function updateWorkspacePathPreview(fileInput, pathPreview) {
-  const parent = (currentBoardData && currentBoardData.defaultWorkspaceParent) || '';
-  pathPreview.textContent = fileInput.value ? `${parent}/${fileInput.value}` : parent;
-}
-
-function openWorkspaceCreateForm() {
-  const form = getOrCreateWorkspaceCreateForm();
-  document.body.appendChild(form);
-  const fileInput = form.querySelector('#workspace-form-file');
-  const prefixInput = form.querySelector('#workspace-form-prefix');
-  const pathPreview = form.querySelector('#workspace-form-path-preview');
-  const errorEl = form.querySelector('#workspace-form-error');
-
-  fileInput.value = '';
-  prefixInput.value = '';
-  errorEl.style.display = 'none';
-  updateWorkspacePathPreview(fileInput, pathPreview);
-
-  form.classList.add('modal-visible');
-  setTimeout(() => fileInput.focus(), 100);
-}
-
-function closeWorkspaceCreateForm() {
-  if (workspaceFormEl) workspaceFormEl.classList.remove('modal-visible');
-}
-
-async function submitCreateWorkspace() {
-  const form = getOrCreateWorkspaceCreateForm();
-  const file = form.querySelector('#workspace-form-file').value.trim();
-  const prefix = form.querySelector('#workspace-form-prefix').value.trim().toUpperCase();
-  const errorEl = form.querySelector('#workspace-form-error');
-  const parent = (currentBoardData && currentBoardData.defaultWorkspaceParent) || '';
-
-  if (!file || !/^[A-Za-z0-9_-]+$/.test(file)) {
-    errorEl.textContent = 'フォルダ名は英数字・_-のみで入力してね';
-    errorEl.style.display = 'block';
-    return;
-  }
-  if (!prefix || !/^[A-Z]{2}$/.test(prefix)) {
-    errorEl.textContent = 'プレフィクスは英大文字2文字で入力してね';
-    errorEl.style.display = 'block';
-    return;
-  }
-
-  const workspace = parent ? `${parent}/${file}` : file;
-
-  try {
-    const resp = await fetch('/api/create-workspace', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file, prefix, workspace }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      errorEl.textContent = `作成に失敗したよ: ${data.error || ''}`;
-      errorEl.style.display = 'block';
-      return;
-    }
-    closeWorkspaceCreateForm();
-  } catch (e) {
-    console.error('[create-workspace] Network error:', e);
-    errorEl.textContent = 'ネットワークエラーが発生したよ';
-    errorEl.style.display = 'block';
   }
 }
 

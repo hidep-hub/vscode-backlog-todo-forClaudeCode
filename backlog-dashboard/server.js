@@ -214,9 +214,18 @@ function createWorkspaceProject({ file, prefix, name, workspace }) {
   db.prepare('INSERT INTO counters (workspace, prefix, next_seq) VALUES (?, ?, 1)').run(file, prefix);
   console.log(`[api] Registered counters row for workspace "${file}" (prefix: ${prefix})`);
 
-  const newEntry = { file, prefix, name: displayName, workspace: workspace || '' };
+  const newEntry = { file, prefix, name: displayName, workspace: workspace || '', summary: '' };
+  const previousProjects = config.projects;
   config.projects = [...(config.projects || []), newEntry];
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  try {
+    fs.copyFileSync(CONFIG_PATH, `${CONFIG_PATH}.bak`);
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  } catch (e) {
+    // config.json に書けなかった場合、countersだけ残ると次回以降「過去残骸」扱いで作成できなくなるため巻き戻す
+    config.projects = previousProjects;
+    db.prepare('DELETE FROM counters WHERE workspace = ?').run(file);
+    return { success: false, error: `Failed to write config.json: ${e.message}` };
+  }
   console.log(`[api] Registered project "${file}" (prefix: ${prefix}) in config.json`);
 
   // BM-007: 作成直後の自動起動は廃止。エディタはユーザーがカードのボタンから選ぶ。
