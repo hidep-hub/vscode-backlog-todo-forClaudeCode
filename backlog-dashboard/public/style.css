@@ -2400,6 +2400,40 @@ body {
   color: var(--text);
 }
 
+/* --- Settings Panel ワークスペース選択バー (BT-362) --- */
+.settings-workspace-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-workspace-bar label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.settings-workspace-bar select {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.settings-group-github input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* --- Settings Panel 2カラム化 (BM-015) --- */
 .settings-columns {
   display: flex;

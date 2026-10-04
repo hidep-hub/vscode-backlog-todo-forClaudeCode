@@ -79,6 +79,10 @@
     <div class="settings-panel">
       <button class="settings-close" id="settings-close">&times;</button>
       <h3>Settings</h3>
+      <div class="settings-workspace-bar">
+        <label for="settings-workspace">Workspace</label>
+        <select id="settings-workspace"></select>
+      </div>
       <div class="settings-columns">
         <div class="settings-column settings-column-theme">
           <div class="settings-group">
@@ -101,7 +105,6 @@
         <div class="settings-column settings-column-github">
           <div class="settings-group settings-group-github">
             <label>GitHub連携（ワークスペース単位）</label>
-            <select id="settings-github-project"></select>
             <input type="text" id="settings-github-repo-url" placeholder="https://github.com/owner/repo">
             <input type="password" id="settings-github-token" placeholder="トークンを入力（未入力なら既存を保持）">
             <p class="settings-github-hint" id="settings-github-hint">Fine-grained PAT発行時は Repository permissions に「Issues: Read and write」を追加してください（Contents権限だけでは取得はできても作成・更新ができません）</p>
