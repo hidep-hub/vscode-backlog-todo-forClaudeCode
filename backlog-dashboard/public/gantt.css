@@ -246,18 +246,13 @@ button.gantt-stat { cursor: pointer; }
 
 @keyframes gantt-spin { to { transform: rotate(360deg); } }
 
-.gantt-status {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  border: 2px solid var(--text-muted);
-  box-sizing: border-box;
-}
-
-.gantt-status.st-ready { border-color: var(--accent); }
-.gantt-status.st-do { border-color: var(--accent); background: var(--accent); }
-.gantt-status.st-done { border-color: #6fcf97; background: #6fcf97; }
+/* BT-365: 行頭の [スピナー][ステータス文字] */
+.gantt-state { flex: none; display: inline-flex; align-items: center; gap: 3px; }
+.gantt-running-slot { flex: none; width: 10px; height: 8px; } /* スピナー無しでも文字位置を揃える */
+.gantt-status-text { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.02em; color: var(--text-muted); min-width: 3.3em; }
+.gantt-status-text.st-ready { color: var(--accent); }
+.gantt-status-text.st-do { color: var(--accent); }
+.gantt-row-epic.is-done .gantt-title,
 .gantt-row-task.is-done .gantt-title { color: var(--text-muted); text-decoration: line-through; }
 
 .gantt-track { position: relative; flex: none; height: 100%; }
@@ -493,7 +488,7 @@ body.gantt-resizing, body.gantt-resizing * { cursor: col-resize !important; user
 }
 
 /* 進行中だが実行中フラグOFF: 回さず薄く表示(動いている/止まっているを見分けるため) */
-.gantt-running.is-idle { animation: none; opacity: 0.45; }
+.gantt-running.is-idle { animation: none; opacity: 0.45; border-top-color: var(--accent); } /* BT-365: 止まっている時は欠けのない完全な丸 */
 .gantt-running { margin-left: 2px; }
 
 /* 未計画行のホバー位置(1日ぶんの枠 + 曜日付き日付)。作成ドラッグ中もカレンダーカーソルのまま */

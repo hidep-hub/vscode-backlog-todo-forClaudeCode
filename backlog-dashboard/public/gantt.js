@@ -315,13 +315,17 @@
           // 子に日付が1つも無いEPICは、バーの代わりに今日の線の右へ完了度だけ出す
           bar = `<span class="gantt-epic-solo" style="left:${todayIdx * dw + dw + 6}px">${progress}</span>`;
         }
-        return `<div class="gantt-row gantt-row-epic" data-epic-id="${esc(r.epic.id)}"><div class="gantt-label gantt-label-epic" data-act="toggle-epic" data-epic-id="${esc(r.epic.id)}" data-task-id="${esc(r.epic.id)}"><span class="gantt-toggle">${collapsed ? '▸' : '▾'}</span><span class="gantt-id">${esc(r.epic.id)}</span><span class="gantt-title">${esc(r.epic.title)}</span><span class="gantt-count">${r.done}/${r.total}</span><i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px">${bar}</div></div>`;
+        // BT-365: EPICにも [スピナー][ステータス文字]。EPICのstatusCodeは子から導出された値。完了もDONEと文字で出す
+        const eRunning = r.epic.running || r.epic.statusCode === 'do'
+          ? `<span class="gantt-running${r.epic.running ? '' : ' is-idle'}" title="${r.epic.running ? '実行中' : '進行中'}"></span>` : '<span class="gantt-running-slot"></span>';
+        const epicState = `<span class="gantt-state">${eRunning}<span class="gantt-status-text st-${esc(r.epic.statusCode)}" title="${esc(r.epic.status || r.epic.statusCode)}">${esc(String(r.epic.statusCode).toUpperCase())}</span></span>`;
+        return `<div class="gantt-row gantt-row-epic${r.epic.statusCode === 'done' ? ' is-done' : ''}" data-epic-id="${esc(r.epic.id)}"><div class="gantt-label gantt-label-epic" data-act="toggle-epic" data-epic-id="${esc(r.epic.id)}" data-task-id="${esc(r.epic.id)}"><span class="gantt-toggle">${collapsed ? '▸' : '▾'}</span>${epicState}<span class="gantt-id">${esc(r.epic.id)}</span><span class="gantt-title">${esc(r.epic.title)}</span><span class="gantt-count">${r.done}/${r.total}</span><i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px">${bar}</div></div>`;
       }
       const item = r.item;
       const done = isDone(item);
       const span = barSpan(item);
       const j = judge(item, ctx.today);
-      // 進行中(DO)はスピナーを期日欄の左に出す。実行中フラグONなら回転、そうでなければ止まった薄い表示
+      // 進行中(DO)はスピナーをステータス文字の左に出す。実行中フラグONなら回転、そうでなければ止まった薄い表示
       const running = (!done && (item.running || item.statusCode === 'do'))
         ? `<span class="gantt-running${item.running ? '' : ' is-idle'}" title="${item.running ? '実行中' : '進行中'}"></span>` : '';
       const pin = item.todayFlag ? '<span class="gantt-pin" title="今日やる">📌</span>' : '';
@@ -329,7 +333,9 @@
       const dueCell = done
         ? `<span class="gantt-due-text">${esc(item.dueDate || '')}</span>`
         : `<input type="text" class="date-field gantt-due-input${j === 'overdue' ? ' is-overdue' : ''}" readonly autocomplete="off" placeholder="期日" data-task-id="${esc(item.id)}" value="${esc(item.dueDate || '')}" title="期日（クリックでカレンダー）">`;
-      const label = `<div class="gantt-label gantt-label-task${r.parent ? ' is-child' : ''}" data-act="open" data-task-id="${esc(item.id)}"><span class="gantt-status st-${esc(item.statusCode)}" title="${esc(item.status || item.statusCode)}"></span><span class="gantt-id">${esc(item.id)}</span><span class="gantt-title">${esc(item.title)}</span>${pin}${running}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;
+      // BT-365: 行頭に [スピナー][ステータス文字]。DONEもグレーの文字で出す(緑ドットは廃止)
+      const stateCell = `<span class="gantt-state">${running || '<span class="gantt-running-slot"></span>'}<span class="gantt-status-text st-${esc(item.statusCode)}" title="${esc(item.status || item.statusCode)}">${esc(String(item.statusCode).toUpperCase())}</span></span>`;
+      const label = `<div class="gantt-label gantt-label-task${r.parent ? ' is-child' : ''}" data-act="open" data-task-id="${esc(item.id)}">${stateCell}<span class="gantt-id">${esc(item.id)}</span><span class="gantt-title">${esc(item.title)}</span>${pin}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;
 
       let trackInner = '';
       let trackClass = 'gantt-track';
