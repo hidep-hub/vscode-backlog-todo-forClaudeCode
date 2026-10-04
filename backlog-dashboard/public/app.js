@@ -2944,7 +2944,7 @@ function refreshModalIfOpen() {
 function openCardDetail(item, parentEpic = null) {
   if (parentEpic) {
     // 子タスク詳細 → 2枚目モーダルを重ねる
-    openChildModal(item);
+    openChildModal(item, parentEpic);
   } else {
     // 通常のカード詳細
     const modal = getOrCreateModal();
@@ -2987,11 +2987,30 @@ function closeChildModal() {
   if (el) el.classList.remove('modal-visible');
 }
 
-function openChildModal(item) {
+// BT-355: 子詳細モーダルの親解決。編集モード後の再描画(item単独で呼ばれる)でも消えないよう直近の親を保持する。
+let currentChildParent = null; // { childId, epic }
+
+function resolveChildParent(item, parentEpic) {
+  // setupCardClickは子カードで true を渡すため、オブジェクトのときだけ親Epicとして扱う
+  const epic = (parentEpic && typeof parentEpic === 'object' ? parentEpic : null) || (item.parentId ? findItemById(item.parentId) : null)
+    || (currentChildParent && currentChildParent.childId === item.id ? currentChildParent.epic : null);
+  if (epic) currentChildParent = { childId: item.id, epic };
+  return epic;
+}
+
+function buildParentBreadcrumbHtml(epic, item) {
+  const parentId = epic ? epic.id : item.parentId;
+  if (!parentId) return '';
+  const parentTitle = epic ? epic.title : item.parentTitle;
+  return `<a class="detail-parent-crumb" href="#" data-parent-id="${escapeHtml(parentId)}" title="親タスクの詳細を開く"><span class="material-icon icon-stacks"></span><span class="detail-parent-crumb-id">${escapeHtml(parentId)}</span><span class="detail-parent-crumb-title">${escapeHtml(parentTitle || '')}</span><span class="detail-parent-crumb-arrow">›</span></a>`;
+}
+
+function openChildModal(item, parentEpic = null) {
   const modal = getOrCreateChildModal();
   const body = modal.querySelector('.modal-body');
   const content = modal.querySelector('.modal-content');
   content.classList.remove('modal-wide');
+  const parentCrumbHtml = buildParentBreadcrumbHtml(resolveChildParent(item, parentEpic), item);
 
   const statusBadge = `<span class="detail-status">${escapeHtml(item.status || '-')}</span>`;
   const category = (item.category && item.category !== '-') ? `<span class="detail-tag category">${escapeHtml(item.category)}</span>` : '';
@@ -3038,6 +3057,7 @@ function openChildModal(item) {
   const moveActionHtml = buildMoveActionHtml(item);
 
   const headerHtml = `
+    ${parentCrumbHtml}
     <div class="detail-header">
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
       ${statusBadge}
@@ -3051,6 +3071,19 @@ function openChildModal(item) {
     ${buildDetailColumnsHtml(headerHtml, metaHtml)}
     ${buildScrollableDetailHtml(desc, artifactsHtml)}
   `;
+
+  // 親パンくずのクリック（BT-355）: 子モーダルを閉じて親EPICの詳細へ戻る
+  const parentCrumbEl = body.querySelector('.detail-parent-crumb');
+  if (parentCrumbEl) {
+    parentCrumbEl.addEventListener('click', (e) => {
+      e.preventDefault();
+      const epic = findItemById(parentCrumbEl.dataset.parentId);
+      if (!epic) return;
+      closeChildModal();
+      pendingHighlightChildId = item.id;
+      openCardDetail(epic);
+    });
+  }
 
   // 停止ボタンのイベント（BM-028）
   const stopRunningBtnEl = body.querySelector('#modal-stop-running-btn');
