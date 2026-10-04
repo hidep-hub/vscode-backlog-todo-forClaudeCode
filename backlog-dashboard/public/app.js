@@ -30,7 +30,7 @@ const workspaceThemeSettingsEl = document.getElementById('settings-workspace-the
 const workspaceThemeLabelEl = document.getElementById('settings-workspace-theme-label');
 const themePresetGridEl = document.getElementById('theme-preset-grid');
 const workspaceThemeSaveEl = document.getElementById('settings-workspace-theme-save');
-const settingsGithubProjectEl = document.getElementById('settings-github-project');
+const settingsWorkspaceEl = document.getElementById('settings-workspace');
 const settingsGithubRepoUrlEl = document.getElementById('settings-github-repo-url');
 const settingsGithubTokenEl = document.getElementById('settings-github-token');
 const settingsGithubStatusEl = document.getElementById('settings-github-status');
@@ -70,6 +70,7 @@ function closeOnEscape(el, visibleClass, close) {
 let currentBoardData = null;
 let currentFilter = ''; // '' = all projects
 let workspaceThemeDraft = null;
+let settingsWorkspace = ''; // BT-362: 設定パネルで選択中のワークスペース名（''=未選択）
 let todayFilterActive = localStorage.getItem('todayFilterActive') === 'true';
 let doneTodayOnly = localStorage.getItem('doneTodayOnly') === 'true'; // 完了カラム「本日完了だけ」表示（達成感モード）
 let modalParentEpic = null; // 子タスク詳細表示中の親Epic（戻る用）
@@ -329,7 +330,7 @@ function applySettings() {
   const effective = effectiveTheme(settings);
   applyPalette(effective);
   syncThemeOptions(settings, effective);
-  renderWorkspaceThemeSettings(settings, activeWorkspace());
+  renderWorkspaceThemeSettings(settings, settingsWorkspace);
 }
 
 function selectTheme(selection) {
@@ -337,8 +338,7 @@ function selectTheme(selection) {
   const workspace = activeWorkspace();
   if (selection === 'workspace') {
     if (!workspace) return;
-    settingsOverlay.classList.add('settings-visible');
-    renderWorkspaceThemeSettings(settings, workspace);
+    openSettingsPanel(workspace);
     return;
   }
   settings.theme = selection;
@@ -380,12 +380,15 @@ function closeSettings() {
   applySettings();
 }
 
-if (settingsBtn) settingsBtn.addEventListener('click', () => {
+// BT-362: 設定パネルを開く。workspaceを渡すとその選択状態で、省略時は現在開いているワークスペース（なければ未選択）で開く
+function openSettingsPanel(workspace = activeWorkspace()) {
   workspaceThemeDraft = null;
   settingsOverlay.classList.add('settings-visible');
-  populateGithubProjectSelect();
-  loadGithubSettingsForSelectedProject();
-});
+  populateSettingsWorkspaceSelect(workspace);
+  onSettingsWorkspaceChanged();
+}
+
+if (settingsBtn) settingsBtn.addEventListener('click', () => openSettingsPanel());
 
 settingsClose.addEventListener('click', () => {
   closeSettings();
@@ -417,21 +420,38 @@ if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEven
 
 // --- GitHub連携設定 (BT-077) ---
 // Inbox等、実ワークスペース(workspace)を持たない架空プロジェクトはGitHub連携の対象外
-function populateGithubProjectSelect() {
-  const prefixMap = (currentBoardData && currentBoardData.projectPrefixMap) || {};
+function populateSettingsWorkspaceSelect(selected) {
   const workspaceMap = (currentBoardData && currentBoardData.workspaceMap) || {};
-  const names = Object.keys(prefixMap).filter(name => workspaceMap[name]).sort();
-  const prevValue = settingsGithubProjectEl.value;
-  settingsGithubProjectEl.innerHTML = names.map(name => `<option value="${prefixMap[name]}">${name} (${prefixMap[name]})</option>`).join('');
-  if (names.some(name => prefixMap[name] === prevValue)) settingsGithubProjectEl.value = prevValue;
+  const names = Object.keys(workspaceMap).sort();
+  settingsWorkspaceEl.innerHTML = `<option value="">（未選択）</option>` +
+    names.map(name => `<option value="${name}">${name}</option>`).join('');
+  settingsWorkspaceEl.value = names.includes(selected) ? selected : '';
+  settingsWorkspace = settingsWorkspaceEl.value;
+}
+
+// GitHub設定の対象prefix。ワークスペース未選択、またはprefixを持たない場合は''
+function settingsGithubPrefix() {
+  const prefixMap = (currentBoardData && currentBoardData.projectPrefixMap) || {};
+  return (settingsWorkspace && prefixMap[settingsWorkspace]) || '';
+}
+
+function onSettingsWorkspaceChanged() {
+  settingsWorkspace = settingsWorkspaceEl.value;
+  workspaceThemeDraft = null;
+  applySettings(); // 切替前のプレビューを破棄し、選択ワークスペースのテーマ欄を描画し直す
+  loadGithubSettingsForSelectedProject();
 }
 
 async function loadGithubSettingsForSelectedProject() {
-  const prefix = settingsGithubProjectEl.value;
+  const prefix = settingsGithubPrefix();
   settingsGithubTokenEl.value = '';
+  const disabled = !prefix;
+  settingsGithubRepoUrlEl.disabled = disabled;
+  settingsGithubTokenEl.disabled = disabled;
+  settingsGithubSaveEl.disabled = disabled;
   if (!prefix) {
     settingsGithubRepoUrlEl.value = '';
-    settingsGithubStatusEl.textContent = '';
+    settingsGithubStatusEl.textContent = settingsWorkspace ? 'このワークスペースはGitHub連携の対象外です' : '上でワークスペースを選択してください';
     settingsGithubTokenEl.placeholder = 'トークンを入力（未入力なら既存を保持）';
     settingsGithubHintEl.style.display = 'none';
     return;
@@ -451,10 +471,10 @@ async function loadGithubSettingsForSelectedProject() {
   }
 }
 
-settingsGithubProjectEl.addEventListener('change', loadGithubSettingsForSelectedProject);
+settingsWorkspaceEl.addEventListener('change', onSettingsWorkspaceChanged);
 
 settingsGithubSaveEl.addEventListener('click', async () => {
-  const prefix = settingsGithubProjectEl.value;
+  const prefix = settingsGithubPrefix();
   if (!prefix) return;
   const body = { prefix, repoUrl: settingsGithubRepoUrlEl.value.trim() };
   if (settingsGithubTokenEl.value) body.token = settingsGithubTokenEl.value;
@@ -520,9 +540,10 @@ function getOrCreateGithubImportModal() {
   });
   githubImportEl.querySelector('#github-import-close').addEventListener('click', closeGithubImportModal);
   githubImportEl.querySelector('#github-import-settings-btn').addEventListener('click', () => {
-    settingsOverlay.classList.add('settings-visible');
-    populateGithubProjectSelect();
-    loadGithubSettingsForSelectedProject();
+    // 取り込みダイアログで選択中のプロジェクト(prefix)に対応するワークスペースで開く
+    const prefix = githubImportEl.querySelector('#github-import-project').value;
+    const prefixMap = (currentBoardData && currentBoardData.projectPrefixMap) || {};
+    openSettingsPanel(Object.keys(prefixMap).find(name => prefixMap[name] === prefix) || '');
   });
   githubImportEl.querySelector('#github-import-project').addEventListener('change', loadGithubImportPreview);
   githubImportEl.querySelector('#github-import-filter-closed').addEventListener('change', renderGithubImportIssueList);
