@@ -220,9 +220,9 @@ function getOrCreateActivityModal() {
         <h3>${activityIconHtml('history')} 履歴</h3>
         <div class="activity-header-controls">
           <span class="activity-date-range">
-            <input type="date" id="activity-date-from" title="期間の開始日">
+            ${renderDateFieldHtml('activity-date-from', '', { title: '期間の開始日' })}
             <span class="activity-date-range-sep">〜</span>
-            <input type="date" id="activity-date-to" title="期間の終了日">
+            ${renderDateFieldHtml('activity-date-to', '', { title: '期間の終了日' })}
           </span>
           <div class="activity-granularity" id="activity-granularity"></div>
           <div class="activity-viewmode" id="activity-viewmode"></div>

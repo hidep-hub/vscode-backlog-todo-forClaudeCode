@@ -85,9 +85,13 @@
   --btn-neutral-bg: rgba(154, 154, 176, 0.12);
   --btn-danger-fg: #e53e3e;
   --btn-danger-bg: rgba(229, 62, 62, 0.12);
+  --cal-sat: #6ea8ff;
+  --cal-sun: #ff7b7b;
 }
 
 [data-theme="light"] {
+  --cal-sat: #1f5fd1;
+  --cal-sun: #d62b2b;
   --bg: #f4f5f7;
   --surface: #ffffff;
   --card: #f0f1f4;
@@ -3002,6 +3006,94 @@ body {
   color: #e53e3e;
 }
 
+/* --- 期日カレンダー / クイック選択 (BT-354) --- */
+.due-picker {
+  position: fixed;
+  z-index: 2000;
+  width: 292px;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+.due-picker-quick,
+.due-quick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.due-quick-row { margin-top: 6px; }
+
+.due-quick-btn {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.7rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.due-quick-btn:hover { background: var(--card-hover); border-color: var(--accent); }
+.due-quick-btn.due-quick-clear { color: var(--text-muted); }
+
+.due-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 10px 0 6px;
+}
+
+.due-picker-month { font-size: 0.8rem; font-weight: 700; }
+
+.due-picker-nav {
+  padding: 2px 8px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.due-picker-nav:hover { background: var(--card-hover); color: var(--text); }
+
+.due-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  text-align: center;
+}
+
+.due-picker-wd { color: var(--text-muted); font-size: 0.65rem; padding: 2px 0; }
+.due-picker-wd.is-sat, .due-picker-day.is-sat { color: var(--cal-sat); }
+.due-picker-wd.is-sun, .due-picker-day.is-sun { color: var(--cal-sun); }
+.due-picker-day.is-selected.is-sat,
+.due-picker-day.is-selected.is-sun { color: #fff; }
+
+/* 共通カレンダーを開く日付入力（標準のinput[type=date]の代替） */
+.date-field { cursor: pointer; }
+
+.due-picker-day {
+  padding: 5px 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.due-picker-day:hover { background: var(--card-hover); }
+.due-picker-day.is-today { border-color: var(--accent); }
+.due-picker-day.is-selected { background: var(--accent); color: #fff; }
+
 .mini-col-body .card-child .card-actions {
   font-size: 0.55rem;
   top: 2px;
@@ -3322,7 +3414,9 @@ body {
   gap: 6px;
 }
 
-.activity-date-range input[type="date"] {
+.activity-date-range input[type="date"],
+.activity-date-range input.date-field {
+  width: 110px;
   padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
