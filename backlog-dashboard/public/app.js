@@ -115,6 +115,8 @@ let planDragData = null; // { kind: 'single', id } | { kind: 'group', epicId, ch
 let planCollapsedGroups = new Set(); // 折りたたみ中のEPICグループキー('epicId_bucketId')
 let planSearchQuery = ''; // BM-012: ID・件名・親EPICタイトルの部分一致（空文字=絞り込みなし）
 let planPinOnly = false; // BM-012: 📌ピンが付いたタスク（EPICは子の集約）だけ表示する
+let planViewMode = 'week'; // BT-268: 'week'(週次カンバン) | 'gantt'(ガント)。選択はlocalStorageに保持
+try { if (localStorage.getItem('planViewMode') === 'gantt') planViewMode = 'gantt'; } catch { /* 無視 */ }
 
 // --- 複数選択→親付け (BT-034) ---
 let selectionMode = false;
@@ -2801,7 +2803,99 @@ function planSetupDropZone(bodyEl, bucketId) {
   });
 }
 
+// BT-268: ガント表示用。絞り込み(検索・ピン・ワークスペース)は週次計画と同じ条件で、
+// EPIC+子の組(epic=null は単発タスクの束)にして gantt.js へ渡す。日付は update-task の既存項目だけ使う。
+function planBuildGanttGroups() {
+  const isFiltered = !!planSearchQuery.trim() || planPinOnly;
+  const groups = [];
+  const singles = [];
+  for (const item of planCollectItems()) {
+    const isEpic = (item.children && item.children.length > 0) || item.childrenTotal > 0;
+    if (isEpic) {
+      const epicPinned = planPinActive(item);
+      const children = (item.children || []).filter((child) => {
+        if (!isFiltered) return true;
+        const matchesPin = !planPinOnly || epicPinned;
+        const matchesSearch = planMatchesSearch(child, planSearchQuery) || planMatchesSearch(item, planSearchQuery);
+        return matchesPin && matchesSearch;
+      });
+      if (children.length > 0) groups.push({ epic: item, children });
+    } else {
+      if (isFiltered) {
+        if (planPinOnly && !planPinActive(item)) continue;
+        if (!planMatchesSearch(item, planSearchQuery)) continue;
+      }
+      singles.push(item);
+    }
+  }
+  if (singles.length > 0) groups.push({ epic: null, children: singles });
+  return groups;
+}
+
+// ガントでのドラッグ結果を保存する。patchの値が''ならその日付をクリアする
+async function planSaveGanttDates(taskId, patch) {
+  const resp = await fetch('/api/update-task', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId, ...patch }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${resp.status}`);
+  }
+  // WS更新が届くまでの間にバーが元の位置へ戻らないよう、手元のデータにも先に反映する
+  const apply = (item) => {
+    if (item.id !== taskId) return;
+    if ('startDate' in patch) item.startDate = patch.startDate || null;
+    if ('dueDate' in patch) item.dueDate = patch.dueDate || null;
+  };
+  for (const item of planCollectItems()) {
+    apply(item);
+    (item.children || []).forEach(apply);
+  }
+}
+
+function renderPlanGantt() {
+  const root = document.getElementById('plan-gantt-root');
+  if (!root || !window.ganttView) return;
+  const groups = planBuildGanttGroups();
+  // ALL表示でワークスペースが複数ある時だけ、ワークスペースごとの折りたたみ見出しで束ねる
+  const projects = new Set();
+  groups.forEach((g) => { if (g.epic) projects.add(g.epic.project); g.children.forEach((c) => projects.add(c.project)); });
+  window.ganttView.render(root, {
+    groups,
+    today: getTodayJST(),
+    escapeHtml,
+    holidayName: (ymd) => (window.jpHolidays ? window.jpHolidays.getHolidayName(ymd) : null),
+    groupByWorkspace: !currentFilter && projects.size > 1,
+    onSaveDates: planSaveGanttDates,
+    onOpen: (item, parentEpic) => {
+      if (parentEpic) {
+        // 週次計画と同じ: 子タスクはEPICボード(ミニボード)を開き、その子をハイライト
+        expandedMiniCols.add('done');
+        pendingHighlightChildId = item.id;
+        openCardDetail(parentEpic);
+      } else {
+        openCardDetail(item);
+      }
+    },
+  });
+  planUpdateHeaderControls();
+}
+
+function planApplyViewMode() {
+  const overlay = document.getElementById('plan-board-overlay');
+  if (!overlay) return;
+  overlay.querySelector('.plan-board-panel').classList.toggle('is-gantt', planViewMode === 'gantt');
+  overlay.querySelectorAll('.plan-view-toggle button').forEach((btn) => {
+    btn.classList.toggle('is-on', btn.dataset.mode === planViewMode);
+  });
+  const title = overlay.querySelector('#plan-board-title');
+  if (title) title.textContent = planViewMode === 'gantt' ? ' 日程計画（ガント）' : ' 週次計画';
+}
+
 function renderPlanBoard() {
+  if (planViewMode === 'gantt') { renderPlanGantt(); return; }
   const container = document.getElementById('plan-board-columns');
   if (!container) return;
 
@@ -2925,7 +3019,11 @@ function getOrCreatePlanBoardModal() {
   overlay.innerHTML = `
     <div class="plan-board-panel">
       <div class="plan-board-header">
-        <h3><span class="material-icon icon-calendar-month"></span> 週次計画</h3>
+        <h3><span class="material-icon icon-calendar-month"></span><span id="plan-board-title"> 週次計画</span></h3>
+        <div class="plan-view-toggle" role="group" aria-label="表示切替">
+          <button type="button" data-mode="week" title="週ごとのカンバン">週次</button>
+          <button type="button" data-mode="gantt" title="日ごとのガントチャート">ガント</button>
+        </div>
         <select class="filter-select" id="plan-board-project-filter" title="Workspace filter"></select>
         <div class="plan-search-wrap">
           <input type="text" class="plan-search-input" id="plan-search-input" placeholder="絞り込み（ID・件名・分類）">
@@ -2935,9 +3033,19 @@ function getOrCreatePlanBoardModal() {
         <button class="plan-board-close" id="plan-board-close">&times;</button>
       </div>
       <div class="plan-board-columns" id="plan-board-columns"></div>
+      <div class="plan-gantt-root" id="plan-gantt-root"></div>
     </div>
   `;
   document.body.appendChild(overlay);
+  overlay.querySelectorAll('.plan-view-toggle button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      planViewMode = btn.dataset.mode;
+      try { localStorage.setItem('planViewMode', planViewMode); } catch { /* 無視 */ }
+      if (planViewMode === 'gantt' && window.ganttView) window.ganttView.resetScroll();
+      planApplyViewMode();
+      renderPlanBoard();
+    });
+  });
   overlay.querySelector('#plan-board-close').addEventListener('click', closePlanBoard);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closePlanBoard(); });
   closeOnEscape(overlay, 'active', closePlanBoard);
@@ -2992,12 +3100,15 @@ function openPlanBoard() {
     sel.value = currentFilter;
   }
   overlay.classList.add('active');
+  if (window.ganttView) window.ganttView.resetScroll(); // ガントは開くたびに今日の位置から見せる
+  planApplyViewMode();
   renderPlanBoard();
 }
 
 function closePlanBoard() {
   const overlay = document.getElementById('plan-board-overlay');
   if (overlay) overlay.classList.remove('active');
+  if (window.ganttView) window.ganttView.hideTip();
 }
 
 // WS経由のボード更新受信時、週次計画ビューが開いていれば最新データで再描画する
