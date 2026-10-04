@@ -134,17 +134,7 @@
 
     // 完了で日付も完了日も無いタスクは置く場所が無いので行ごと出さない
     const visibleChildren = (g) => g.children.filter((c) => !isDone(c) || (state.showDone && (barSpan(c) || c.completedDate)));
-    const sortChildren = (list) => {
-      const planned = list.filter((c) => barSpan(c)).sort((a, b) => barSpan(a).start.localeCompare(barSpan(b).start));
-      const unplanned = list.filter((c) => !barSpan(c));
-      return [...planned, ...unplanned];
-    };
-    // EPICは集約開始日の早い順。日付が無いEPICは後ろ。単発の束は最後
-    const aggOf = (g) => {
-      let min = null;
-      for (const c of g.allChildren) { const sp = barSpan(c); if (sp && (!min || sp.start < min)) min = sp.start; }
-      return min;
-    };
+    // BT-364: 並びは日付で入れ替えない（日程を編集しても行が動かないよう、カンバンの並びをそのまま使う）
 
     // show=falseでも統計・範囲・lookupには数える(折りたたんでも「遅延N件」等は変わらないように)
     const pushItem = (item, parent, show) => {
@@ -177,16 +167,10 @@
 
     for (const project of [...byProject.keys()].sort()) {
       const groups = byProject.get(project)
-        .map((g) => ({ epic: g.epic, children: sortChildren(visibleChildren(g)), allChildren: g.children }))
+        .map((g) => ({ epic: g.epic, children: visibleChildren(g), allChildren: g.children }))
         .filter((g) => g.children.length > 0);
       if (groups.length === 0) continue;
-      const epics = groups.filter((g) => g.epic).sort((a, b) => {
-        const x = aggOf(a), y = aggOf(b);
-        if (x && y) return x.localeCompare(y);
-        if (x) return -1;
-        if (y) return 1;
-        return 0;
-      });
+      const epics = groups.filter((g) => g.epic);
       const singles = groups.filter((g) => !g.epic);
 
       const wsCollapsed = ctx.groupByWorkspace && state.collapsedWs.has(project);
