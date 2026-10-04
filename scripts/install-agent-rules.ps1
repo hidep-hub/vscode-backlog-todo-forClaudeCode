@@ -18,10 +18,16 @@ if (-not ($Claude -or $Codex -or $Kiro)) {
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $sourceRules = Join-Path $repositoryRoot 'AGENTS.md.sample'
 
+# Compare rule text ignoring CRLF/LF differences (autocrlf makes the working copy CRLF while deployed copies may be LF).
+function Get-NormalizedText {
+    param([string]$Path)
+    return ([System.IO.File]::ReadAllText($Path) -replace "`r`n", "`n").TrimEnd()
+}
+
 function Test-FileMatches {
     param([string]$Source, [string]$Target)
     return (Test-Path -LiteralPath $Target) -and
-        ((Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash)
+        ((Get-NormalizedText -Path $Source) -ceq (Get-NormalizedText -Path $Target))
 }
 
 function Sync-RuleDistribution {
@@ -89,7 +95,7 @@ function Test-AgentRulesCurrent {
     if (-not (Test-Path -LiteralPath $target)) { return $false }
     $content = [System.IO.File]::ReadAllText($target)
     $match = [regex]::Match($content, '(?s)<!-- backlog-hub-rules:start -->\s*(.*?)\s*<!-- backlog-hub-rules:end -->')
-    return $match.Success -and ($match.Groups[1].Value.TrimEnd() -eq [System.IO.File]::ReadAllText($sourceRules).TrimEnd())
+    return $match.Success -and (($match.Groups[1].Value -replace "`r`n", "`n").TrimEnd() -ceq (Get-NormalizedText -Path $sourceRules))
 }
 
 function Sync-AgentRules {
