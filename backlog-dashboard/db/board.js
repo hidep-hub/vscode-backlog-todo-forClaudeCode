@@ -202,7 +202,11 @@ function buildBoardFromDb(db, config) {
 
   const projectsFromConfig = (config.projects || []).map(p => p.name).filter(Boolean);
   const projectsFromTasks = topLevelItems.map(t => t.project).filter(Boolean);
-  const projects = [...new Set([...projectsFromConfig, ...projectsFromTasks])].sort();
+  // BM-035: デフォルトの.sort()は大文字小文字を区別するUnicode順になり、
+  // 大文字始まりの名前が小文字始まりより前に固まってしまう（ワークスペースセレクタの
+  // typeahead実装の前提が崩れる）ため、大文字小文字を無視した比較にする。
+  const projects = [...new Set([...projectsFromConfig, ...projectsFromTasks])]
+    .sort((a, b) => a.localeCompare(b, 'ja', { sensitivity: 'base' }));
 
   const remainingByProject = {};
   for (const item of topLevelItems) {
