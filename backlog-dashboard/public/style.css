@@ -805,7 +805,6 @@ body {
 }
 
 /* --- Filter & Theme Controls --- */
-.filter-select,
 .theme-select {
   font-size: 0.75rem;
   padding: 4px 8px;
@@ -817,9 +816,133 @@ body {
   outline: none;
 }
 
-.filter-select:focus,
 .theme-select:focus {
   border-color: var(--accent);
+}
+
+/* --- BM-029: ワークスペース絞り込みドロップダウン（列固定表示） ---
+   ネイティブ<select>のoption内はCSSで列を揃えられないため、トリガーボタン+ポップアップの
+   カスタムドロップダウンにしている。閉じている間は既存の.filter-selectと同じ見た目になるよう揃える。 */
+.ws-filter-wrap {
+  position: relative;
+}
+
+.ws-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  outline: none;
+  max-width: 180px;
+}
+
+.ws-filter-trigger:focus,
+.ws-filter-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+
+.ws-filter-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-filter-trigger-arrow {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+.ws-filter-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  min-width: 320px;
+  width: max-content; /* ワークスペース名を省略せず全部出すため、内容に応じて横幅を広げる */
+  max-width: min(90vw, 560px);
+  max-height: 360px;
+  overflow-y: auto;
+  overflow-x: hidden; /* overflow-y:autoだけだとoverflow-xも自動でauto扱いになり、
+    sub-pixelの丸め差で不要な横スクロールバーが出ることがあるため明示的に抑止する */
+  padding: 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  outline: none;
+}
+
+.ws-filter-menu[hidden] {
+  display: none;
+}
+
+/* BM-029: ワークスペース名を省略せずフル表示しつつ、DO/READY/TODO/DONEの数字を縦に揃えるため
+   <table>で組む。CSS Gridで行ごとにauto幅にすると行ごとに名前幅が決まってズレるが、
+   tableはネイティブに全行の最大コンテンツ幅へ列を揃えてくれる。 */
+.ws-filter-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ws-filter-col-header th,
+.ws-filter-row td {
+  padding: 6px 10px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ws-filter-col-header th:first-child,
+.ws-filter-row td:first-child {
+  text-align: left;
+}
+
+.ws-filter-col-header {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  position: sticky;
+  top: 0;
+  background: var(--card);
+}
+
+.ws-filter-row {
+  font-size: 0.75rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ws-filter-row-count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-filter-row:hover,
+.ws-filter-row.is-focused {
+  background: var(--border);
+}
+
+.ws-filter-row.is-selected {
+  color: var(--accent, #6366f1);
+  font-weight: 700;
+}
+
+.ws-filter-row.is-selected .ws-filter-row-count {
+  color: var(--accent, #6366f1);
+}
+
+.ws-filter-row-action {
+  color: var(--text-muted);
+}
+
+.ws-filter-row-action td {
+  border-top: 1px solid var(--border);
 }
 
 .search-btn {

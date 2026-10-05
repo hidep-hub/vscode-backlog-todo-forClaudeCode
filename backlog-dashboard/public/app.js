@@ -15,7 +15,10 @@ try {
 
 const boardEl = document.getElementById('board');
 const statusEl = document.getElementById('status');
-const projectFilterEl = document.getElementById('project-filter');
+const wsFilterWrapEl = document.getElementById('ws-filter-wrap');
+const wsFilterTriggerEl = document.getElementById('ws-filter-trigger');
+const wsFilterTriggerLabelEl = document.getElementById('ws-filter-trigger-label');
+const wsFilterMenuEl = document.getElementById('ws-filter-menu');
 const searchBtn = document.getElementById('search-btn');
 const planBtn = document.getElementById('plan-btn');
 const themeSelectEl = document.getElementById('theme-select');
@@ -59,6 +62,7 @@ function closeOnEscape(el, visibleClass, close) {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !el.classList.contains(visibleClass) || !isTopmostDialog(el)) return;
     if (dueDatePickerEl) return; // 期日カレンダー表示中は、カレンダー側のEscで先に閉じる（BT-354）
+    if (wsFilterMenuOpen) return; // BM-029: ワークスペース絞り込みドロップダウン表示中は、そちら側のEscで先に閉じる
     e.preventDefault();
     e.stopImmediatePropagation();
     close();
@@ -78,6 +82,12 @@ let expandedMiniCols = new Set(); // ミニボードの完了カラムで「他N
 let pendingHighlightChildId = null; // BT-201: 親Epicリンククリック直後、ミニボードでハイライトすべき子タスクID
 let workspaceFilterMap = null; // サーバーから取得: { workspaceKey -> projectName }
 let wsDefaultFilter = ''; // URLパラメータから決まるデフォルトフィルタ（プロジェクト名）
+
+// BM-029: ワークスペース絞り込みドロップダウン（列固定表示）の状態
+let wsFilterProjects = []; // 現在のプロジェクト名一覧（updateProjectFilter相当）
+let wsFilterCounts = {}; // { projectName -> { do, ready, todo } }
+let wsFilterMenuOpen = false;
+let wsFilterFocusIndex = -1; // キーボード操作中のメニュー内フォーカス位置（0=All Projects行）
 
 const COLUMN_SORT_KEY_PREFIX = 'columnSort_';
 const COLUMN_SORT_OPTIONS = [
@@ -870,24 +880,164 @@ headerLogoEl.addEventListener('click', async () => {
 });
 
 // --- Project Filter ---
-// メインボードの絞り込みを切り替える（ヘッダのセレクト操作と、設定パネルでの保存の両方から使う）
+// メインボードの絞り込みを切り替える（ドロップダウン操作と、設定パネルでの保存の両方から使う）
 function applyMainFilter(project) {
   currentFilter = project;
-  projectFilterEl.value = currentFilter;
+  if (wsFilterMainDropdown) wsFilterMainDropdown.render();
+  if (wsFilterPlanDropdown) wsFilterPlanDropdown.render();
   applySettings();
   setSessionFilter(currentFilter); // ユーザー操作を記憶
   if (currentBoardData) renderBoard(currentBoardData);
   if (typeof syncActivityProjectFilterFromMain === 'function') syncActivityProjectFilterFromMain();
 }
 
-projectFilterEl.addEventListener('change', () => {
-  if (projectFilterEl.value === NEW_WORKSPACE_VALUE) {
-    projectFilterEl.value = currentFilter; // 絞り込みは変えず、新規作成モードで設定パネルを開く
-    openSettingsPanel(NEW_WORKSPACE_VALUE);
-    return;
+// BM-029: ワークスペース絞り込みドロップダウン（列固定表示: 名前 + DO/READY/TODO件数）。
+// ネイティブ<select>のoption内はCSSで列固定できないため、トリガーボタン+ポップアップの
+// カスタムドロップダウンに置き換える（badge-mode-menuと同じ構造パターン）。
+// ヘッダーと週次計画(Plan Board)の両方で使うため、要素一式を受け取るファクトリにしてある。
+function createWsFilterDropdown({ wrapEl, triggerEl, triggerLabelEl, menuEl, includeCreateAction, onSelect }) {
+  let open = false;
+  let focusIndex = -1;
+
+  function rowsData() {
+    const rows = [{ value: '', label: 'All Projects', counts: null, isAction: false }];
+    for (const p of wsFilterProjects) {
+      rows.push({ value: p, label: p, counts: wsFilterCounts[p] || null, isAction: false });
+    }
+    if (includeCreateAction) {
+      rows.push({ value: NEW_WORKSPACE_VALUE, label: '＋ 新規ワークスペース…', counts: null, isAction: true });
+    }
+    return rows;
   }
-  applyMainFilter(projectFilterEl.value);
+
+  // BM-029: 名前列を省略せずフル表示しつつ、全行で数字列の縦位置を揃えるため<table>で組む。
+  // (CSS Gridで行ごとにgrid-template-columns:autoにすると、行ごとに名前幅が決まってしまい
+  //  数字列がずれる。tableはネイティブに列幅を全行の最大コンテンツ幅へ揃えてくれる。)
+  function render() {
+    const rows = rowsData();
+    const selectedIdx = rows.findIndex(r => r.value === currentFilter);
+    const selected = rows[selectedIdx] || rows[0];
+    triggerLabelEl.textContent = selected.label;
+    const headerHtml = `<tr class="ws-filter-col-header" role="presentation">
+      <th class="ws-filter-row-name"></th>
+      <th class="ws-filter-col-label">DO</th>
+      <th class="ws-filter-col-label">READY</th>
+      <th class="ws-filter-col-label">TODO</th>
+      <th class="ws-filter-col-label">DONE</th>
+    </tr>`;
+    const rowsHtml = rows.map((r, i) => {
+      const isSelected = r.value === currentFilter;
+      const cls = ['ws-filter-row', isSelected ? 'is-selected' : '', r.isAction ? 'ws-filter-row-action' : ''].filter(Boolean).join(' ');
+      const c = r.counts || {};
+      const countsHtml = r.isAction ? '<td colspan="4"></td>' : `<td class="ws-filter-row-count">${c.do || ''}</td><td class="ws-filter-row-count">${c.ready || ''}</td><td class="ws-filter-row-count">${c.todo || ''}</td><td class="ws-filter-row-count">${c.done || ''}</td>`;
+      return `<tr class="${cls}" role="option" aria-selected="${isSelected}" data-index="${i}" tabindex="-1">
+        <td class="ws-filter-row-name">${escapeHtml(r.label)}</td>${countsHtml}
+      </tr>`;
+    }).join('');
+    menuEl.innerHTML = `<table class="ws-filter-table"><tbody>${headerHtml}${rowsHtml}</tbody></table>`;
+  }
+
+  function highlightFocus() {
+    const items = menuEl.querySelectorAll('.ws-filter-row');
+    items.forEach((el, i) => el.classList.toggle('is-focused', i === focusIndex));
+    const focusedEl = items[focusIndex];
+    if (focusedEl) focusedEl.scrollIntoView({ block: 'nearest' });
+  }
+
+  function openMenu() {
+    if (open) return;
+    render();
+    menuEl.hidden = false;
+    open = true;
+    wsFilterMenuOpen = true;
+    triggerEl.setAttribute('aria-expanded', 'true');
+    const rows = rowsData();
+    focusIndex = Math.max(0, rows.findIndex(r => r.value === currentFilter));
+    highlightFocus();
+    menuEl.focus();
+  }
+
+  function closeMenu() {
+    if (!open) return;
+    menuEl.hidden = true;
+    open = false;
+    wsFilterMenuOpen = false;
+    triggerEl.setAttribute('aria-expanded', 'false');
+    focusIndex = -1;
+  }
+
+  function selectIndex(i) {
+    const rows = rowsData();
+    const row = rows[i];
+    closeMenu();
+    triggerEl.focus();
+    if (!row) return;
+    onSelect(row.value);
+  }
+
+  triggerEl.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (open) closeMenu(); else openMenu();
+  });
+
+  triggerEl.addEventListener('keydown', (e) => {
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !open) {
+      e.preventDefault();
+      openMenu();
+    }
+  });
+
+  menuEl.addEventListener('click', (e) => {
+    const rowEl = e.target.closest('.ws-filter-row');
+    if (!rowEl) return;
+    selectIndex(Number(rowEl.dataset.index));
+  });
+
+  menuEl.addEventListener('keydown', (e) => {
+    const rows = rowsData();
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      focusIndex = Math.min(rows.length - 1, focusIndex + 1);
+      highlightFocus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      focusIndex = Math.max(0, focusIndex - 1);
+      highlightFocus();
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      selectIndex(focusIndex);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeMenu();
+      triggerEl.focus();
+    } else if (e.key === 'Tab') {
+      closeMenu();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (open && !wrapEl.contains(e.target)) closeMenu();
+  });
+
+  return { render, close: closeMenu, isOpen: () => open };
+}
+
+const wsFilterMainDropdown = createWsFilterDropdown({
+  wrapEl: wsFilterWrapEl,
+  triggerEl: wsFilterTriggerEl,
+  triggerLabelEl: wsFilterTriggerLabelEl,
+  menuEl: wsFilterMenuEl,
+  includeCreateAction: true,
+  onSelect: (value) => {
+    if (value === NEW_WORKSPACE_VALUE) {
+      openSettingsPanel(NEW_WORKSPACE_VALUE);
+      return;
+    }
+    applyMainFilter(value);
+  },
 });
+// Plan Board側のドロップダウンは getOrCreatePlanBoardModal() で初回オープン時に生成する
+let wsFilterPlanDropdown = null;
 
 // ワークスペースバッジクリック → フィルタ連携（トグル対応）
 const projectBadgesEl = document.getElementById('project-badges');
@@ -896,12 +1046,7 @@ if (projectBadgesEl) {
     const badge = e.target.closest('.proj-badge');
     if (!badge) return;
     const proj = badge.dataset.project;
-    currentFilter = (currentFilter === proj) ? '' : proj; // 同じバッジ再クリックで解除
-    projectFilterEl.value = currentFilter;
-    applySettings();
-    setSessionFilter(currentFilter);
-    if (currentBoardData) renderBoard(currentBoardData);
-    if (typeof syncActivityProjectFilterFromMain === 'function') syncActivityProjectFilterFromMain();
+    applyMainFilter(currentFilter === proj ? '' : proj); // 同じバッジ再クリックで解除
   });
 }
 
@@ -1058,17 +1203,27 @@ function renderHeaderTicker(events) {
 }
 
 function updateProjectFilter(projects) {
-  const current = currentFilter; // currentFilter を使う（sessionStorage/URL由来の値を反映）
-  projectFilterEl.innerHTML = '<option value="">All Projects</option>';
-  for (const p of projects) {
-    const opt = document.createElement('option');
-    opt.value = p;
-    opt.textContent = p;
-    projectFilterEl.appendChild(opt);
+  wsFilterProjects = projects;
+  wsFilterMainDropdown.render();
+  if (wsFilterPlanDropdown) wsFilterPlanDropdown.render();
+}
+
+// BM-029: ワークスペース絞り込みドロップダウンのDO/READY/TODO/DONE件数を再計算して描画し直す。
+// proj-badge集計(renderBoard内)と同じ考え方: 親EPICは実効ステータスで1件、
+// parentIdを持つ個別完了子表示は対象外（親が丸ごとDONEになった時点で親側が1件カウントされる）。
+function renderWsFilterCounts(data) {
+  const counts = {};
+  for (const col of data.columns) {
+    for (const item of col.items) {
+      if (item.parentId || !item.project) continue;
+      if (!['do', 'ready', 'todo', 'done'].includes(item.statusCode)) continue;
+      if (!counts[item.project]) counts[item.project] = { do: 0, ready: 0, todo: 0, done: 0 };
+      counts[item.project][item.statusCode]++;
+    }
   }
-  // BT-360: 絞り込みではなく、設定パネルの新規作成モードを開くための操作項目
-  projectFilterEl.appendChild(new Option('＋ 新規ワークスペース…', NEW_WORKSPACE_VALUE));
-  projectFilterEl.value = current;
+  wsFilterCounts = counts;
+  wsFilterMainDropdown.render();
+  if (wsFilterPlanDropdown) wsFilterPlanDropdown.render();
 }
 
 // --- WebSocket ---
@@ -1301,6 +1456,10 @@ function renderBoard(data) {
       return `<span class="${cls}" data-project="${escapeHtml(proj)}">${proj}<span class="proj-badge-count">${count}</span></span>`;
     }).join('');
   }
+
+  // BM-029: ワークスペース絞り込みドロップダウンの DO/READY/TODO 列を更新する。
+  // proj-badge と同じ考え方（親EPICは実効ステータスで1件、parentIdありの個別完了子表示は除外）。
+  renderWsFilterCounts(data);
 
   for (const col of data.columns) {
     const fields = col.visibleFields || ['id', 'title', 'badge', 'project', 'category', 'completedDate'];
@@ -3208,7 +3367,13 @@ function getOrCreatePlanBoardModal() {
           <button type="button" data-mode="week" title="週ごとのカンバン">週次</button>
           <button type="button" data-mode="gantt" title="日ごとのガントチャート">ガント</button>
         </div>
-        <select class="filter-select" id="plan-board-project-filter" title="Workspace filter"></select>
+        <div class="ws-filter-wrap" id="plan-ws-filter-wrap">
+          <button type="button" class="ws-filter-trigger" id="plan-ws-filter-trigger" title="Workspace filter" aria-haspopup="listbox" aria-expanded="false">
+            <span class="ws-filter-trigger-label" id="plan-ws-filter-trigger-label">All Projects</span>
+            <span class="ws-filter-trigger-arrow" aria-hidden="true">▾</span>
+          </button>
+          <div class="ws-filter-menu" id="plan-ws-filter-menu" role="listbox" tabindex="-1" hidden></div>
+        </div>
         <div class="plan-search-wrap">
           <input type="text" class="plan-search-input" id="plan-search-input" placeholder="絞り込み（ID・件名・分類）">
           <button type="button" class="plan-search-clear-btn" id="plan-search-clear-btn" title="絞込解除">&#10005;</button>
@@ -3234,12 +3399,16 @@ function getOrCreatePlanBoardModal() {
   overlay.querySelector('#plan-board-close').addEventListener('click', closePlanBoard);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closePlanBoard(); });
   closeOnEscape(overlay, 'active', closePlanBoard);
-  overlay.querySelector('#plan-board-project-filter').addEventListener('change', (e) => {
-    currentFilter = e.target.value;
-    setSessionFilter(currentFilter);
-    if (projectFilterEl) projectFilterEl.value = currentFilter;
-    if (currentBoardData) renderBoard(currentBoardData);
-    renderPlanBoard();
+
+  // BM-029: Plan Board側のワークスペース絞り込みドロップダウンもヘッダーと同じ列固定表示にする。
+  // モーダルは getOrCreatePlanBoardModal() の初回呼び出しでDOMごと作られるため、ここで生成する。
+  wsFilterPlanDropdown = createWsFilterDropdown({
+    wrapEl: overlay.querySelector('#plan-ws-filter-wrap'),
+    triggerEl: overlay.querySelector('#plan-ws-filter-trigger'),
+    triggerLabelEl: overlay.querySelector('#plan-ws-filter-trigger-label'),
+    menuEl: overlay.querySelector('#plan-ws-filter-menu'),
+    includeCreateAction: false, // Plan Board内は絞り込み専用。新規作成は設定パネルから行う
+    onSelect: (value) => applyMainFilter(value),
   });
 
   // BM-012: キーワード絞り込み
@@ -3286,12 +3455,7 @@ function planToggleAllGroups() {
 
 function openPlanBoard() {
   const overlay = getOrCreatePlanBoardModal();
-  const sel = overlay.querySelector('#plan-board-project-filter');
-  if (sel && projectFilterEl) {
-    sel.innerHTML = projectFilterEl.innerHTML;
-    sel.querySelector(`option[value="${NEW_WORKSPACE_VALUE}"]`)?.remove(); // 操作項目は絞り込みではないので除く
-    sel.value = currentFilter;
-  }
+  if (wsFilterPlanDropdown) wsFilterPlanDropdown.render(); // 開くたびに現在のcurrentFilter/件数で描画し直す
   overlay.classList.add('active');
   if (window.ganttView) window.ganttView.resetScroll(); // ガントは開くたびに今日の位置から見せる
   planApplyViewMode();
