@@ -1,4 +1,4 @@
-# backlog-dashboard 自動起動タスクをタスクスケジューラから削除する(IN-018)
+﻿# backlog-dashboard 自動起動タスクをタスクスケジューラから削除する(IN-018)
 
 $TaskName = "BacklogDashboardAutoStart"
 

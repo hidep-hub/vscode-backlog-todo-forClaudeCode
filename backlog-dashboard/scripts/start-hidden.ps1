@@ -1,4 +1,4 @@
-# backlog-dashboard を非表示ウィンドウで起動する(IN-018)
+﻿# backlog-dashboard を非表示ウィンドウで起動する(IN-018)
 # タスクスケジューラのログオントリガーから呼ばれる想定。
 # 対象ポートが既にLISTEN中なら二重起動せず何もしない。
 # ポート番号はconfig.jsonのport値を使う(BM-011)。config.json未作成(clone直後)の場合はserver.jsと同じ3333にフォールバックする。
