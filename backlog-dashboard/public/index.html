@@ -36,9 +36,13 @@
         <button class="activity-btn" id="activity-btn" title="履歴"><span class="material-icon icon-history"></span></button>
         </div>
         <div class="header-action-row header-workspace-row">
-        <select class="filter-select" id="project-filter" title="Workspace filter">
-          <option value="">All Projects</option>
-        </select>
+        <div class="ws-filter-wrap" id="ws-filter-wrap">
+          <button type="button" class="ws-filter-trigger" id="ws-filter-trigger" title="Workspace filter" aria-haspopup="listbox" aria-expanded="false">
+            <span class="ws-filter-trigger-label" id="ws-filter-trigger-label">All Projects</span>
+            <span class="ws-filter-trigger-arrow" aria-hidden="true">▾</span>
+          </button>
+          <div class="ws-filter-menu" id="ws-filter-menu" role="listbox" tabindex="-1" hidden></div>
+        </div>
         <select class="theme-select" id="theme-select" title="Theme">
           <option value="dark">Dark</option>
           <option value="light">Light</option>
