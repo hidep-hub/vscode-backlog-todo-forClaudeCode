@@ -1012,6 +1012,21 @@ function createWsFilterDropdown({ wrapEl, triggerEl, triggerLabelEl, menuEl, inc
       triggerEl.focus();
     } else if (e.key === 'Tab') {
       closeMenu();
+    } else if (!e.ctrlKey && !e.metaKey && !e.altKey && /^[a-zA-Z]$/.test(e.key)) {
+      // BM-035: 先頭文字キーでの頭文字ジャンプ（typeahead）。
+      // 現在位置の次から探すだけで、初回ジャンプも同一文字の連打巡回も同じロジックで成立する
+      // （ネイティブ<select>のtypeaheadと同じ考え方）。末尾まで探して無ければ先頭へ巡回する。
+      e.preventDefault();
+      const char = e.key.toLowerCase();
+      const start = rows.length ? (focusIndex + 1) % rows.length : 0;
+      for (let i = 0; i < rows.length; i++) {
+        const idx = (start + i) % rows.length;
+        if ((rows[idx].label || '').toLowerCase().startsWith(char)) {
+          focusIndex = idx;
+          highlightFocus();
+          break;
+        }
+      }
     }
   });
 
