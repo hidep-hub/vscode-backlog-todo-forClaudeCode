@@ -137,7 +137,8 @@
     // BT-364: 並びは日付で入れ替えない（日程を編集しても行が動かないよう、カンバンの並びをそのまま使う）
 
     // show=falseでも統計・範囲・lookupには数える(折りたたんでも「遅延N件」等は変わらないように)
-    const pushItem = (item, parent, show) => {
+    // BM-033: isLastはEPIC配下で表示中の子のうち最後の1件かどうか(ツリー線を止める位置の判定用)
+    const pushItem = (item, parent, show, isLast) => {
       lookup.set(item.id, { item, parent });
       const sp = barSpan(item);
       if (!isDone(item)) {
@@ -149,7 +150,7 @@
           if (!stats.oldestOverdue || item.dueDate < stats.oldestOverdue) stats.oldestOverdue = item.dueDate;
         } else if (j === 'late-start') stats.lateStart++;
       }
-      if (show) rows.push({ type: 'task', item, parent });
+      if (show) rows.push({ type: 'task', item, parent, isLast });
     };
 
     // ワークスペースごとに束ねる(ALLで複数ある時だけ見出しを出す)。単発の束はプロジェクトで分割する
@@ -189,13 +190,13 @@
         keys.push(g.epic.id);
         emit({ type: 'epic', epic: g.epic, span: min ? { start: min, end: max } : null, done, total: g.allChildren.length });
         const show = !wsCollapsed && !state.collapsed.has(g.epic.id);
-        for (const c of g.children) pushItem(c, g.epic, show);
+        g.children.forEach((c, i) => pushItem(c, g.epic, show, i === g.children.length - 1));
       }
       for (const g of singles) {
         const key = `single:${project}`;
         keys.push(key);
         emit({ type: 'head', key, label: '単発タスク', count: g.children.length, collapsed: state.collapsed.has(key) });
-        for (const c of g.children) pushItem(c, null, !wsCollapsed && !state.collapsed.has(key));
+        for (const c of g.children) pushItem(c, null, !wsCollapsed && !state.collapsed.has(key), false);
       }
     }
     return { rows, lookup, stats, dated, keys };
@@ -335,7 +336,9 @@
         : `<input type="text" class="date-field gantt-due-input${j === 'overdue' ? ' is-overdue' : ''}" readonly autocomplete="off" placeholder="期日" data-task-id="${esc(item.id)}" value="${esc(item.dueDate || '')}" title="期日（クリックでカレンダー）">`;
       // BT-365: 行頭に [スピナー][ステータス文字]。DONEもグレーの文字で出す(緑ドットは廃止)
       const stateCell = `<span class="gantt-state">${running || '<span class="gantt-running-slot"></span>'}<span class="gantt-status-text st-${esc(item.statusCode)}" title="${esc(item.status || item.statusCode)}">${esc(String(item.statusCode).toUpperCase())}</span></span>`;
-      const label = `<div class="gantt-label gantt-label-task${r.parent ? ' is-child' : ''}" data-act="open" data-task-id="${esc(item.id)}">${stateCell}<span class="gantt-id">${esc(item.id)}</span><span class="gantt-title">${esc(item.title)}</span>${pin}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;
+      // BM-033: 子タスクはis-childでツリー線用の背景・インデントを付与。is-lastは縦線を自分の行で止める印
+      const childCls = r.parent ? ` is-child${r.isLast ? ' is-last' : ''}` : '';
+      const label = `<div class="gantt-label gantt-label-task${childCls}" data-act="open" data-task-id="${esc(item.id)}">${stateCell}<span class="gantt-id">${esc(item.id)}</span><span class="gantt-title">${esc(item.title)}</span>${pin}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;
 
       let trackInner = '';
       let trackClass = 'gantt-track';

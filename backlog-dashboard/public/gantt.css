@@ -219,7 +219,37 @@ button.gantt-stat { cursor: pointer; }
 }
 
 .gantt-label-task { cursor: pointer; }
-.gantt-label-task.is-child { padding-left: 26px; }
+
+/* BM-033: EPIC配下の子タスク行。背景はテーマのaccentから薄く計算し、固定色は使わない。
+   transparentではなくvar(--surface)と混ぜて不透明にする(半透明だと後ろのガントの祝日バンド等が透けて見えてしまうため) */
+.gantt-label-task.is-child {
+  padding-left: 26px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+.gantt-row-task:hover .gantt-label-task.is-child { background: color-mix(in srgb, var(--accent) 9%, var(--card-hover)); }
+
+/* ツリー線: EPICの折りたたみ▾(中心=left 16px)から縦線を下ろし、各子行でL字に折れて接続する。
+   縦線は行ごとに描いて次行へ継続、is-lastの行だけ中間で止める */
+.gantt-label-task.is-child::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+.gantt-label-task.is-child.is-last::before { bottom: 50%; }
+.gantt-label-task.is-child::after {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  width: 11px;
+  height: 2px;
+  background: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
 .gantt-label-epic { cursor: pointer; font-weight: 600; }
 .gantt-label-head { font-weight: 600; color: var(--text-muted); cursor: pointer; }
 .gantt-toggle { width: 12px; color: var(--text-muted); flex: none; }
