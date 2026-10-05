@@ -1,0 +1,13 @@
+# PowerShellスクリプトはBOM付きUTF-8で保存する(BM-030)
+# Windows PowerShell 5.1(Desktop版)はBOM無しUTF-8ファイルを読む際、
+# システムの既定ANSIコードページ(日本語環境ではShift-JIS)として誤読し、
+# 日本語コメントを含む行で改行コードが2バイト文字に吸収されるなどの事故が起きる。
+# PowerShell Core(Windows/Linux/Mac共通)はBOM有無どちらでも正しく読めるため、
+# BOM付きに統一してもクロスプラットフォームの制約にはならない。
+#
+# 注: working-tree-encoding=UTF-8-BOM は指定しない。Gitのworking-tree-encoding
+# 属性はUTF-16等の非ASCII互換エンコーディング向けの機能で、"UTF-8-BOM"という
+# エンコーディング名はiconvに存在せず `failed to encode` エラーになる。
+# BOM付きUTF-8はASCII互換のスーパーセットとしてGitがそのまま正しく扱えるため、
+# text属性のみで改行コードの正規化(LF)を指定すれば十分。
+*.ps1 text eol=lf

@@ -1,4 +1,4 @@
-# backlog-dashboard 自動起動タスクをWindowsタスクスケジューラに登録する(IN-018)
+﻿# backlog-dashboard 自動起動タスクをWindowsタスクスケジューラに登録する(IN-018)
 # 初回セットアップ時に一度だけ手動実行する。
 # ログオン時に start-hidden.ps1 を非表示ウィンドウで起動するトリガーを登録する。
 

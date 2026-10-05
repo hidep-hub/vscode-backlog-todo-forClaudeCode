@@ -1,4 +1,4 @@
-# backlog-dashboard を、登録済みのスタートアップタスク経由で安全に再起動する。
+﻿# backlog-dashboard を、登録済みのスタートアップタスク経由で安全に再起動する。
 # VS Code のPowerShellターミナル、Windows Terminal のどちらから実行してもよい。
 # 起動する node はタスクスケジューラから独立して実行されるため、実行元の端末は閉じてよい。
 
