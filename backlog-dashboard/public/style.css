@@ -3353,6 +3353,50 @@ body {
 }
 
 
+/* BM-058: 初回WebSocket接続〜board受信までの間、画面中央にダイアログ型で出す読み込み中表示。
+   position:fixedでボード本体(#board)とは独立しているため、表示/非表示でヘッダー等のレイアウトが
+   ズレることはない(高さ0の要素が後から現れて周囲を押す、という事故を避ける構造)。 */
+.board-initial-loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--modal-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.board-initial-loading-overlay[hidden] {
+  display: none;
+}
+
+.board-initial-loading-dialog {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 28px;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.board-initial-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
 /* --- Running Spinner (実行中) --- */
 .running-spinner {
   display: inline-block;

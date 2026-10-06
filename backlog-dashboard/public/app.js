@@ -1435,7 +1435,14 @@ function renderRunningStrip(data) {
 
 // --- Render: Board ---
 let lastBoardData = null;
+// BM-058: 初回board受信時に一度だけ、中央のローディングダイアログを隠す
+function hideBoardInitialLoading() {
+  const overlay = document.getElementById('board-initial-loading-overlay');
+  if (overlay) overlay.hidden = true;
+}
+
 function renderBoard(data) {
+  hideBoardInitialLoading();
   lastBoardData = data;
   boardEl.innerHTML = '';
   renderRunningStrip(data);

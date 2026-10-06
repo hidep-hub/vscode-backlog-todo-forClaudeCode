@@ -77,6 +77,16 @@
     <!-- columns rendered by app.js -->
   </main>
 
+  <!-- BM-058: WebSocket接続〜初回board受信までの間、画面中央にダイアログ型のローディング表示を出す。
+       position:fixedの別要素なのでレイアウトシフト(ヘッダー等の位置ズレ)は起きない。
+       app.jsのrenderBoard()が最初に呼ばれた時点で非表示にする(hideBoardInitialLoading)。 -->
+  <div class="board-initial-loading-overlay" id="board-initial-loading-overlay">
+    <div class="board-initial-loading-dialog">
+      <span class="board-initial-spinner"></span>
+      <span>読み込み中...</span>
+    </div>
+  </div>
+
   <!-- Settings Panel -->
   <div class="settings-overlay" id="settings-overlay">
     <div class="settings-panel">
