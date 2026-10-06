@@ -4804,13 +4804,15 @@ body {
   width: 12px;
 }
 
+/* BM-037: 親子線は▼(plan-epic-toggle)と同系色(text-muted)に揃え、
+   線自体はガントのタスク/期日の区切り線よりもう一段控えめ(1px・点線・25%)にする */
 .plan-epic-children {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin-top: 4px;
   padding-left: 16px;
-  border-left: 2px solid var(--border);
+  border-left: 1px dotted color-mix(in srgb, var(--text-muted) 25%, transparent);
   margin-left: 8px;
 }
 
