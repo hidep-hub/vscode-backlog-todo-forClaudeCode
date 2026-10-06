@@ -1814,6 +1814,24 @@ body {
   padding-right: 4px;
 }
 
+/* 編集フォーム(enterEditMode)も、通常表示と同じ「固定ヘッダー/フッター＋内部スクロール」に揃える（BM-052）。
+   .modal-bodyがoverflow:hiddenのflexコンテナのため、ヘッダー(.detail-header)とフッター(.edit-form-actions)は
+   flex-shrink:0で常に表示を保ち、入力欄一式(.edit-task-scroll)だけが内部スクロールであふれを吸収する。
+   これにより説明欄のリサイズや右カラムの伸びでフォームが長くなっても、保存/キャンセルボタンが
+   overflow:hiddenでクリップされて消えることがなくなる。 */
+.modal-content.detail-modal-content .modal-body > .detail-header,
+.modal-content.detail-modal-content .modal-body > .edit-task-error,
+.modal-content.detail-modal-content .modal-body > .edit-form-actions {
+  flex-shrink: 0;
+}
+
+.edit-task-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .detail-scroll-layout {
   display: flex;
   gap: 24px;
