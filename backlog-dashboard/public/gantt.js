@@ -31,6 +31,8 @@
   const ROW_H = 28;
   const HEAD_H = 44;
   const ZOOMS = { day: 28, week: 12 };
+  // BM-039: 帯の上に重ねる完了マーカー(緑丸+チェック)のサイズ。CSSの.gantt-done-mark幅と合わせること
+  const DONE_MARK_SIZE = 11;
   const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
   const DAY_MS = 86400000;
   const DRAG_THRESHOLD = 4;
@@ -281,6 +283,11 @@
 
     // 日付ラベルはバーの外(右)に出す。バー内だと短いバーで見切れるため
     const dateLabel = (a, b, spin = '') => `<span class="gantt-bar-date">${spin}${esc(a === b ? md(a) : `${md(a)}〜${md(b)}`)}</span>`;
+    // BM-039: 完了マーカー(丸+チェック)。期日を過ぎて完了した場合は赤(is-late)にして一目で遅延完了とわかるようにする。
+    // サイズは帯の上/単独表示どちらも統一(11px)。色はCSSでcurrentColor経由にして.is-lateで切り替える
+    const doneMark = (late = false) => `<svg class="gantt-done-mark${late ? ' is-late' : ''}" viewBox="0 0 24 24" aria-hidden="true"><circle class="gantt-done-mark-bg" cx="12" cy="12" r="12"/><path class="gantt-done-mark-check" d="M7 12.5l3 3 7-7.5" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    // dueDateには旧データで'-'(未設定扱い)が混在することがあるため、有効な日付文字列かどうかを見てから比較する
+    const isLateDone = (item) => !!(item.completedDate && item.dueDate && item.dueDate !== '-' && item.completedDate > item.dueDate);
 
     let wsOpen = false;
     const rowParts = [];
@@ -353,13 +360,28 @@
           const cls = `gantt-bar st-${item.statusCode} j-${j}${done ? ' is-done' : ''}`;
           const handles = done ? '' : '<span class="gantt-handle gantt-handle-l" data-handle="resize-l"></span><span class="gantt-handle gantt-handle-r" data-handle="resize-r"></span>';
           const clear = done ? '' : '<button type="button" class="gantt-bar-clear" data-act="clear" title="日付をクリア（未計画に戻す）">×</button>';
-          trackInner = `<div class="${cls}" data-task-id="${esc(item.id)}" style="left:${left}px;width:${width}px">${handles}${clear}${dateLabel(span.start, span.end, running)}</div>`;
+          // BM-039: 完了タスクは帯の幅・位置をそのまま残し(色はCSSでグレーに)、completedDateの位置に小さい完了マーク(緑丸+チェック)を重ねる。
+          // 期日より後、または開始日より前に完了させた場合は帯の外側にマークを出し「計画からズレて完了させた」のがわかるようにする
+          let doneMarkHtml = '';
+          if (done && item.completedDate) {
+            const late = isLateDone(item);
+            const lateTitle = late ? '（期日超過で完了）' : '';
+            const ci = idx(item.completedDate);
+            if (ci >= i0 && ci <= i1) {
+              doneMarkHtml = `<span class="gantt-done-mark-wrap" style="left:${(ci - i0) * dw + dw / 2}px" title="完了日 ${esc(item.completedDate)}${lateTitle}">${doneMark(late)}</span>`;
+            } else if (ci >= 0 && ci < range.days) {
+              const outsideLeft = ci < i0 ? -(DONE_MARK_SIZE / 2 + 2) : width + DONE_MARK_SIZE / 2 + 2;
+              doneMarkHtml = `<span class="gantt-done-mark-wrap gantt-done-mark-wrap-outside" style="left:${outsideLeft}px" title="完了日 ${esc(item.completedDate)}（計画の範囲外）${lateTitle}">${doneMark(late)}</span>`;
+            }
+          }
+          trackInner = `<div class="${cls}" data-task-id="${esc(item.id)}" style="left:${left}px;width:${width}px">${handles}${clear}${doneMarkHtml}${dateLabel(span.start, span.end, running)}</div>`;
         }
       } else if (done) {
         const c = item.completedDate;
         const ci = c ? idx(c) : -1;
         if (c && ci >= 0 && ci < range.days) {
-          trackInner = `<div class="gantt-marker" data-task-id="${esc(item.id)}" style="left:${ci * dw + dw / 2}px" title="完了日 ${esc(c)}"><i></i>${dateLabel(c, c)}</div>`;
+          const late = isLateDone(item);
+          trackInner = `<div class="gantt-marker" data-task-id="${esc(item.id)}" style="left:${ci * dw + dw / 2}px" title="完了日 ${esc(c)}${late ? '（期日超過で完了）' : ''}">${doneMark(late)}${dateLabel(c, c)}</div>`;
         }
       } else {
         trackClass += ' is-empty';

@@ -324,7 +324,8 @@ button.gantt-stat { cursor: pointer; }
 .gantt-bar.st-todo { background: color-mix(in srgb, var(--accent) 22%, transparent); border: 1px solid var(--accent); }
 .gantt-bar.st-ready { background: color-mix(in srgb, var(--accent) 45%, transparent); border: 1px solid var(--accent); }
 .gantt-bar.st-do { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
-.gantt-bar.st-done { background: rgba(111, 207, 151, 0.35); border: 1px solid #6fcf97; cursor: pointer; }
+/* BM-039: 完了の帯はテーマのtext-muted由来のグレーで統一(期限超過で完了させた場合も同じ=計画失敗を特別扱いしない) */
+.gantt-bar.st-done { background: color-mix(in srgb, var(--text-muted) 30%, transparent); border: 1px solid var(--text-muted); cursor: pointer; }
 .gantt-bar.j-late-start { background: #f59e0b; border-color: #d98a0b; color: #1b1b1b; }
 .gantt-bar.j-overdue { background: #e5484d; border-color: #c93a3f; color: #fff; }
 .gantt-bar.is-dragging { opacity: 0.85; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); z-index: 5; }
@@ -388,18 +389,45 @@ button.gantt-stat { cursor: pointer; }
   width: 0;
 }
 
-.gantt-marker i {
-  position: absolute;
-  top: 50%;
-  left: -5px;
-  width: 9px;
-  height: 9px;
-  margin-top: -5px;
-  background: #6fcf97;
-  transform: rotate(45deg);
+.gantt-marker .gantt-bar-date { margin-left: 10px; }
+
+/* BM-039: 完了マーカー(丸+チェック)。帯の上/単独表示どちらも同じ11pxで統一。
+   通常は緑、期日を過ぎて完了した場合は.is-lateで赤にして遅延完了が一目でわかるようにする */
+.gantt-done-mark {
+  display: block;
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  overflow: visible;
 }
 
-.gantt-marker .gantt-bar-date { margin-left: 10px; }
+.gantt-done-mark-bg { fill: #6fcf97; }
+.gantt-done-mark-check { stroke: #1e1e2e; }
+.gantt-done-mark.is-late .gantt-done-mark-bg { fill: #e5484d; }
+.gantt-done-mark.is-late .gantt-done-mark-check { stroke: #fff; }
+
+/* 帯の上に重ねる時: 完了日の実位置を中心に置く(範囲内/範囲外どちらも同じ仕組み) */
+.gantt-done-mark-wrap {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  line-height: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 帯が無い単独表示(.gantt-marker): 行の左端から少し外側に置く */
+.gantt-marker .gantt-done-mark {
+  position: absolute;
+  top: 50%;
+  left: -11px;
+  transform: translateY(-50%);
+}
+
+/* 完了日が計画の範囲外(期日より後/開始日より前)にある場合は帯の外に浮かせる。帯自体は完了色のまま */
+.gantt-done-mark.gantt-done-mark-outside {
+  margin-left: -3.5px;
+}
 
 .gantt-offrange {
   position: absolute;
