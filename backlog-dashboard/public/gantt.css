@@ -287,6 +287,11 @@ button.gantt-stat { cursor: pointer; }
 .gantt-row-epic.is-done .gantt-title,
 .gantt-row-task.is-done .gantt-title { color: var(--text-muted); text-decoration: line-through; }
 
+/* BM-060: 完了行(タスク・EPIC)は、タイトルの取り消し線だけでは生きているタスクと見分けにくいため、
+   行全体を薄く(opacity)して「完了済みで後ろに引いている」感を出す。バー・ID・ステータス文字等も含めて丸ごと対象 */
+.gantt-row-task.is-done,
+.gantt-row-epic.is-done { opacity: 0.55; }
+
 .gantt-track { position: relative; flex: none; height: 100%; }
 .gantt-track.is-empty { cursor: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2728%27%20height=%2728%27%20viewBox=%270%200%2024%2024%27%3E%3Crect%20x=%273%27%20y=%274.5%27%20width=%2718%27%20height=%2716.5%27%20rx=%272.5%27%20fill=%27white%27%20stroke=%27%232f6fdb%27%20stroke-width=%272%27/%3E%3Cpath%20d=%27M3%2010h18%27%20stroke=%27%232f6fdb%27%20stroke-width=%272%27/%3E%3Cpath%20d=%27M8%202.5v4M16%202.5v4%27%20stroke=%27%232f6fdb%27%20stroke-width=%272%27%20stroke-linecap=%27round%27/%3E%3Crect%20x=%277%27%20y=%2713%27%20width=%273.2%27%20height=%273.2%27%20fill=%27%232f6fdb%27/%3E%3C/svg%3E") 14 14, pointer; } /* カレンダーアイコン: 「日付を置く」操作だと分かるように */
 .gantt-track.is-empty:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
