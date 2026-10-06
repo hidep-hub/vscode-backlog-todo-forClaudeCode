@@ -3891,6 +3891,7 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
   });
 
   saveBtn.addEventListener('click', async () => {
+    if (saveBtn.disabled) return; // BM-054: 連打防止(多重送信ガード)
     const newTitle = titleInput.value.trim();
     if (!newTitle) {
       errorEl.textContent = 'タイトルは必須だよ';
@@ -3907,6 +3908,10 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
     };
     if (descInput) payload.description = descInput.value;
 
+    // BM-054: 送信中はボタンをdisabled化し、処理中であることを示す(連打による多重送信を防ぐ)
+    saveBtn.disabled = true;
+    const originalLabel = saveBtn.textContent;
+    saveBtn.textContent = '保存中...';
     try {
       const resp = await fetch('/api/update-task', {
         method: 'POST',
@@ -3962,6 +3967,11 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
       console.error('[edit] Network error:', e);
       errorEl.textContent = 'ネットワークエラーが発生したよ';
       errorEl.style.display = 'block';
+    } finally {
+      // BM-054: renderFn()で表示モードに戻った場合はこのボタンはDOMから外れているため無害、
+      // エラーで同じフォームに留まる場合は再度押せるように戻す
+      saveBtn.disabled = false;
+      saveBtn.textContent = originalLabel;
     }
   });
 
@@ -5380,6 +5390,8 @@ function closeAddForm() {
 
 async function submitAddTask() {
   const form = getOrCreateAddForm();
+  const submitBtn = form.querySelector('#add-task-submit');
+  if (submitBtn.disabled) return; // BM-054: 連打防止(多重送信ガード)
   const title = form.querySelector('#add-task-title').value.trim();
   const description = form.querySelector('#add-task-description').value.trim();
   const project = form.querySelector('#add-task-project').value;
@@ -5396,6 +5408,10 @@ async function submitAddTask() {
     return;
   }
 
+  // BM-054: 送信中はボタンをdisabled化し、処理中であることを示す(連打による多重送信を防ぐ)
+  submitBtn.disabled = true;
+  const originalLabel = submitBtn.textContent;
+  submitBtn.textContent = '追加中...';
   try {
     const body = { title, project, status, origin: 'user' };
     if (description) body.description = description;
@@ -5421,6 +5437,10 @@ async function submitAddTask() {
     console.error('[add-task] Network error:', e);
     errorEl.textContent = 'ネットワークエラーが発生したよ';
     errorEl.style.display = 'block';
+  } finally {
+    // closeAddForm()が呼ばれても次回オープン時に同じDOMを再利用するため、ここで必ず戻す
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
   }
 }
 
