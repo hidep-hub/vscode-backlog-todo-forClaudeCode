@@ -571,6 +571,38 @@ body.gantt-dragging.gantt-creating, body.gantt-dragging.gantt-creating * { curso
 
 .gantt-epic-pct { color: var(--text); font-weight: 600; }
 
+/* BM-050: EPIC帯の上に重ねる子タスクの期限(○)/完了(●)マーカー。
+   畳んだ状態でも帯だけでマイルストーンの緊迫感がわかるようにするための表示。
+   単独行の完了マーク(11px)より小さく(7px)し、帯の邪魔にならないようにする */
+.gantt-epic-mark-wrap {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  line-height: 0;
+  pointer-events: auto;
+  z-index: 1;
+  cursor: default;
+}
+
+.gantt-epic-mark {
+  display: block;
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+/* ●完了マーカー(丸+チェック、単独行のdoneMarkと同じ柄): 通常は緑、期日を過ぎて完了した場合は赤(is-late)。
+   帯の進捗部分も同系の緑(#6fcf97)なので、背景色(--bg)で縁取りして同化を防ぐ */
+.gantt-epic-mark-done .gantt-epic-mark-bg { fill: #6fcf97; stroke: var(--bg); stroke-width: 2; }
+.gantt-epic-mark-done .gantt-epic-mark-check { stroke: #1e1e2e; }
+.gantt-epic-mark-done.is-late .gantt-epic-mark-bg { fill: #e5484d; }
+.gantt-epic-mark-done.is-late .gantt-epic-mark-check { stroke: #fff; }
+
+/* ○期限マーカー(中抜きリング): 通常はアクセント色、期限を過ぎても未完了(is-late)なら赤 */
+.gantt-epic-mark-due circle { stroke: var(--accent); }
+.gantt-epic-mark-due.is-late circle { stroke: #e5484d; }
+
 .gantt-epic-solo {
   position: absolute;
   top: 50%;
