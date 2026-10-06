@@ -33,6 +33,8 @@
   const ZOOMS = { day: 28, week: 12 };
   // BM-039: 帯の上に重ねる完了マーカー(緑丸+チェック)のサイズ。CSSの.gantt-done-mark幅と合わせること
   const DONE_MARK_SIZE = 11;
+  // BM-050: EPIC帯に乗せる子タスクの期限(○)/完了(●)マーカー。単独行の完了マークより小さくする
+  const EPIC_MARK_SIZE = 7;
   const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
   const DAY_MS = 86400000;
   const DRAG_THRESHOLD = 4;
@@ -104,6 +106,9 @@
     const b = d || s;
     return a <= b ? { start: a, end: b } : { start: b, end: a };
   }
+
+  // dueDateには旧データで'-'(未設定扱い)が混在することがあるため、有効な日付文字列かどうかを見てから比較する
+  const isLateDone = (item) => !!(item.completedDate && item.dueDate && item.dueDate !== '-' && item.completedDate > item.dueDate);
 
   // ドラッグ結果の日付を計算する。返り値 { start, due } (null=未設定)
   function computeDates(item, kind, delta) {
@@ -184,13 +189,17 @@
 
       for (const g of epics) {
         let min = null, max = null, done = 0;
+        // BM-050: 畳んだ状態でも帯だけでマイルストーンが見えるよう、子の期限(due)/完了(doneAt)を集めておく
+        const marks = [];
         for (const c of g.allChildren) {
           if (isDone(c)) done++;
           const sp = barSpan(c);
           if (sp) { if (!min || sp.start < min) min = sp.start; if (!max || sp.end > max) max = sp.end; }
+          if (c.completedDate) marks.push({ date: c.completedDate, kind: 'done', item: c, late: isLateDone(c) });
+          else if (c.dueDate && c.dueDate !== '-') marks.push({ date: c.dueDate, kind: 'due', item: c, late: c.dueDate < today });
         }
         keys.push(g.epic.id);
-        emit({ type: 'epic', epic: g.epic, span: min ? { start: min, end: max } : null, done, total: g.allChildren.length });
+        emit({ type: 'epic', epic: g.epic, span: min ? { start: min, end: max } : null, done, total: g.allChildren.length, marks });
         const show = !wsCollapsed && !state.collapsed.has(g.epic.id);
         g.children.forEach((c, i) => pushItem(c, g.epic, show, i === g.children.length - 1));
       }
@@ -286,8 +295,11 @@
     // BM-039: 完了マーカー(丸+チェック)。期日を過ぎて完了した場合は赤(is-late)にして一目で遅延完了とわかるようにする。
     // サイズは帯の上/単独表示どちらも統一(11px)。色はCSSでcurrentColor経由にして.is-lateで切り替える
     const doneMark = (late = false) => `<svg class="gantt-done-mark${late ? ' is-late' : ''}" viewBox="0 0 24 24" aria-hidden="true"><circle class="gantt-done-mark-bg" cx="12" cy="12" r="12"/><path class="gantt-done-mark-check" d="M7 12.5l3 3 7-7.5" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-    // dueDateには旧データで'-'(未設定扱い)が混在することがあるため、有効な日付文字列かどうかを見てから比較する
-    const isLateDone = (item) => !!(item.completedDate && item.dueDate && item.dueDate !== '-' && item.completedDate > item.dueDate);
+    // BM-050: EPIC帯の上に乗せる完了マーカー。単独行のdoneMarkと同じ丸+チェック柄(見た目を揃える)。
+    // サイズだけ小さくするため専用クラスを付け、帯の色(緑/グレー)と同化しないよう背景色で縁取る(CSS側)
+    const epicDoneMark = (late = false) => `<svg class="gantt-epic-mark gantt-epic-mark-done${late ? ' is-late' : ''}" viewBox="0 0 24 24" aria-hidden="true"><circle class="gantt-epic-mark-bg" cx="12" cy="12" r="12"/><path class="gantt-epic-mark-check" d="M7 12.5l3 3 7-7.5" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    // BM-050: EPIC帯の上に乗せる小さい○(期限)マーカー。中抜きリング
+    const epicDueMark = (late = false) => `<svg class="gantt-epic-mark gantt-epic-mark-due${late ? ' is-late' : ''}" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke-width="4"/></svg>`;
 
     let wsOpen = false;
     const rowParts = [];
@@ -318,7 +330,17 @@
           const left = idx(r.span.start) * dw;
           const width = (diffDays(r.span.start, r.span.end) + 1) * dw;
           const spanText = r.span.start === r.span.end ? md(r.span.start) : `${md(r.span.start)}〜${md(r.span.end)}`;
-          bar = `<div class="gantt-bar gantt-bar-epic" style="left:${left}px;width:${Math.max(width, dw)}px;--pct:${pct}%" title="${esc(spanText + ' 完了 ' + r.done + '/' + r.total)}"><span class="gantt-bar-date">${esc(spanText)} ${progress}</span></div>`;
+          // BM-050: 帯の範囲内に収まる子タスクの期限(○)/完了(●)マーカーを重ねる。範囲外(帯より前後にずれた期限等)は乗せない
+          // 重なりは許容(しばらく使ってみて見づらければ調整する)。各マーカーは「ID タイトル 期限:YYYY-MM-DD」の1行をtitleで出す
+          const markHtml = (r.marks || []).map((mk) => {
+            const mi = idx(mk.date);
+            if (mi < idx(r.span.start) || mi > idx(r.span.end)) return '';
+            const markLeft = (mi - idx(r.span.start)) * dw + dw / 2;
+            const label = `${mk.item.id} ${mk.item.title} 期限:${mk.date}`;
+            const svg = mk.kind === 'done' ? epicDoneMark(mk.late) : epicDueMark(mk.late);
+            return `<span class="gantt-epic-mark-wrap" style="left:${markLeft}px" title="${esc(label)}">${svg}</span>`;
+          }).join('');
+          bar = `<div class="gantt-bar gantt-bar-epic" style="left:${left}px;width:${Math.max(width, dw)}px;--pct:${pct}%" title="${esc(spanText + ' 完了 ' + r.done + '/' + r.total)}">${markHtml}<span class="gantt-bar-date">${esc(spanText)} ${progress}</span></div>`;
         } else if (todayIdx >= 0 && todayIdx < range.days) {
           // 子に日付が1つも無いEPICは、バーの代わりに今日の線の右へ完了度だけ出す
           bar = `<span class="gantt-epic-solo" style="left:${todayIdx * dw + dw + 6}px">${progress}</span>`;
