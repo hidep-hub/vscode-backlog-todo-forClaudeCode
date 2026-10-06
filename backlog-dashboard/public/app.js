@@ -3826,40 +3826,42 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
     <div class="detail-header">
       <span class="detail-id">${escapeHtml(item.id || '-')}</span>
     </div>
-    <div class="detail-layout edit-task-layout">
-      <div class="detail-main">
-        <div class="settings-group">
-          <label>タイトル</label>
-          <input type="text" id="edit-task-title" value="${escapeHtml(item.title)}">
+    <div class="edit-task-scroll">
+      <div class="detail-layout edit-task-layout">
+        <div class="detail-main">
+          <div class="settings-group">
+            <label>タイトル</label>
+            <input type="text" id="edit-task-title" value="${escapeHtml(item.title)}">
+          </div>
+          ${descField}
         </div>
-        ${descField}
-      </div>
-      <div class="detail-side">
-        <div class="settings-group">
-          <label>ワークスペース</label>
-          <select id="edit-task-project">${projectOptions}</select>
-        </div>
-        <div class="settings-group">
-          <label>ステータス</label>
-          <select id="edit-task-status">
-            <option value="todo"${item.statusCode === 'todo' ? ' selected' : ''}>TODO</option>
-            <option value="ready"${item.statusCode === 'ready' ? ' selected' : ''}>READY</option>
-            <option value="do"${item.statusCode === 'do' ? ' selected' : ''}>DO</option>
-            <option value="done"${item.statusCode === 'done' ? ' selected' : ''}>DONE</option>
-          </select>
-        </div>
-        <div class="settings-group">
-          <label>担当（任意）</label>
-          <input type="text" id="edit-task-assignee" placeholder="担当者" value="${escapeHtml(item.assignee || '')}">
-        </div>
-        <div class="settings-group">
-          <label>開始日（任意）</label>
-          ${renderDateFieldHtml('edit-task-start-date', item.startDate)}
-        </div>
-        <div class="settings-group">
-          <label>期日（任意）</label>
-          ${renderDateFieldHtml('edit-task-due-date', item.dueDate)}
-          <div class="due-quick-row">${renderDueQuickButtonsHtml()}</div>
+        <div class="detail-side">
+          <div class="settings-group">
+            <label>ワークスペース</label>
+            <select id="edit-task-project">${projectOptions}</select>
+          </div>
+          <div class="settings-group">
+            <label>ステータス</label>
+            <select id="edit-task-status">
+              <option value="todo"${item.statusCode === 'todo' ? ' selected' : ''}>TODO</option>
+              <option value="ready"${item.statusCode === 'ready' ? ' selected' : ''}>READY</option>
+              <option value="do"${item.statusCode === 'do' ? ' selected' : ''}>DO</option>
+              <option value="done"${item.statusCode === 'done' ? ' selected' : ''}>DONE</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label>担当（任意）</label>
+            <input type="text" id="edit-task-assignee" placeholder="担当者" value="${escapeHtml(item.assignee || '')}">
+          </div>
+          <div class="settings-group">
+            <label>開始日（任意）</label>
+            ${renderDateFieldHtml('edit-task-start-date', item.startDate)}
+          </div>
+          <div class="settings-group">
+            <label>期日（任意）</label>
+            ${renderDateFieldHtml('edit-task-due-date', item.dueDate)}
+            <div class="due-quick-row">${renderDueQuickButtonsHtml()}</div>
+          </div>
         </div>
       </div>
     </div>
