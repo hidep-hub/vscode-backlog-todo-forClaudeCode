@@ -54,13 +54,42 @@ const REPO_ROOT = path.join(__dirname, '..');
 // 既存のexecFileSync(同期)ではなく非同期のexecFileを使い、イベントループを
 // 長時間ブロックしないようにする。
 const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30分
-let updateCheckState = { updateAvailable: false, aheadBy: 0, checkedAt: null };
+let updateCheckState = { updateAvailable: false, aheadBy: 0, checkedAt: null, latestCommit: null };
+
+/**
+ * origin/mainの最新コミット1件を「短縮ハッシュ|コミット日時|件名」の形式(区切り文字は
+ * 0x1Fユニット区切り。コミット件名に"|"が含まれるケースを安全に避けるため)で取得する。
+ * @returns {Promise<{shortHash: string, date: string, subject: string}|null>}
+ */
+function getLatestOriginMainCommit() {
+  return new Promise((resolve) => {
+    execFile(
+      'git',
+      ['log', 'origin/main', '-1', '--format=%h%x1f%cI%x1f%s'],
+      { cwd: REPO_ROOT, encoding: 'utf8' },
+      (err, stdout) => {
+        if (err) {
+          console.error('[update-check] git log (latest commit) failed:', err.message);
+          resolve(null);
+          return;
+        }
+        const [shortHash, date, subject] = stdout.trim().split('\u001f');
+        if (!shortHash) {
+          resolve(null);
+          return;
+        }
+        resolve({ shortHash, date, subject });
+      }
+    );
+  });
+}
 
 /**
  * origin/mainをfetchし、ローカルHEADからの遅れコミット数(aheadBy)を調べて
  * updateCheckStateを更新する。作業ツリーには影響しない読み取り専用操作
  * (git fetchはリモート追跡ブランチ(origin/main)だけを更新し、ローカルの
  * HEAD/ブランチ/作業ツリーは変更しない)。
+ * 更新がある場合は、origin/mainの最新コミット(ハッシュ・日時・件名)も併せて取得する。
  * オフライン等の通信異常時はupdateCheckStateを変更せず直前の状態を維持する
  * (サーバーのコンソールログにのみ記録し、画面には出さない。30分おきの
  * 自動チェックでオフラインの度に「繋がりません」が表示されるのを避けるため)。
@@ -74,17 +103,19 @@ function refreshUpdateCheck() {
         resolve(updateCheckState);
         return;
       }
-      execFile('git', ['rev-list', '--count', 'HEAD..origin/main'], { cwd: REPO_ROOT, encoding: 'utf8' }, (countErr, stdout) => {
+      execFile('git', ['rev-list', '--count', 'HEAD..origin/main'], { cwd: REPO_ROOT, encoding: 'utf8' }, async (countErr, stdout) => {
         if (countErr) {
           console.error('[update-check] git rev-list failed (直前の状態を維持):', countErr.message);
           resolve(updateCheckState);
           return;
         }
         const aheadBy = parseInt(stdout.trim(), 10) || 0;
+        const latestCommit = aheadBy > 0 ? await getLatestOriginMainCommit() : null;
         updateCheckState = {
           updateAvailable: aheadBy > 0,
           aheadBy,
           checkedAt: new Date().toISOString(),
+          latestCommit,
         };
         resolve(updateCheckState);
       });
@@ -573,6 +604,62 @@ function serveStatic(req, res) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(state));
     });
+    return;
+  }
+
+  // API: GET /api/update-status (BM-064: update-and-sync.ps1が書き出す進行状況ファイルを読む。
+  // 画面側はこれをポーリングし、state==='running'(実作業=git pull以降)の間だけボードをロックする。
+  // 'checking'(ブランチ/ローカル変更の確認中)はまだ何も変更していないためロック対象外。
+  // スクリプトが異常終了してファイル更新が止まった場合に無限ロックしないよう、
+  // 'running'のままUPDATE_STATUS_STALE_MSを超えて更新がなければ'stale'として返す
+  // (画面側はstaleもロック解除対象として扱う)。
+  if (req.url === '/api/update-status' && req.method === 'GET') {
+    const statusPath = path.join(__dirname, 'logs', 'update-status.json');
+    const UPDATE_STATUS_STALE_MS = 3 * 60 * 1000; // 3分
+    let result = { state: 'idle', message: '', updatedAt: null };
+    try {
+      const raw = fs.readFileSync(statusPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      const updatedAtMs = Date.parse(parsed.updatedAt);
+      const isStale = parsed.state === 'running' && Number.isFinite(updatedAtMs) &&
+        (Date.now() - updatedAtMs > UPDATE_STATUS_STALE_MS);
+      result = { ...parsed, state: isStale ? 'stale' : parsed.state };
+    } catch (e) {
+      // ファイルが無い(一度も実行していない)場合はidleのまま返す。読み込み自体の失敗もidle扱い。
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(result));
+    return;
+  }
+
+  // API: POST /api/run-update (BM-064: 画面の「今すぐ更新する」ボタン用。
+  // scripts/update-and-sync.ps1 -NonInteractive をdetachedな子プロセスとして起動する。
+  // このサーバー自身がpull後に再起動対象になるため、起動した事実だけを即座に返し、
+  // 完了確認は画面側のWebSocket再接続(scheduleReconnect)に委ねる(spawnEditorと同じ切り離し方式)。
+  // stdio: 'ignore'だと成功/失敗や途中経過が一切記録されず診断できないため、
+  // logs/run-update.logへ標準出力・標準エラーをリダイレクトする(start-hidden.ps1と同じ考え方)。
+  if (req.url === '/api/run-update' && req.method === 'POST') {
+    const scriptPath = path.join(REPO_ROOT, 'scripts', 'update-and-sync.ps1');
+    const logPath = path.join(__dirname, 'logs', 'run-update.log');
+    try {
+      fs.mkdirSync(path.dirname(logPath), { recursive: true });
+      const logStream = fs.openSync(logPath, 'a');
+      const child = spawn(
+        'powershell.exe',
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-NonInteractive'],
+        { cwd: REPO_ROOT, detached: true, stdio: ['ignore', logStream, logStream] }
+      );
+      child.on('error', (e) => {
+        console.error('[run-update] Child process error:', e.message);
+      });
+      child.unref();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: true, started: true }));
+    } catch (e) {
+      console.error('[run-update] Failed to spawn update-and-sync.ps1:', e.message);
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
     return;
   }
 
@@ -1474,7 +1561,11 @@ wss.on('connection', (ws) => {
 // Start
 // ============================================================
 
-server.listen(PORT, () => {
+// BM-064: 127.0.0.1(loopback)にバインドし、同一PC上のプロセスからのみ接続可能にする。
+// LAN上の他端末からは到達不能になる(OSのネットワークスタックレベルでの遮断であり、
+// ファイアウォール設定とは独立)。本サーバーは認証機構を持たないため、update-check/refreshや
+// update-and-sync相当の実行ボタンを画面に置くにあたり、ネットワーク到達範囲自体を絞る対応。
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`[backlog-dashboard] Listening on http://localhost:${PORT}`);
 });
 

@@ -87,6 +87,16 @@
     </div>
   </div>
 
+  <!-- BM-064: 更新の実作業中(git pull〜サーバー再起動)はボード操作を事故らせないよう
+       全画面を覆ってブロックする。BM-058のオーバーレイと同じ構造(position:fixed・独立要素)。
+       表示/非表示はapp.js側でGET /api/update-statusのポーリング結果に応じて切り替える。 -->
+  <div class="board-initial-loading-overlay update-running-overlay" id="update-running-overlay" hidden>
+    <div class="board-initial-loading-dialog">
+      <span class="board-initial-spinner"></span>
+      <span>更新を適用してるよ。しばらくお待ちください...</span>
+    </div>
+  </div>
+
   <!-- Settings Panel -->
   <div class="settings-overlay" id="settings-overlay">
     <div class="settings-panel">

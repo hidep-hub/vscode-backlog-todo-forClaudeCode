@@ -16,8 +16,14 @@ if (Test-Path -LiteralPath $ConfigPath) {
 }
 
 $ExpectedVersion = (Get-Content -LiteralPath (Join-Path $ServerDir 'package.json') -Raw | ConvertFrom-Json).version
-$HealthUri = "http://localhost:$Port/api/health"
-$TimeoutSeconds = 15
+# BM-064: サーバーが127.0.0.1(IPv4限定)でバインドするようになったため、ヘルスチェックも
+# "localhost"ではなく"127.0.0.1"を直接指定する。"localhost"はIPv6(::1)を先に解決しようとし、
+# 失敗してからIPv4へフォールバックする遅延が発生することがあり、-TimeoutSec 2の短い予算では
+# フォールバック前にタイムアウトして「healthyと判定できない」誤検知が起きるため。
+$HealthUri = "http://127.0.0.1:$Port/api/health"
+# BM-064: タスク件数の増加等でサーバー起動(ボード初期化)が遅くなる傾向がある(BM-048で別途調査中)。
+# 15秒では起動完了前にタイムアウトして誤検知することがあったため、30秒に伸ばして様子を見る。
+$TimeoutSeconds = 30
 
 function Get-Health {
     try {
