@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { WebSocketServer } = require('ws');
-const { spawn, execFileSync } = require('child_process');
+const { spawn, execFileSync, execFile } = require('child_process');
 const githubClient = require('./github-client');
 const { getDb } = require('./db/connection');
 const { buildBoardFromDb, buildTaskDetail } = require('./db/board');
@@ -46,6 +46,51 @@ function resolveRepoOriginUrl() {
   }
 }
 const REPO_ORIGIN_URL = resolveRepoOriginUrl();
+const REPO_ROOT = path.join(__dirname, '..');
+
+// --- Update check (BM-063) ---
+// GitHub上のorigin/main(リリース原本)に対し、ローカルがどれだけ遅れているかを
+// バックグラウンドで定期監視する。git fetchはネットワークI/Oを伴うため、
+// 既存のexecFileSync(同期)ではなく非同期のexecFileを使い、イベントループを
+// 長時間ブロックしないようにする。
+const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30分
+let updateCheckState = { updateAvailable: false, aheadBy: 0, checkedAt: null };
+
+/**
+ * origin/mainをfetchし、ローカルHEADからの遅れコミット数(aheadBy)を調べて
+ * updateCheckStateを更新する。作業ツリーには影響しない読み取り専用操作
+ * (git fetchはリモート追跡ブランチ(origin/main)だけを更新し、ローカルの
+ * HEAD/ブランチ/作業ツリーは変更しない)。
+ * オフライン等の通信異常時はupdateCheckStateを変更せず直前の状態を維持する
+ * (サーバーのコンソールログにのみ記録し、画面には出さない。30分おきの
+ * 自動チェックでオフラインの度に「繋がりません」が表示されるのを避けるため)。
+ * @returns {Promise<typeof updateCheckState>}
+ */
+function refreshUpdateCheck() {
+  return new Promise((resolve) => {
+    execFile('git', ['fetch', 'origin', 'main', '--quiet'], { cwd: REPO_ROOT }, (fetchErr) => {
+      if (fetchErr) {
+        console.error('[update-check] git fetch failed (オフライン等の可能性。直前の状態を維持):', fetchErr.message);
+        resolve(updateCheckState);
+        return;
+      }
+      execFile('git', ['rev-list', '--count', 'HEAD..origin/main'], { cwd: REPO_ROOT, encoding: 'utf8' }, (countErr, stdout) => {
+        if (countErr) {
+          console.error('[update-check] git rev-list failed (直前の状態を維持):', countErr.message);
+          resolve(updateCheckState);
+          return;
+        }
+        const aheadBy = parseInt(stdout.trim(), 10) || 0;
+        updateCheckState = {
+          updateAvailable: aheadBy > 0,
+          aheadBy,
+          checkedAt: new Date().toISOString(),
+        };
+        resolve(updateCheckState);
+      });
+    });
+  });
+}
 
 // --- Projects / Prefix helper ---
 function getPrefixMap() {
@@ -510,6 +555,24 @@ function serveStatic(req, res) {
   if (req.url === '/api/repo-origin-url' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ repoUrl: REPO_ORIGIN_URL }));
+    return;
+  }
+
+  // API: GET /api/update-check (BM-063: バックグラウンドでキャッシュした最新の監視結果を返すだけ。
+  // git fetchはここでは実行しない軽量な参照系)
+  if (req.url === '/api/update-check' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(updateCheckState));
+    return;
+  }
+
+  // API: POST /api/update-check/refresh (BM-063: 「今すぐ確認」用。即座にgit fetchを実行し、
+  // 最新状態をキャッシュへ反映してから返す)
+  if (req.url === '/api/update-check/refresh' && req.method === 'POST') {
+    refreshUpdateCheck().then((state) => {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(state));
+    });
     return;
   }
 
@@ -1414,3 +1477,9 @@ wss.on('connection', (ws) => {
 server.listen(PORT, () => {
   console.log(`[backlog-dashboard] Listening on http://localhost:${PORT}`);
 });
+
+// BM-063: 起動直後に1回確認し、以後30分おきにバックグラウンドで再確認する。
+// git fetchが使えない環境(originが無い等)でも起動自体は失敗させず、
+// updateCheckState.errorにメッセージが残るだけにする。
+refreshUpdateCheck();
+setInterval(refreshUpdateCheck, UPDATE_CHECK_INTERVAL_MS);
