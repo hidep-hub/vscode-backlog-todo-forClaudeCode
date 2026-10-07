@@ -3900,6 +3900,8 @@ function openChildModal(item, parentEpic = null) {
 
   // 編集・削除ボタン（BT-036/BT-031: 子タスクは常に単独削除可）
   const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn btn-edit" id="modal-edit-btn"><span class="material-icon icon-edit"></span> 編集</button>` : '';
+  // 複製ボタン（BM-061: 複製後は親に紐付けない独立したトップレベルタスクとして作成）
+  const copyBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn" id="modal-copy-btn"><span class="material-icon icon-content-copy"></span> 複製</button>` : '';
   const deleteBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn danger" id="modal-delete-btn"><span class="material-icon icon-delete"></span> 削除</button>` : '';
 
   // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
@@ -3918,6 +3920,11 @@ function openChildModal(item, parentEpic = null) {
   // ワークスペース移管ボタン（BT-063）
   const moveActionHtml = buildMoveActionHtml(item);
 
+  // 今日やるピントグル（BM-061: タイトル右端）
+  const titlePinBtnHtml = (item.id && item.id !== '-')
+    ? `<button class="detail-title-pin-btn${item.todayFlag ? ' pin-active' : ''}" id="modal-title-pin-btn" data-task-id="${item.id}" title="今日やる"><span class="material-icon icon-keep"></span></button>`
+    : '';
+
   const headerHtml = `
     ${parentCrumbHtml}
     <div class="detail-header">
@@ -3925,8 +3932,8 @@ function openChildModal(item, parentEpic = null) {
       ${statusBadge}
       ${project}${category}${githubBadge}
     </div>
-    <h3 class="detail-title">${escapeHtml(item.title)}</h3>
-    ${actionsRow(stopRunningBtnHtml, editBtnHtml, deleteBtnHtml, workspaceActionHtml, moveActionHtml, detachBtn, githubLinkBtnHtml, githubCreateBtnHtml)}
+    <h3 class="detail-title">${escapeHtml(item.title)}${titlePinBtnHtml}</h3>
+    ${actionsRow(stopRunningBtnHtml, editBtnHtml, copyBtnHtml, deleteBtnHtml, workspaceActionHtml, moveActionHtml, detachBtn, githubLinkBtnHtml, githubCreateBtnHtml)}
   `;
 
   body.innerHTML = `
@@ -3984,6 +3991,25 @@ function openChildModal(item, parentEpic = null) {
   if (deleteBtnEl) {
     deleteBtnEl.addEventListener('click', () => {
       openDeleteConfirm(item, true);
+    });
+  }
+
+  // 複製ボタンのイベント（BM-061: 子タスク→親に紐付けない独立したトップレベルタスクとして複製）
+  const copyBtnEl = body.querySelector('#modal-copy-btn');
+  if (copyBtnEl) {
+    copyBtnEl.addEventListener('click', () => {
+      openAddTaskForm('todo', item.project, '', { title: item.title, description: item.description });
+    });
+  }
+
+  // 今日やるピントグルのイベント（BM-061: タイトル右端）
+  const titlePinBtnEl = body.querySelector('#modal-title-pin-btn');
+  if (titlePinBtnEl) {
+    titlePinBtnEl.addEventListener('click', (e) => {
+      e.preventDefault();
+      const isActive = titlePinBtnEl.classList.contains('pin-active');
+      titlePinBtnEl.classList.toggle('pin-active', !isActive);
+      toggleTodayFlag(item.id, !isActive);
     });
   }
 
@@ -4574,6 +4600,8 @@ function renderModalContent(item) {
 
   // 編集・削除ボタン（BT-036/BT-031: 子ありEpicは削除不可のため削除ボタンを出さない）
   const editBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn btn-edit" id="modal-edit-btn"><span class="material-icon icon-edit"></span> 編集</button>` : '';
+  // 複製ボタン（BM-061: EPICは子タスクの集計表示のため操作対象外とし出さない）
+  const copyBtnHtml = (item.id && item.id !== '-' && !isEpic) ? `<button class="detail-action-btn" id="modal-copy-btn"><span class="material-icon icon-content-copy"></span> 複製</button>` : '';
   const deleteBtnHtml = (item.id && item.id !== '-' && !isEpic) ? `<button class="detail-action-btn danger" id="modal-delete-btn"><span class="material-icon icon-delete"></span> 削除</button>` : '';
 
   // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
@@ -4592,6 +4620,11 @@ function renderModalContent(item) {
   // ワークスペース移管ボタン（BT-063: 子ありEpicはサーバー側でも拒否されるため出さない）
   const moveActionHtml = (!isEpic && item.statusCode !== 'done') ? buildMoveActionHtml(item) : '';
 
+  // 今日やるピントグル（BM-061: タイトル右端。EPICは子タスクの集計表示のため出さない）
+  const titlePinBtnHtml = (item.id && item.id !== '-' && !isEpic)
+    ? `<button class="detail-title-pin-btn${item.todayFlag ? ' pin-active' : ''}" id="modal-title-pin-btn" data-task-id="${item.id}" title="今日やる"><span class="material-icon icon-keep"></span></button>`
+    : '';
+
   const headerHtml = `
     <div class="detail-header">
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
@@ -4599,8 +4632,8 @@ function renderModalContent(item) {
       ${badgeHtml}
       ${project}${category}${githubBadge}
     </div>
-    <h3 class="detail-title">${escapeHtml(item.title)}</h3>
-    ${actionsRow(stopRunningBtnHtml, editBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml)}
+    <h3 class="detail-title">${escapeHtml(item.title)}${titlePinBtnHtml}</h3>
+    ${actionsRow(stopRunningBtnHtml, editBtnHtml, copyBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml)}
   `;
 
   body.innerHTML = `
@@ -4670,6 +4703,25 @@ function renderModalContent(item) {
   if (deleteBtnEl) {
     deleteBtnEl.addEventListener('click', () => {
       openDeleteConfirm(item, false);
+    });
+  }
+
+  // 複製ボタンのイベント（BM-061: タイトル・説明だけ引き継いだ新規作成フォームを開く）
+  const copyBtnEl = body.querySelector('#modal-copy-btn');
+  if (copyBtnEl) {
+    copyBtnEl.addEventListener('click', () => {
+      openAddTaskForm('todo', item.project, '', { title: item.title, description: item.description });
+    });
+  }
+
+  // 今日やるピントグルのイベント（BM-061: タイトル右端）
+  const titlePinBtnEl = body.querySelector('#modal-title-pin-btn');
+  if (titlePinBtnEl) {
+    titlePinBtnEl.addEventListener('click', (e) => {
+      e.preventDefault();
+      const isActive = titlePinBtnEl.classList.contains('pin-active');
+      titlePinBtnEl.classList.toggle('pin-active', !isActive);
+      toggleTodayFlag(item.id, !isActive);
     });
   }
 
@@ -5544,7 +5596,7 @@ function getOrCreateAddForm() {
   return addFormEl;
 }
 
-function openAddTaskForm(defaultStatus, defaultProject, parentId) {
+function openAddTaskForm(defaultStatus, defaultProject, parentId, defaults) {
   const form = getOrCreateAddForm();
   // 同じz-index(1000)の他モーダル(EPIC詳細など)より必ず手前に出すため、
   // 表示するたびDOM末尾に移動する（BT-118: ミニボードから開くとEPIC画面の後ろに隠れる問題の修正）
@@ -5586,9 +5638,10 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId) {
   }
 
   // タイトル・説明・担当・日付をクリア＆フォーカス（BT-263）
+  // BM-061: 複製時はdefaultsでタイトル・説明だけ引き継ぎ、担当・日付は常に空にする
   const titleInput = form.querySelector('#add-task-title');
-  titleInput.value = '';
-  form.querySelector('#add-task-description').value = '';
+  titleInput.value = (defaults && defaults.title) || '';
+  form.querySelector('#add-task-description').value = (defaults && defaults.description) || '';
   form.querySelector('#add-task-assignee').value = '';
   form.querySelector('#add-task-start-date').value = '';
   form.querySelector('#add-task-due-date').value = '';
