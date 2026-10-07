@@ -3823,10 +3823,34 @@ function findItemById(id) {
   return null;
 }
 
+// 子タスクはトップレベルitemではなく親の children に入っているため、親を辿って探す
+function findChildItemById(id) {
+  if (!currentBoardData) return null;
+  for (const col of currentBoardData.columns) {
+    for (const item of col.items) {
+      const child = (item.children || []).find((c) => c.id === id);
+      if (child) return child;
+    }
+  }
+  return null;
+}
+
 function refreshModalIfOpen() {
+  refreshChildModalIfOpen();
   if (!currentModalItemId || !modalEl || !modalEl.classList.contains('modal-visible')) return;
   const item = findItemById(currentModalItemId);
   if (item) renderModalContent(item);
+}
+
+// BT-366: 子詳細モーダルもWS更新で最新化する（停止ボタン押下後に「停止中...」のまま残るのを防ぐ）。
+// 編集フォーム表示中は入力を壊さないため再描画しない。
+function refreshChildModalIfOpen() {
+  if (!currentChildModalItemId) return;
+  const el = document.getElementById('child-modal-overlay');
+  if (!el || !el.classList.contains('modal-visible')) return;
+  if (el.querySelector('#edit-task-title')) return;
+  const item = findChildItemById(currentChildModalItemId) || findItemById(currentChildModalItemId);
+  if (item) openChildModal(item);
 }
 
 function openCardDetail(item, parentEpic = null) {
@@ -3870,7 +3894,10 @@ function getOrCreateChildModal() {
   return el;
 }
 
+let currentChildModalItemId = null; // 開いている子詳細モーダルのタスクID（BT-366）
+
 function closeChildModal() {
+  currentChildModalItemId = null;
   const el = document.getElementById('child-modal-overlay');
   if (el) el.classList.remove('modal-visible');
 }
@@ -3894,6 +3921,7 @@ function buildParentBreadcrumbHtml(epic, item) {
 }
 
 function openChildModal(item, parentEpic = null) {
+  currentChildModalItemId = item.id;
   const modal = getOrCreateChildModal();
   const body = modal.querySelector('.modal-body');
   const content = modal.querySelector('.modal-content');
