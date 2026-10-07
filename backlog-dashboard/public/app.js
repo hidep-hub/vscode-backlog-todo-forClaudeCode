@@ -69,6 +69,34 @@ function closeOnEscape(el, visibleClass, close) {
   }, true);
 }
 
+// BT-168: フォームの「開いた時点の値」と現在値を比較し、差分があるかを返す。
+// 編集モードの保存ボタン活性（BT-367）と、背景クリックで閉じる誤操作の防止の両方で共用する。
+function hasFormChanged(initialValues, currentValues) {
+  return Object.keys(initialValues).some(key => currentValues[key] !== initialValues[key]);
+}
+
+// BT-168: オーバーレイの背景クリックで閉じる。ただし未保存の変更がある間は閉じず、
+// 入力が消える2度打ちを防ぐ（×ボタン・Escは意図的な操作なので従来通り閉じる）。
+// 未保存判定は el._hasUnsavedChanges（関数）に各フォームが登録する。
+function closeOnBackdropClick(el, close) {
+  el.addEventListener('click', (e) => {
+    if (e.target !== el) return;
+    if (el._hasUnsavedChanges && el._hasUnsavedChanges()) {
+      const content = el.querySelector('.modal-content');
+      if (content && content.animate) {
+        // CSSのanimationプロパティを上書きすると、終了時に本来の表示アニメーション(modalSlideIn)が
+        // 再生されてしまうため、Web Animations APIで一時的に揺らす
+        content.animate(
+          [{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }],
+          { duration: 300, easing: 'ease' }
+        );
+      }
+      return;
+    }
+    close();
+  });
+}
+
 // --- State ---
 let currentBoardData = null;
 let currentFilter = ''; // '' = all projects
@@ -3794,9 +3822,7 @@ function getOrCreateModal() {
   `;
   document.body.appendChild(modalEl);
 
-  modalEl.addEventListener('click', (e) => {
-    if (e.target === modalEl) closeModal();
-  });
+  closeOnBackdropClick(modalEl, closeModal);
   modalEl.querySelector('.modal-close').addEventListener('click', closeModal);
   closeOnEscape(modalEl, 'modal-visible', closeModal);
 
@@ -3886,9 +3912,7 @@ function getOrCreateChildModal() {
     </div>
   `;
   document.body.appendChild(el);
-  el.addEventListener('click', (e) => {
-    if (e.target === el) closeChildModal();
-  });
+  closeOnBackdropClick(el, closeChildModal);
   el.querySelector('#child-modal-close').addEventListener('click', closeChildModal);
   closeOnEscape(el, 'modal-visible', closeChildModal);
   return el;
@@ -4197,8 +4221,13 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
   const initialValues = readFormValues();
   const updateSaveState = () => {
     const current = readFormValues();
-    saveBtn.disabled = Object.keys(initialValues).every(key => current[key] === initialValues[key]);
+    saveBtn.disabled = !hasFormChanged(initialValues, current);
   };
+  // BT-168: 編集中に変更がある間は背景クリックで閉じない。フォームが破棄済み（キャンセル・保存後）なら対象外
+  const overlayEl = body.closest('.modal-overlay');
+  if (overlayEl) {
+    overlayEl._hasUnsavedChanges = () => saveBtn.isConnected && hasFormChanged(initialValues, readFormValues());
+  }
   [titleInput, descInput, assigneeInput].forEach(el => { if (el) el.addEventListener('input', updateSaveState); });
   [projectInput, statusInput, startDateInput, dueDateInput].forEach(el => el.addEventListener('change', updateSaveState));
   updateSaveState();
@@ -5651,15 +5680,20 @@ function getOrCreateAddForm() {
         </div>
       </div>
       <p class="edit-task-error" id="add-task-error" style="display:none;"></p>
-      <button class="add-task-submit" id="add-task-submit">追加</button>
+      <div class="edit-form-actions">
+        <button class="add-task-submit" id="add-task-submit">追加</button>
+        <button class="add-child-btn" id="add-task-cancel">キャンセル</button>
+      </div>
     </div>
   `;
   document.body.appendChild(addFormEl);
 
-  addFormEl.addEventListener('click', (e) => {
-    if (e.target === addFormEl) closeAddForm();
-  });
+  // BT-168: 開いた時点から入力が変わっている間は背景クリックで閉じない
+  addFormEl._hasUnsavedChanges = () =>
+    !!addFormEl._initialValues && hasFormChanged(addFormEl._initialValues, readAddFormValues());
+  closeOnBackdropClick(addFormEl, closeAddForm);
   addFormEl.querySelector('#add-form-close').addEventListener('click', closeAddForm);
+  addFormEl.querySelector('#add-task-cancel').addEventListener('click', closeAddForm);
 
   closeOnEscape(addFormEl, 'modal-visible', closeAddForm);
 
@@ -5673,6 +5707,19 @@ function getOrCreateAddForm() {
   addFormEl.querySelector('#add-task-title').addEventListener('input', updateAddSubmitState);
 
   return addFormEl;
+}
+
+function readAddFormValues() {
+  const form = getOrCreateAddForm();
+  return {
+    title: form.querySelector('#add-task-title').value.trim(),
+    description: form.querySelector('#add-task-description').value,
+    project: form.querySelector('#add-task-project').value,
+    status: form.querySelector('#add-task-status').value,
+    assignee: form.querySelector('#add-task-assignee').value.trim(),
+    startDate: form.querySelector('#add-task-start-date').value,
+    dueDate: form.querySelector('#add-task-due-date').value,
+  };
 }
 
 function updateAddSubmitState() {
@@ -5736,6 +5783,7 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId, defaults) {
   errorEl.style.display = 'none';
 
   updateAddSubmitState();
+  form._initialValues = readAddFormValues(); // BT-168: 値をセットし終えた時点を「開いた時点の値」とする
   form.classList.add('modal-visible');
   setTimeout(() => titleInput.focus(), 100);
 }
