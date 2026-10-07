@@ -3372,8 +3372,9 @@ function planSetupDropZone(bodyEl, bucketId) {
 
 // BT-268: ガント表示用。絞り込み(検索・ピン・ワークスペース)は週次計画と同じ条件で、
 // EPIC+子の組(epic=null は単発タスクの束)にして gantt.js へ渡す。日付は update-task の既存項目だけ使う。
-function planBuildGanttGroups() {
-  const isFiltered = !!planSearchQuery.trim() || planPinOnly;
+// BM-046: フッターの母数(絞り込み前の件数)を出すため、検索・ピン絞り込みを無視した版を作れるようにする
+function planBuildGanttGroups(ignoreFilter) {
+  const isFiltered = !ignoreFilter && (!!planSearchQuery.trim() || planPinOnly);
   const groups = [];
   const singles = [];
   for (const item of planCollectItems()) {
@@ -3422,19 +3423,44 @@ async function planSaveGanttDates(taskId, patch) {
   }
 }
 
+// BM-046: フッターのDO/READY/TODO/DONE件数。currentFilter(ワークスペースセレクタ)が効いた状態の
+// planCollectItems()を母数にし、検索・ピン絞り込み適用後の groups を絞り込み後の件数とする。
+// EPICは子の集計に含める(renderWsFilterCountsと同じ考え方。親自身のstatusCodeは数えない)
+function planGanttStatusCounts(groups) {
+  const counts = { do: 0, ready: 0, todo: 0, done: 0 };
+  for (const g of groups) {
+    for (const c of g.children) {
+      if (counts[c.statusCode] !== undefined) counts[c.statusCode]++;
+    }
+  }
+  return counts;
+}
+
 function renderPlanGantt() {
   const root = document.getElementById('plan-gantt-root');
   if (!root || !window.ganttView) return;
   const groups = planBuildGanttGroups();
-  // ALL表示でワークスペースが複数ある時だけ、ワークスペースごとの折りたたみ見出しで束ねる
+  // ALL表示でワークスペースが複数ある時だけ、ワークスペースごとの折りたたみ見出しで束ねる(既存仕様)
   const projects = new Set();
   groups.forEach((g) => { if (g.epic) projects.add(g.epic.project); g.children.forEach((c) => projects.add(c.project)); });
+
+  // BM-046: フッターのDO/READY/TODO/DONE件数。母数(allGroups)はワークスペースセレクタのcurrentFilterだけを
+  // 反映し検索・ピン絞り込みは無視、絞り込み後(groups)はそれらも反映した件数。絞り込みが無い時はshownを出さない
+  const allGroups = planBuildGanttGroups(true);
+  const query = planSearchQuery.trim();
+  const filtered = !!query || planPinOnly;
+  const totalCounts = planGanttStatusCounts(allGroups);
+  const shownCounts = filtered ? planGanttStatusCounts(groups) : null;
+  // 絞り込みメッセージに出す条件文言。現状の絞り込み手段はキーワード検索と📌今日やるのみ
+  const filterLabel = [query ? `「${query}」` : '', planPinOnly ? '📌今日やる' : ''].filter(Boolean).join(' + ');
+
   window.ganttView.render(root, {
     groups,
     today: getTodayJST(),
     escapeHtml,
     holidayName: (ymd) => (window.jpHolidays ? window.jpHolidays.getHolidayName(ymd) : null),
     groupByWorkspace: !currentFilter && projects.size > 1,
+    footerCounts: { total: totalCounts, shown: shownCounts, filterLabel },
     onSaveDates: planSaveGanttDates,
     onOpen: (item, parentEpic) => {
       if (parentEpic) {

@@ -79,6 +79,29 @@ button.gantt-stat { cursor: pointer; }
 .gantt-stat-late { color: #d98a0b; border-color: #d98a0b; }
 .gantt-hint { margin-left: auto; font-size: 0.72rem; opacity: 0.8; }
 
+/* ---- フッター(BM-046): 現在の表示(ALL=全体合算/ワークスペース選択時=そのWS)のDO/READY/TODO/DONE件数サマリ。
+   検索・ピン絞り込み中は「母数/絞り込み後(太字)」の形で両方出す ---- */
+.gantt-footer {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.78rem;
+}
+
+.gantt-footer .gantt-stat strong { font-weight: 700; }
+.gantt-stat-done { color: var(--badge-done-fg); border-color: var(--badge-done-fg); }
+.gantt-stat-do { color: var(--accent); border-color: var(--accent); }
+
+.gantt-footer-msg {
+  margin-left: 4px;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
 /* ---- グリッド ---- */
 .gantt-scroll {
   flex: 1;
