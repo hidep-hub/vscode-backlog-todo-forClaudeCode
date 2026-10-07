@@ -2961,6 +2961,13 @@ body {
   opacity: 0.85;
 }
 
+/* BT-367: 変更がない/必須未入力の間は押せないことが分かるようにする */
+.add-task-submit:disabled,
+.add-task-submit:disabled:hover {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 
 /* --- Mini board add button (smaller) --- */
 .add-task-btn-mini {
