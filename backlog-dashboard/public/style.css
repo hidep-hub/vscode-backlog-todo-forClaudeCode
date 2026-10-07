@@ -1970,11 +1970,40 @@ body {
 }
 
 .detail-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 1.1rem;
   font-weight: 600;
   margin-bottom: 16px;
   line-height: 1.4;
   color: var(--text);
+}
+
+/* BM-061: 詳細画面タイトル右端のピントグル。
+   カード側(.today-pin-btn)はhoverで薄く出す方式だが、詳細画面はhover前提のカードが無いため
+   常時ごく薄く見えるようにし、オンの時だけ実色にする */
+.detail-title-pin-btn {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 2px;
+  border-radius: 3px;
+  opacity: 0.3;
+  transition: opacity 0.15s;
+}
+
+.detail-title-pin-btn:hover {
+  opacity: 0.6;
+}
+
+.detail-title-pin-btn.pin-active {
+  opacity: 1;
+  color: var(--today-accent);
 }
 
 /* --- Detail Layout: 左3/4=説明、右1/4=トラッキング情報/成果物 (BT-261) --- */
