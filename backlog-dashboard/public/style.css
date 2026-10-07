@@ -21,6 +21,7 @@
   mask-position: center;
   flex-shrink: 0;
 }
+.material-icon.icon-backup        { -webkit-mask-image: url('icons/backup.svg'); mask-image: url('icons/backup.svg'); }
 .material-icon.icon-search        { -webkit-mask-image: url('icons/search.svg'); mask-image: url('icons/search.svg'); }
 .material-icon.icon-link          { -webkit-mask-image: url('icons/link.svg'); mask-image: url('icons/link.svg'); }
 .material-icon.icon-settings      { -webkit-mask-image: url('icons/settings.svg'); mask-image: url('icons/settings.svg'); }
@@ -5132,4 +5133,256 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+}
+
+/* --- バックアップ画面 (BT-373、設計: BT-370) --- */
+.backup-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-overlay);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 900;
+}
+
+.backup-modal-overlay.modal-visible {
+  display: flex;
+}
+
+.backup-modal-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: min(900px, 96vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.backup-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.backup-modal-header h3 {
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.backup-dir-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: all;
+}
+
+.backup-create-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.backup-create-btn:hover {
+  background: var(--drop-highlight);
+}
+
+.backup-modal-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+.backup-modal-close:hover {
+  color: var(--text);
+}
+
+.backup-modal-body {
+  overflow: auto;
+  padding: 8px 16px;
+  min-height: 120px;
+}
+
+.backup-empty {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 28px 0;
+  text-align: center;
+}
+
+.backup-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.backup-table th,
+.backup-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.backup-table th {
+  color: var(--text-muted);
+  font-weight: normal;
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+
+.backup-table .backup-col-num { text-align: right; font-variant-numeric: tabular-nums; }
+.backup-table .backup-col-center { text-align: center; }
+
+.backup-latest {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--badge-progress-bg);
+  color: var(--badge-progress-fg);
+  font-size: 0.7rem;
+}
+
+.backup-ok { color: var(--badge-done-fg); }
+.backup-ng { color: var(--btn-danger-fg); }
+
+.backup-delete-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-danger-bg);
+  color: var(--btn-danger-fg);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.backup-delete-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.backup-modal-footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+/* 実行中は画面全体の操作をブロックする(モーダル群より前面) */
+.backup-progress-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-overlay);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 2500;
+  cursor: progress;
+}
+
+.backup-progress-overlay.backup-progress-visible {
+  display: flex;
+}
+
+.backup-progress-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: min(460px, 92vw);
+  padding: 20px 24px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+
+.backup-progress-box h3 {
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.backup-progress-phase { font-size: 0.88rem; margin-bottom: 10px; }
+
+.backup-progress-track {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.backup-progress-bar {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.backup-failed .backup-progress-bar { background: var(--btn-danger-fg); }
+
+.backup-progress-percent {
+  margin-top: 6px;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.backup-progress-note { margin-top: 8px; color: var(--text-muted); font-size: 0.78rem; }
+
+.backup-progress-result {
+  margin-top: 10px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.backup-progress-actions { margin-top: 14px; text-align: right; }
+
+.backup-close-btn {
+  padding: 5px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+/* BT-373: ボタンが増えた1段目の右端を、2段目(文字サイズ切替)の右端に揃える。
+   1段目(検索+ボタン群)の固有幅をcontain:inline-sizeで幅計算から外し、
+   .header-controlsの幅は2段目で決める。余った/足りない分は検索ボックスが伸縮して吸収する。 */
+.header-action-row:not(.header-workspace-row) {
+  contain: inline-size;
+}
+
+.header-action-row:not(.header-workspace-row) .header-search-input {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 80px;
 }
