@@ -4155,9 +4155,32 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
 
   cancelBtn.addEventListener('click', () => renderFn(item));
 
+  // BT-367: 開いた時点の値を覚え、現在値と比較して差分がある時だけ保存ボタンを有効にする
+  // （元に戻したら無効に戻る）。入力イベントは再判定のきっかけにだけ使う。
+  const readFormValues = () => ({
+    title: titleInput.value.trim(),
+    description: descInput ? descInput.value : '',
+    project: projectInput.value,
+    status: statusInput.value,
+    assignee: assigneeInput.value.trim(),
+    startDate: startDateInput.value,
+    dueDate: dueDateInput.value,
+  });
+  const initialValues = readFormValues();
+  const updateSaveState = () => {
+    const current = readFormValues();
+    saveBtn.disabled = Object.keys(initialValues).every(key => current[key] === initialValues[key]);
+  };
+  [titleInput, descInput, assigneeInput].forEach(el => { if (el) el.addEventListener('input', updateSaveState); });
+  [projectInput, statusInput, startDateInput, dueDateInput].forEach(el => el.addEventListener('change', updateSaveState));
+  updateSaveState();
+
   // 期日クイック選択（BT-354）: 入力欄に反映するだけで、保存は「保存」ボタンで行う
   body.querySelectorAll('.due-quick-row .due-quick-btn').forEach(btn => {
-    btn.addEventListener('click', () => { dueDateInput.value = btn.dataset.date; });
+    btn.addEventListener('click', () => {
+      dueDateInput.value = btn.dataset.date;
+      updateSaveState(); // valueの直接代入ではchangeが発火しないため明示的に再判定する
+    });
   });
 
   saveBtn.addEventListener('click', async () => {
@@ -4240,8 +4263,8 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
     } finally {
       // BM-054: renderFn()で表示モードに戻った場合はこのボタンはDOMから外れているため無害、
       // エラーで同じフォームに留まる場合は再度押せるように戻す
-      saveBtn.disabled = false;
       saveBtn.textContent = originalLabel;
+      updateSaveState(); // BT-367: 失敗時は差分が残っているので有効に戻り、成功時はDOMごと破棄される
     }
   });
 
@@ -5614,12 +5637,19 @@ function getOrCreateAddForm() {
 
   addFormEl.querySelector('#add-task-submit').addEventListener('click', submitAddTask);
 
-  // Enterキーで送信
+  // Enterキーで送信（タイトル未入力時はsubmitAddTask側で弾かれる）
   addFormEl.querySelector('#add-task-title').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') submitAddTask();
   });
+  // BT-367: タイトルが入力されている時だけ「追加」を押せるようにする
+  addFormEl.querySelector('#add-task-title').addEventListener('input', updateAddSubmitState);
 
   return addFormEl;
+}
+
+function updateAddSubmitState() {
+  const form = getOrCreateAddForm();
+  form.querySelector('#add-task-submit').disabled = !form.querySelector('#add-task-title').value.trim();
 }
 
 function openAddTaskForm(defaultStatus, defaultProject, parentId, defaults) {
@@ -5677,6 +5707,7 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId, defaults) {
   errorEl.textContent = '';
   errorEl.style.display = 'none';
 
+  updateAddSubmitState();
   form.classList.add('modal-visible');
   setTimeout(() => titleInput.focus(), 100);
 }
@@ -5736,8 +5767,8 @@ async function submitAddTask() {
     errorEl.style.display = 'block';
   } finally {
     // closeAddForm()が呼ばれても次回オープン時に同じDOMを再利用するため、ここで必ず戻す
-    submitBtn.disabled = false;
     submitBtn.textContent = originalLabel;
+    updateAddSubmitState();
   }
 }
 
