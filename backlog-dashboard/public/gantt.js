@@ -411,6 +411,31 @@
       return `<div class="gantt-row gantt-row-task${done ? ' is-done' : ''}" data-task-id="${esc(item.id)}">${label}<div class="${trackClass}" data-task-id="${esc(item.id)}" style="width:${range.days * dw}px">${trackInner}</div></div>`;
     }
 
+    // BM-046: フッターのステータス別件数サマリ。ALL表示時は全体合算、ワークスペースセレクタで絞った時は
+    // そのワークスペース1件分の内訳(ctx.footerCountsはapp.js側でcurrentFilterを反映済み)。
+    // 検索・ピン絞り込みが効いている時は「母数(絞り込み前)/絞り込み後の件数(太字)」の形で両方出し、
+    // DONEバッジの右に「全体の何件から何件に絞り込んだか」のメッセージも添える
+    const STATUS_LABEL = { do: 'DO', ready: 'READY', todo: 'TODO', done: 'DONE' };
+    const footer = (() => {
+      const fc = ctx.footerCounts;
+      if (!fc) return '';
+      const parts = Object.keys(STATUS_LABEL).map((code) => {
+        const total = fc.total[code] || 0;
+        const shown = fc.shown ? (fc.shown[code] || 0) : null;
+        const num = shown === null ? `${total}` : `<strong>${shown}</strong>/${total}`;
+        return `<span class="gantt-stat gantt-stat-${code}" title="${esc(STATUS_LABEL[code])} ${shown === null ? total : `${shown}/${total}`}件">${esc(STATUS_LABEL[code])} ${num}</span>`;
+      });
+      let msg = '';
+      if (fc.shown) {
+        const sum = (obj) => Object.values(obj).reduce((a, b) => a + b, 0);
+        const totalAll = sum(fc.total);
+        const shownAll = sum(fc.shown);
+        const label = fc.filterLabel ? `${esc(fc.filterLabel)}で` : '';
+        msg = `<span class="gantt-footer-msg">${label}全${totalAll}件から${shownAll}件に絞り込み中</span>`;
+      }
+      return `<div class="gantt-footer">${parts.join('')}${msg}</div>`;
+    })();
+
     container.innerHTML = `
       ${toolbar}
       <div class="gantt-scroll">
@@ -422,7 +447,8 @@
           <div class="gantt-bands" style="width:${range.days * dw}px">${bandHtml.join('')}${todayLine}</div>
           ${rowHtml || '<div class="gantt-empty">表示できるタスクがないよ</div>'}
         </div>
-      </div>`;
+      </div>
+      ${footer}`;
 
     const scrollEl = container.querySelector('.gantt-scroll');
     current = { container, ctx, scrollEl, lookup, range, dw, stats, keys };
