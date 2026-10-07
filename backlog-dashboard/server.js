@@ -11,6 +11,7 @@ const { getDb } = require('./db/connection');
 const { buildBoardFromDb, buildTaskDetail } = require('./db/board');
 const { buildActivity, buildRecentEvents } = require('./db/activity');
 const tasksRepo = require('./db/tasks-repo');
+const { createBackupManager } = require('./db/backup');
 const { version: API_VERSION } = require('./package.json');
 
 // --- Config ---
@@ -19,6 +20,19 @@ const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
 const PORT = config.port || 3333;
 const BACKLOG_DIR = config.backlogDir.replace(/^~/, os.homedir());
 const GITHUB_CREDENTIALS_PATH = path.join(__dirname, 'github-credentials.json');
+
+// バックアップ(BT-370)。DBに加え、git管理外の環境ファイルもまとめて取得する。
+// 存在しないものは失敗にせずmanifestのskippedに記録される。
+const backupManager = createBackupManager({
+  getDb: () => getDb(BACKLOG_DIR),
+  backlogDir: BACKLOG_DIR,
+  apiVersion: () => API_VERSION,
+  sources: [
+    { rel: 'backlog-dashboard/config.json', abs: CONFIG_PATH },
+    { rel: 'backlog-dashboard/github-credentials.json', abs: GITHUB_CREDENTIALS_PATH },
+    { rel: 'docs', abs: path.join(__dirname, '..', 'docs') },
+  ],
+});
 
 /**
  * このプロダクト(backlog-dashboard)自体のソースリポジトリURLを、
@@ -332,6 +346,20 @@ function readRequestBody(req) {
   });
 }
 
+// ボディなし(空)のPOSTも許容するバージョン。空ボディは{}として扱う。
+function readOptionalJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      if (!body.trim()) { resolve({}); return; }
+      try { resolve(JSON.parse(body)); }
+      catch (e) { reject(e); }
+    });
+    req.on('error', reject);
+  });
+}
+
 // ============================================================
 // GitHub Credentials Management (BT-074)
 // ============================================================
@@ -572,6 +600,55 @@ const publicDir = path.join(__dirname, 'public');
 
 function serveStatic(req, res) {
   console.log(`[http] ${req.method} ${req.url}`);
+
+  // バックアップ実行中は書き込み系(POST)を拒否する(取得時点の内容を一貫させるため、BT-370)。
+  // バックアップ系API自身(二重起動は個別に409を返す)は通す。
+  if (req.method === 'POST' && backupManager.isRunning() && !req.url.startsWith('/api/backup')
+      && req.url !== '/api/delete-backup') {
+    res.writeHead(409, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'backup_in_progress' }));
+    return;
+  }
+
+  // API: GET /api/backups / GET /api/backup-status / POST /api/backup / POST /api/delete-backup (BT-370)
+  if (req.url === '/api/backups' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ backupsDir: backupManager.backupsDir, backups: backupManager.list() }));
+    return;
+  }
+  if (req.url === '/api/backup-status' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(backupManager.status()));
+    return;
+  }
+  if (req.url === '/api/backup' && req.method === 'POST') {
+    readOptionalJsonBody(req).then(({ actor }) => backupManager.run({ actor: actor || 'user' })).then(result => {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(result));
+    }).catch(e => {
+      const conflict = e.code === 'backup_in_progress' || e.code === 'backup_exists';
+      res.writeHead(conflict ? 409 : 500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: false, error: e.code || e.message }));
+    });
+    return;
+  }
+  if (req.url === '/api/delete-backup' && req.method === 'POST') {
+    readRequestBody(req).then(({ file, actor }) => {
+      try {
+        backupManager.remove(file, { actor: actor || 'user' });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        const statusCode = { invalid_name: 400, not_found: 404, latest_protected: 409 }[e.code] || 500;
+        res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: e.code || e.message }));
+      }
+    }).catch(() => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
 
   // API: GET /api/health
   if (req.url === '/api/health' && req.method === 'GET') {
