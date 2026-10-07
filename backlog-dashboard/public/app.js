@@ -43,7 +43,7 @@ const settingsGithubHintEl = document.getElementById('settings-github-hint');
 // z-index が同じ場合はDOM末尾の要素が前面になるCSSの規則にも従う。
 function isTopmostDialog(el) {
   const visible = document.querySelectorAll(
-    '.modal-overlay.modal-visible, .settings-overlay.settings-visible, .plan-board-overlay.active, .activity-modal-overlay.modal-visible'
+    '.modal-overlay.modal-visible, .settings-overlay.settings-visible, .plan-board-overlay.active, .activity-modal-overlay.modal-visible, .backup-modal-overlay.modal-visible'
   );
   let top = null;
   let topLayer = -Infinity;
