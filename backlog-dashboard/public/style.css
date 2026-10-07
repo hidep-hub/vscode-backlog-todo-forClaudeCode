@@ -212,6 +212,27 @@ body.dev-instance {
   }
 }
 
+/* BM-064: ロゴ左上に重ねる更新通知バッジ。origin/mainに未取得のコミットがある時だけ表示する。
+   接続状態ドット(.conn-status-dot、右下)とは反対の角に置き、互いを隠さないようにする。 */
+.update-badge {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #fbbf24;
+  border: 2px solid var(--brand);
+  box-sizing: content-box;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
+.update-badge.show {
+  opacity: 1;
+}
+
 .version-badge {
   font-size: 0.65rem;
   font-weight: 500;
@@ -3100,6 +3121,25 @@ body {
   margin: 8px 0 16px;
 }
 
+/* BM-064: 更新確認ダイアログで表示する、origin/mainの最新コミット情報(ハッシュ・日付・件名) */
+.product-menu-commit {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.product-menu-commit-hash {
+  font-family: ui-monospace, 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+  font-weight: 700;
+  margin-right: 8px;
+}
+
+.product-menu-commit-date {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
 
 /* --- Today Flag (ピン) --- */
 :root,
@@ -3371,6 +3411,12 @@ body {
 
 .board-initial-loading-overlay[hidden] {
   display: none;
+}
+
+/* BM-064: 更新中ロックは既存の全モーダル(.modal-front等、最大1200)より前面に出す必要がある。
+   更新確認ダイアログを開いたまま「今すぐ更新する」を押すケースを想定しているため。 */
+.update-running-overlay {
+  z-index: 1300;
 }
 
 .board-initial-loading-dialog {

@@ -864,20 +864,231 @@ githubImportBtn.addEventListener('click', openGithubImportModal);
   }
 })();
 
-// --- Header Logo: このダッシュボードアプリ自体のGitHubリポジトリを別タブで開く (BT-162) ---
+// --- Header Logo: クリックで「GitHubリポジトリを開く」か「更新を確認する」を選ぶメニューを開く (BT-162, BM-064) ---
 // リポジトリURLはユーザーごとのgithub-credentials.json（Issue連携先）とは無関係に、
 // サーバー側でclone元の`git remote origin`から解決した値を使う（誰の環境でも同じリンクになる）
-headerLogoEl.addEventListener('click', async () => {
-  try {
-    const res = await fetch('/api/repo-origin-url');
-    const data = await res.json();
-    if (data.repoUrl) {
-      window.open(data.repoUrl, '_blank', 'noopener');
-    }
-  } catch (e) {
-    console.error('[header-logo] Failed to open GitHub repo:', e.message);
-  }
+headerLogoEl.addEventListener('click', () => {
+  openProductMenu();
 });
+
+function getOrCreateProductMenu() {
+  let el = document.getElementById('product-menu-overlay');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'product-menu-overlay';
+  el.className = 'modal-overlay modal-front';
+  el.innerHTML = `<div class="modal-content delete-confirm-modal"></div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', (e) => {
+    if (e.target === el) closeProductMenu();
+  });
+  closeOnEscape(el, 'modal-visible', closeProductMenu);
+  return el;
+}
+
+function closeProductMenu() {
+  const el = document.getElementById('product-menu-overlay');
+  if (el) el.classList.remove('modal-visible');
+}
+
+/**
+ * origin/mainの最新コミット情報を「コミット番号・日付・件名」の表示用HTMLに整形する。
+ * @param {{shortHash: string, date: string, subject: string}|null} commit
+ */
+function formatLatestCommitHtml(commit) {
+  if (!commit) return '';
+  const d = new Date(commit.date);
+  const dateText = Number.isNaN(d.getTime()) ? commit.date : d.toLocaleString('ja-JP');
+  return `
+    <p class="delete-confirm-text product-menu-commit">
+      <span class="product-menu-commit-hash">${escapeHtml(commit.shortHash)}</span>
+      <span class="product-menu-commit-date">${escapeHtml(dateText)}</span><br>
+      ${escapeHtml(commit.subject)}
+    </p>
+  `;
+}
+
+/**
+ * ロゴクリック時のメニュー本体を描画する(初期状態 = GitHubを開く/更新を確認する の2択)。
+ */
+function renderProductMenuDefault(content) {
+  content.innerHTML = `
+    <button class="modal-close" id="product-menu-close">&times;</button>
+    <h3 class="add-form-title">Backlog Dashboard</h3>
+    <div class="edit-form-actions" style="flex-direction: column;">
+      <button class="add-child-btn btn-add" id="product-menu-open-github">GitHubリポジトリを開く</button>
+      <button class="add-child-btn btn-add" id="product-menu-check-update">更新を確認する</button>
+    </div>
+  `;
+  content.querySelector('#product-menu-close').addEventListener('click', closeProductMenu);
+  content.querySelector('#product-menu-open-github').addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/repo-origin-url');
+      const data = await res.json();
+      if (data.repoUrl) window.open(data.repoUrl, '_blank', 'noopener');
+    } catch (e) {
+      console.error('[product-menu] Failed to open GitHub repo:', e.message);
+    }
+    closeProductMenu();
+  });
+  content.querySelector('#product-menu-check-update').addEventListener('click', () => {
+    renderProductMenuChecking(content);
+  });
+}
+
+/**
+ * 「更新を確認する」クリック後、確認中の表示を出しつつPOST /api/update-check/refreshを叩く。
+ */
+async function renderProductMenuChecking(content) {
+  content.innerHTML = `
+    <button class="modal-close" id="product-menu-close">&times;</button>
+    <h3 class="add-form-title">Backlog Dashboard</h3>
+    <p class="delete-confirm-text">確認してるよ...</p>
+  `;
+  content.querySelector('#product-menu-close').addEventListener('click', closeProductMenu);
+  try {
+    const res = await fetch('/api/update-check/refresh', { method: 'POST' });
+    const data = await res.json();
+    renderProductMenuResult(content, data);
+  } catch (e) {
+    console.error('[product-menu] update-check/refresh failed:', e.message);
+    content.innerHTML = `
+      <button class="modal-close" id="product-menu-close">&times;</button>
+      <h3 class="add-form-title">Backlog Dashboard</h3>
+      <p class="delete-confirm-text">確認に失敗したよ。ネットワーク接続を確認してね</p>
+      <div class="edit-form-actions">
+        <button class="add-child-btn" id="product-menu-back">閉じる</button>
+      </div>
+    `;
+    content.querySelector('#product-menu-close').addEventListener('click', closeProductMenu);
+    content.querySelector('#product-menu-back').addEventListener('click', closeProductMenu);
+  }
+}
+
+/**
+ * 更新確認結果を表示する。更新がある場合は最新コミット情報と「今すぐ更新する」ボタンを出す。
+ * @param {{updateAvailable: boolean, aheadBy: number, latestCommit: object|null}} data
+ */
+function renderProductMenuResult(content, data) {
+  if (!data.updateAvailable) {
+    content.innerHTML = `
+      <button class="modal-close" id="product-menu-close">&times;</button>
+      <h3 class="add-form-title">Backlog Dashboard</h3>
+      <p class="delete-confirm-text">最新版です(更新はありません)</p>
+      <div class="edit-form-actions">
+        <button class="add-child-btn" id="product-menu-back">閉じる</button>
+      </div>
+    `;
+    content.querySelector('#product-menu-close').addEventListener('click', closeProductMenu);
+    content.querySelector('#product-menu-back').addEventListener('click', closeProductMenu);
+    updateUpdateBadge({ updateAvailable: false });
+    return;
+  }
+
+  content.innerHTML = `
+    <button class="modal-close" id="product-menu-close">&times;</button>
+    <h3 class="add-form-title">Backlog Dashboard</h3>
+    <p class="delete-confirm-text">更新があるよ(${data.aheadBy}件)</p>
+    ${formatLatestCommitHtml(data.latestCommit)}
+    <p class="delete-confirm-error" style="display:none;"></p>
+    <div class="edit-form-actions">
+      <button class="add-task-submit" id="product-menu-run-update">今すぐ更新する</button>
+      <button class="add-child-btn" id="product-menu-cancel-update">キャンセル</button>
+    </div>
+  `;
+  content.querySelector('#product-menu-close').addEventListener('click', closeProductMenu);
+  content.querySelector('#product-menu-cancel-update').addEventListener('click', closeProductMenu);
+  content.querySelector('#product-menu-run-update').addEventListener('click', () => {
+    runUpdateFromProductMenu(content);
+  });
+  updateUpdateBadge(data);
+}
+
+/**
+ * 「今すぐ更新する」確定後、サーバーにgit pull+ルール同期+再起動を依頼する。
+ * 実際の進行表示(更新中/完了/失敗)は全画面ロック(update-running-overlay、
+ * pollUpdateStatusが2秒おきに反映)に一本化するため、このダイアログ自体は
+ * 「依頼を送った」ことだけ確認したら即座に閉じる。
+ */
+async function runUpdateFromProductMenu(content) {
+  try {
+    await fetch('/api/run-update', { method: 'POST' });
+  } catch (e) {
+    // サーバー再起動により接続が切れてfetch自体が失敗するのは想定内の挙動。
+    console.log('[product-menu] run-update request sent (connection may drop during restart):', e.message);
+  }
+  closeProductMenu();
+  pollUpdateStatus();
+}
+
+/**
+ * ロゴクリック時のメニューを初期状態で開く。
+ */
+function openProductMenu() {
+  const el = getOrCreateProductMenu();
+  document.body.appendChild(el);
+  el.classList.add('modal-visible');
+  const content = el.querySelector('.modal-content');
+  renderProductMenuDefault(content);
+}
+
+// --- Update badge (BM-064): ロゴ右下の接続状態ドットの隣に、更新がある時だけバッジを出す ---
+const updateBadgeEl = document.createElement('span');
+updateBadgeEl.id = 'update-badge';
+updateBadgeEl.className = 'update-badge';
+updateBadgeEl.title = '更新があります';
+updateBadgeEl.setAttribute('aria-label', '更新があります');
+headerLogoEl?.parentElement?.appendChild(updateBadgeEl);
+
+function updateUpdateBadge(state) {
+  if (!updateBadgeEl) return;
+  updateBadgeEl.classList.toggle('show', !!(state && state.updateAvailable));
+}
+
+async function pollUpdateCheck() {
+  try {
+    const res = await fetch('/api/update-check');
+    const data = await res.json();
+    updateUpdateBadge(data);
+  } catch (e) {
+    console.error('[update-badge] Failed to fetch update-check:', e.message);
+  }
+}
+pollUpdateCheck();
+setInterval(pollUpdateCheck, 5 * 60 * 1000); // 5分おき(サーバー側のキャッシュを読むだけの軽量な呼び出し)
+
+// --- Update running lock (BM-064): 更新の実作業中(git pull〜サーバー再起動)はボードを操作不可にする ---
+// state別の扱い:
+//   idle/done/failed/stale -> ロック解除(通常操作可能)
+//   checking -> まだ何も変更していない確認段階なのでロック対象外
+//   running -> 実作業中。ロックする
+// サーバー再起動でWebSocketが切れている間も、ポーリング自体は失敗し続けるだけで、
+// 直前の表示(ロック中)を維持する(接続断を「ロック解除」と誤判定しない)。
+const updateRunningOverlayEl = document.getElementById('update-running-overlay');
+let updateRunningMessageEl = null;
+
+function setUpdateRunningLock(locked, message) {
+  if (!updateRunningOverlayEl) return;
+  updateRunningOverlayEl.hidden = !locked;
+  if (locked) {
+    if (!updateRunningMessageEl) {
+      updateRunningMessageEl = updateRunningOverlayEl.querySelector('.board-initial-loading-dialog span:last-child');
+    }
+    if (updateRunningMessageEl && message) updateRunningMessageEl.textContent = message;
+  }
+}
+
+async function pollUpdateStatus() {
+  try {
+    const res = await fetch('/api/update-status');
+    const data = await res.json();
+    setUpdateRunningLock(data.state === 'running', data.message || '更新を適用してるよ。しばらくお待ちください...');
+  } catch (e) {
+    // サーバー再起動中は接続断でここに来る。直前の表示(ロック中ならロックのまま)を維持するため何もしない。
+  }
+}
+pollUpdateStatus();
+setInterval(pollUpdateStatus, 2000); // 2秒おき。ロック解除を事故なく素早く反映したいための短い間隔
 
 // --- Project Filter ---
 // メインボードの絞り込みを切り替える（ドロップダウン操作と、設定パネルでの保存の両方から使う）
