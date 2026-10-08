@@ -1039,6 +1039,7 @@ function renderProductMenuResult(content, data) {
  * 「依頼を送った」ことだけ確認したら即座に閉じる。
  */
 async function runUpdateFromProductMenu(content) {
+  startAwaitingUpdateResult();
   try {
     await fetch('/api/run-update', { method: 'POST' });
   } catch (e) {
@@ -1106,13 +1107,77 @@ function setUpdateRunningLock(locked, message) {
   }
 }
 
+// BM-064: 更新の完了/失敗を伝えるトースト通知。
+// ブランチ不一致・ローカル変更での即中止(checking→failed)はミリ秒単位で終わり、
+// 2秒おきのポーリングでは"running"状態を一度も観測できないことがある(その場合、
+// 「前回の結果」と「今回の結果」を見分ける手段がrunning経由の遷移検知だけでは
+// 無い)。そのため「ボタンを押した時刻」を基準にし、updatedAtがそれより新しい
+// done/failedだけを「今回の結果」として扱う(古いステータスファイルの読み直しを
+// 誤って今回の結果として表示しないようにするため)。
+const updateResultToastEl = document.getElementById('update-result-toast');
+const updateResultToastTextEl = document.getElementById('update-result-toast-text');
+const updateResultToastCloseEl = document.getElementById('update-result-toast-close');
+let updateResultToastHideTimer = null;
+let awaitingUpdateResultSince = null; // ボタンを押した時刻(ms)。待機中はnull以外。
+const AWAITING_UPDATE_RESULT_TIMEOUT_MS = 3 * 60 * 1000; // サーバー側のstale判定と同じ3分
+
+function hideUpdateResultToast() {
+  if (!updateResultToastEl) return;
+  updateResultToastEl.classList.remove('show');
+  if (updateResultToastHideTimer) {
+    clearTimeout(updateResultToastHideTimer);
+    updateResultToastHideTimer = null;
+  }
+}
+
+/**
+ * @param {'done'|'failed'} state
+ * @param {string} message
+ */
+function showUpdateResultToast(state, message) {
+  if (!updateResultToastEl || !updateResultToastTextEl) return;
+  updateResultToastEl.hidden = false;
+  updateResultToastEl.className = `update-result-toast show ${state === 'done' ? 'success' : 'error'}`;
+  updateResultToastTextEl.textContent = state === 'done'
+    ? (message || '更新が完了しました')
+    : `更新に失敗しました: ${message || '原因不明のエラーです'}`;
+  if (updateResultToastHideTimer) clearTimeout(updateResultToastHideTimer);
+  // 成功時は自動で消える。失敗時は原因を読めるよう、閉じるボタンで明示的に閉じるまで残す。
+  if (state === 'done') {
+    updateResultToastHideTimer = setTimeout(hideUpdateResultToast, 6000);
+  }
+}
+updateResultToastCloseEl?.addEventListener('click', hideUpdateResultToast);
+
+/**
+ * 「今すぐ更新する」実行時に呼ぶ。以後のポーリングで結果が出たらトーストで知らせる。
+ */
+function startAwaitingUpdateResult() {
+  awaitingUpdateResultSince = Date.now();
+}
+
 async function pollUpdateStatus() {
   try {
     const res = await fetch('/api/update-status');
     const data = await res.json();
     setUpdateRunningLock(data.state === 'running', data.message || '更新を適用してるよ。しばらくお待ちください...');
+
+    if (awaitingUpdateResultSince !== null) {
+      const updatedAtMs = Date.parse(data.updatedAt);
+      // 時計のズレを考慮して1秒の許容を持たせる。ボタン押下より前のタイムスタンプは
+      // 「前回までの古い結果」なので無視し、待ち続ける。
+      const isFreshResult = Number.isFinite(updatedAtMs) && updatedAtMs >= awaitingUpdateResultSince - 1000;
+      if (isFreshResult && (data.state === 'done' || data.state === 'failed')) {
+        showUpdateResultToast(data.state, data.message);
+        awaitingUpdateResultSince = null;
+      } else if (Date.now() - awaitingUpdateResultSince > AWAITING_UPDATE_RESULT_TIMEOUT_MS) {
+        // 3分待っても結果が確認できない場合は諦める(サーバー側のstale判定と揃える)。
+        awaitingUpdateResultSince = null;
+      }
+    }
   } catch (e) {
     // サーバー再起動中は接続断でここに来る。直前の表示(ロック中ならロックのまま)を維持するため何もしない。
+    // awaitingUpdateResultSinceはそのまま保持し、再接続後に新しい結果を検知する。
   }
 }
 pollUpdateStatus();

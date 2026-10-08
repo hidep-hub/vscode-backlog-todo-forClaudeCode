@@ -98,6 +98,13 @@
     </div>
   </div>
 
+  <!-- BM-064: 更新の完了/失敗を伝えるトースト通知。ロック解除時に state(done/failed)に
+       応じて一瞬だけ表示する(失敗時はクリックで閉じるまで表示を維持し、原因を読めるようにする)。 -->
+  <div class="update-result-toast" id="update-result-toast" hidden role="status" aria-live="polite">
+    <span class="update-result-toast-text" id="update-result-toast-text"></span>
+    <button type="button" class="update-result-toast-close" id="update-result-toast-close" aria-label="閉じる">&times;</button>
+  </div>
+
   <!-- Settings Panel -->
   <div class="settings-overlay" id="settings-overlay">
     <div class="settings-panel">
