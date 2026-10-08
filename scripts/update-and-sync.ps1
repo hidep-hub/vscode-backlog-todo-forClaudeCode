@@ -152,8 +152,13 @@ try {
     Write-UpdateStatus -State 'done' -Message "更新が完了しました(apiVersion=$($health.apiVersion))"
     Stop-Transcript | Out-Null
 } catch {
-    Write-Error $_.Exception.Message
+    # $ErrorActionPreference='Stop'の下ではWrite-Errorも「終了エラー」として扱われ、
+    # catchブロックの残りの行(Write-UpdateStatus等)が実行されずスクリプト全体が
+    # 即座に終了してしまう。先に状態を記録してから、エラー表示は一時的にContinueに
+    # 戻して行う(このセッションのInvoke-GitInRepoと同じ対策パターン)。
     Write-UpdateStatus -State 'failed' -Message $_.Exception.Message
     try { Stop-Transcript | Out-Null } catch {}
+    $ErrorActionPreference = 'Continue'
+    Write-Error $_.Exception.Message
     exit 1
 }
