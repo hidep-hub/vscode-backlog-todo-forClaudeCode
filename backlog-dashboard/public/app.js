@@ -1748,6 +1748,14 @@ function hideBoardInitialLoading() {
 function renderBoard(data) {
   hideBoardInitialLoading();
   lastBoardData = data;
+
+  // BM-078: ピン留め等でWebSocket再描画が入ると列が丸ごと作り直されるため、
+  // 破棄前に各列のスクロール位置を保存し、再構築後に書き戻して先頭ジャンプを防ぐ
+  const scrollPositions = {};
+  boardEl.querySelectorAll('.column-body[data-col-id]').forEach(el => {
+    scrollPositions[el.dataset.colId] = el.scrollTop;
+  });
+
   boardEl.innerHTML = '';
   renderRunningStrip(data);
   renderWorkspaceSummary(data);
@@ -1857,7 +1865,7 @@ function renderBoard(data) {
           ${!isCompact ? `<button class="add-task-btn" data-col-id="${col.id}" data-col-status="${col.match[0]}" title="タスク追加">+</button>` : ''}
         </div>
       </div>
-      <div class="column-body"></div>
+      <div class="column-body" data-col-id="${col.id}"></div>
     `;
 
     const body = colEl.querySelector('.column-body');
@@ -2015,6 +2023,8 @@ function renderBoard(data) {
     }
 
     boardColumnsEl.appendChild(colEl);
+    // scrollTopはDOM接続後でないと反映されない(接続前は高さが確定せず0にクランプされる)
+    if (scrollPositions[col.id] != null) body.scrollTop = scrollPositions[col.id];
   }
 
   // +ボタンのイベントリスナーを設定
