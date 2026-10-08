@@ -713,18 +713,17 @@ function serveStatic(req, res) {
   // scripts/update-and-sync.ps1 -NonInteractive をdetachedな子プロセスとして起動する。
   // このサーバー自身がpull後に再起動対象になるため、起動した事実だけを即座に返し、
   // 完了確認は画面側のWebSocket再接続(scheduleReconnect)に委ねる(spawnEditorと同じ切り離し方式)。
-  // stdio: 'ignore'だと成功/失敗や途中経過が一切記録されず診断できないため、
-  // logs/run-update.logへ標準出力・標準エラーをリダイレクトする(start-hidden.ps1と同じ考え方)。
+  // ログはスクリプト自身がStart-Transcriptでlogs/run-update.logへ書く(詳細はupdate-and-sync.ps1の
+  // コメント参照)。親(Node.js)が開いたファイルディスクリプタをdetached:trueの子プロセスの
+  // stdioへ直接渡す方式は、Windows上でハンドル継承のタイミング不整合により子プロセスが
+  // 何も書き込めず早期終了することが本番検証で判明したため、stdio: 'ignore'に戻している。
   if (req.url === '/api/run-update' && req.method === 'POST') {
     const scriptPath = path.join(REPO_ROOT, 'scripts', 'update-and-sync.ps1');
-    const logPath = path.join(__dirname, 'logs', 'run-update.log');
     try {
-      fs.mkdirSync(path.dirname(logPath), { recursive: true });
-      const logStream = fs.openSync(logPath, 'a');
       const child = spawn(
         'powershell.exe',
         ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-NonInteractive'],
-        { cwd: REPO_ROOT, detached: true, stdio: ['ignore', logStream, logStream] }
+        { cwd: REPO_ROOT, detached: true, stdio: 'ignore' }
       );
       child.on('error', (e) => {
         console.error('[run-update] Child process error:', e.message);
