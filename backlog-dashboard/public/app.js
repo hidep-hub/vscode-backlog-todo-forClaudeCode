@@ -5324,7 +5324,10 @@ function setupCardClick(card, item, isChildCard = false) {
 }
 
 // BT-317: 詳細モーダルを開かずに、カードの内容を素早く確認するための右クリックTIP。
+// BM-076: TIP内に編集ボタンを追加し、モーダルを開かずに件名・説明を直接編集できるようにする。
 let taskQuickTipEl = null;
+let taskQuickTipOrigin = { x: 0, y: 0 }; // 直近に右クリックした座標（編集モード切替時の再配置に使う）
+let taskQuickTipHasUnsavedChanges = null; // 編集中のみ関数が入る。表示モードの間はnull
 
 function getOrCreateTaskQuickTip() {
   if (taskQuickTipEl) return taskQuickTipEl;
@@ -5334,22 +5337,54 @@ function getOrCreateTaskQuickTip() {
   taskQuickTipEl.setAttribute('aria-label', 'タスクのクイックプレビュー');
   document.body.appendChild(taskQuickTipEl);
 
+  // BM-076: 編集中に未保存の変更がある間は、外側クリック/背後スクロール/リサイズのどれでも閉じない
+  // （BT-168の未保存ガードと同じ考え方）。閉じようとする全ての経路をこの関数に通す。
   document.addEventListener('pointerdown', (e) => {
-    if (!taskQuickTipEl.contains(e.target)) closeTaskQuickTip();
+    if (taskQuickTipEl.contains(e.target)) return;
+    tryCloseTaskQuickTip();
   });
+  // Escは×ボタンと同じ「意図的な操作」として、未保存でも従来通り閉じる（モーダルのEsc挙動と同じ方針）。
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeTaskQuickTip();
   });
-  window.addEventListener('resize', closeTaskQuickTip);
+  window.addEventListener('resize', tryCloseTaskQuickTip);
   // キャプチャで背後のスクロールも検知するが、TIP自身のスクロールでは閉じない。
   window.addEventListener('scroll', (e) => {
-    if (!taskQuickTipEl.contains(e.target)) closeTaskQuickTip();
+    if (!taskQuickTipEl.contains(e.target)) tryCloseTaskQuickTip();
   }, true);
   return taskQuickTipEl;
 }
 
+// BM-076: 未保存の変更がある間は閉じずに揺らすだけ（closeOnBackdropClickと同じ視覚フィードバック）。
+// 無ければ通常通り閉じる。
+function tryCloseTaskQuickTip() {
+  if (taskQuickTipHasUnsavedChanges && taskQuickTipHasUnsavedChanges()) {
+    if (taskQuickTipEl && taskQuickTipEl.animate) {
+      taskQuickTipEl.animate(
+        [{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }],
+        { duration: 300, easing: 'ease' }
+      );
+    }
+    return;
+  }
+  closeTaskQuickTip();
+}
+
 function closeTaskQuickTip() {
   if (taskQuickTipEl) taskQuickTipEl.classList.remove('task-quick-tip-visible');
+  taskQuickTipHasUnsavedChanges = null;
+}
+
+// 右クリック時の座標を基準に、画面端で見切れないようクランプして配置する。
+// 編集モードへの切替等で内容の高さが変わった後の再配置にも使う（枠サイズ自体=CSSのwidth/max-heightは変えない）。
+function positionTaskQuickTip(tip) {
+  tip.style.left = '0px';
+  tip.style.top = '0px';
+  const margin = 12;
+  const left = Math.min(taskQuickTipOrigin.x, window.innerWidth - tip.offsetWidth - margin);
+  const top = Math.min(taskQuickTipOrigin.y, window.innerHeight - tip.offsetHeight - margin);
+  tip.style.left = `${Math.max(margin, left)}px`;
+  tip.style.top = `${Math.max(margin, top)}px`;
 }
 
 function buildTaskQuickTipHtml(item) {
@@ -5362,8 +5397,11 @@ function buildTaskQuickTipHtml(item) {
     .map(path => `<li><code>${escapeHtml(path)}</code></li>`).join('');
   const moreArtifacts = item.artifacts && item.artifacts.length > 3
     ? `<li>ほか ${item.artifacts.length - 3} 件</li>` : '';
+  // BM-076: 件名・説明をその場で編集できるよう、ヘッダー右側に編集ボタンを置く（削除済み等でid不明な時は出さない）。
+  const editBtn = (item.id && item.id !== '-')
+    ? `<button type="button" class="task-quick-tip-edit-btn" title="編集" aria-label="編集"><span class="material-icon icon-edit"></span></button>` : '';
   return `
-    <div class="task-quick-tip-header"><span class="task-quick-tip-id">${escapeHtml(item.id || '-')}</span><span class="task-quick-tip-hint">Esc または外側クリックで閉じる</span></div>
+    <div class="task-quick-tip-header"><span class="task-quick-tip-id">${escapeHtml(item.id || '-')}</span><div class="task-quick-tip-header-right">${editBtn}<span class="task-quick-tip-hint">Esc または外側クリックで閉じる</span></div></div>
     <div class="task-quick-tip-title">${escapeHtml(item.title || '')}</div>
     <div class="task-quick-tip-description">${item.description ? escapeHtml(item.description) : '<span>説明はありません</span>'}</div>
     ${meta.length ? `<div class="task-quick-tip-meta">${meta.join('')}</div>` : ''}
@@ -5371,20 +5409,129 @@ function buildTaskQuickTipHtml(item) {
   `;
 }
 
+// BM-076: TIP内インライン編集フォーム。enterEditMode(モーダル編集)と同じ考え方(変更検知・未保存ガード・
+// 多重送信防止)を、タイトル・説明の2項目だけに絞って移植する。
+function buildTaskQuickTipEditHtml(item, isArchivedSingle) {
+  const descField = isArchivedSingle
+    ? `<p class="archived-note">完了済みタスクのため説明は編集できないよ</p>`
+    : `<div class="settings-group"><label>説明</label><textarea id="quick-tip-edit-description" rows="5" placeholder="説明を入力">${escapeHtml(item.description || '')}</textarea></div>`;
+  return `
+    <div class="task-quick-tip-header"><span class="task-quick-tip-id">${escapeHtml(item.id || '-')}</span><span class="task-quick-tip-hint">保存またはキャンセルで編集を終了</span></div>
+    <div class="task-quick-tip-edit-form">
+      <div class="settings-group">
+        <label>タイトル</label>
+        <input type="text" id="quick-tip-edit-title" value="${escapeHtml(item.title || '')}">
+      </div>
+      ${descField}
+      <p class="edit-task-error" id="quick-tip-edit-error" style="display:none;"></p>
+      <div class="edit-form-actions">
+        <button class="add-task-submit" id="quick-tip-edit-save">保存</button>
+        <button class="add-child-btn" id="quick-tip-edit-cancel">キャンセル</button>
+      </div>
+    </div>
+  `;
+}
+
+function enterTaskQuickTipEditMode(tip, item) {
+  const isEpic = item.childrenTotal > 0;
+  const isArchivedSingle = !isEpic && item.statusCode === 'done';
+  tip.innerHTML = buildTaskQuickTipEditHtml(item, isArchivedSingle);
+  positionTaskQuickTip(tip);
+
+  const titleInput = tip.querySelector('#quick-tip-edit-title');
+  const descInput = tip.querySelector('#quick-tip-edit-description');
+  const errorEl = tip.querySelector('#quick-tip-edit-error');
+  const saveBtn = tip.querySelector('#quick-tip-edit-save');
+  const cancelBtn = tip.querySelector('#quick-tip-edit-cancel');
+
+  const backToViewMode = () => {
+    taskQuickTipHasUnsavedChanges = null;
+    tip.innerHTML = buildTaskQuickTipHtml(item);
+    wireTaskQuickTipEditButton(tip, item);
+    positionTaskQuickTip(tip);
+  };
+  cancelBtn.addEventListener('click', backToViewMode);
+
+  // BT-367と同じ考え方: 開いた時点の値と比較し、差分がある時だけ保存ボタンを有効にする。
+  const readFormValues = () => ({
+    title: titleInput.value.trim(),
+    description: descInput ? descInput.value : '',
+  });
+  const initialValues = readFormValues();
+  const updateSaveState = () => {
+    saveBtn.disabled = !hasFormChanged(initialValues, readFormValues());
+  };
+  taskQuickTipHasUnsavedChanges = () => saveBtn.isConnected && hasFormChanged(initialValues, readFormValues());
+  [titleInput, descInput].forEach(el => { if (el) el.addEventListener('input', updateSaveState); });
+  updateSaveState();
+
+  saveBtn.addEventListener('click', async () => {
+    if (saveBtn.disabled) return; // BM-054と同様の連打防止(多重送信ガード)
+    const newTitle = titleInput.value.trim();
+    if (!newTitle) {
+      errorEl.textContent = 'タイトルは必須だよ';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    const payload = { taskId: item.id, title: newTitle };
+    if (descInput) payload.description = descInput.value;
+
+    saveBtn.disabled = true;
+    const originalLabel = saveBtn.textContent;
+    saveBtn.textContent = '保存中...';
+    try {
+      const resp = await fetch('/api/update-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        errorEl.textContent = `保存に失敗したよ: ${data.error || ''}`;
+        errorEl.style.display = 'block';
+        return;
+      }
+      item.title = newTitle;
+      if (descInput) item.description = descInput.value;
+      backToViewMode();
+    } catch (e) {
+      console.error('[quick-tip-edit] Network error:', e);
+      errorEl.textContent = 'ネットワークエラーが発生したよ';
+      errorEl.style.display = 'block';
+    } finally {
+      // 保存成功時はbackToViewMode()でこのボタンはDOMごと破棄されているため無害、
+      // 失敗時は再度押せるように戻す(BM-054と同じ考え方)
+      if (saveBtn.isConnected) {
+        saveBtn.textContent = originalLabel;
+        updateSaveState();
+      }
+    }
+  });
+
+  titleInput.focus();
+}
+
+function wireTaskQuickTipEditButton(tip, item) {
+  const editBtn = tip.querySelector('.task-quick-tip-edit-btn');
+  if (!editBtn) return;
+  editBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    enterTaskQuickTipEditMode(tip, item);
+  });
+}
+
 function setupTaskQuickTip(card, item) {
   card.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
     const tip = getOrCreateTaskQuickTip();
+    taskQuickTipHasUnsavedChanges = null; // 新しいTIPを開くたびに前回の編集状態をリセット
+    taskQuickTipOrigin = { x: e.clientX, y: e.clientY };
     tip.innerHTML = buildTaskQuickTipHtml(item);
-    tip.style.left = '0px';
-    tip.style.top = '0px';
+    wireTaskQuickTipEditButton(tip, item);
     tip.classList.add('task-quick-tip-visible');
-    const margin = 12;
-    const left = Math.min(e.clientX, window.innerWidth - tip.offsetWidth - margin);
-    const top = Math.min(e.clientY, window.innerHeight - tip.offsetHeight - margin);
-    tip.style.left = `${Math.max(margin, left)}px`;
-    tip.style.top = `${Math.max(margin, top)}px`;
+    positionTaskQuickTip(tip);
   });
 }
 

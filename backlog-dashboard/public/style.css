@@ -1595,6 +1595,12 @@ body {
   --card-c-pad: 3px 6px; --card-c-gap-title: 2px;
 }
 
+/* BM-076: 右クリックTIP(task-quick-tip)はdocument.body直下に生成されボードのスコープ(#board)外のため、
+   上記のカード文字サイズ変数は届かない。TIP専用の変数を別名で持ち、同じS/M/L切替に連動させる
+   （Lは明示指定せず、各プロパティのvar()フォールバック値=従来の表示サイズを使う）。 */
+:root[data-card-size="m"] { --qt-fs-title: 0.8rem; --qt-fs-desc: 0.75rem; }
+:root[data-card-size="s"] { --qt-fs-title: 0.72rem; --qt-fs-desc: 0.68rem; }
+
 .card-size-group {
   display: inline-flex;
   align-items: baseline;
@@ -1779,8 +1785,8 @@ body {
 
 .task-quick-tip-id { color: var(--accent); font-size: .75rem; font-weight: 700; }
 .task-quick-tip-hint { color: var(--text-muted); font-size: .65rem; }
-.task-quick-tip-title { margin-top: 5px; font-size: .9rem; font-weight: 700; line-height: 1.4; word-break: break-word; }
-.task-quick-tip-description { max-height: 180px; margin-top: 10px; overflow: auto; color: var(--text); font-size: .8rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.task-quick-tip-title { margin-top: 5px; font-size: var(--qt-fs-title, .9rem); font-weight: 700; line-height: 1.4; word-break: break-word; }
+.task-quick-tip-description { max-height: 180px; margin-top: 10px; overflow: auto; color: var(--text); font-size: var(--qt-fs-desc, .8rem); line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .task-quick-tip-description span { color: var(--text-muted); font-style: italic; }
 .task-quick-tip-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
 .task-quick-tip-tag { padding: 2px 6px; border-radius: 4px; background: var(--bg); color: var(--text-muted); font-size: .68rem; }
@@ -1788,6 +1794,38 @@ body {
 .task-quick-tip-artifacts ul { margin: 4px 0 0; padding-left: 16px; }
 .task-quick-tip-artifacts li { margin: 2px 0; overflow-wrap: anywhere; }
 .task-quick-tip-artifacts code { color: var(--text); font-size: .7rem; }
+
+/* --- Task Quick Tip: インライン編集 (BM-076) --- */
+.task-quick-tip-header-right { display: flex; align-items: center; gap: 6px; }
+.task-quick-tip-edit-btn {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.task-quick-tip-edit-btn:hover,
+.task-quick-tip-edit-btn:focus-visible {
+  color: var(--accent);
+  background: var(--card-hover);
+  outline: 0;
+}
+.task-quick-tip-edit-btn .material-icon { width: 14px; height: 14px; }
+
+.task-quick-tip-edit-form { margin-top: 8px; }
+.task-quick-tip-edit-form .settings-group { margin-bottom: 10px; }
+.task-quick-tip-edit-form .settings-group:last-of-type { margin-bottom: 8px; }
+.task-quick-tip-edit-form textarea { max-height: 140px; }
+/* 表示時(.task-quick-tip-title/-description)と同じ変数を使い、編集に切り替えても文字サイズが変わらないようにする。
+   ボードのカード文字サイズ切替(S/M/L, BT-339)に連動させるため、固定値ではなくCSS変数で持つ。 */
+.task-quick-tip-edit-form #quick-tip-edit-title { font-size: var(--qt-fs-title, .9rem); }
+.task-quick-tip-edit-form #quick-tip-edit-description { font-size: var(--qt-fs-desc, .8rem); }
 
 /* --- Drag & Drop --- */
 .card-draggable {
