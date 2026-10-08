@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.1.12（BT-212、BT-336。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.2.0（BT-212、BT-336、BT-372。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## ルール正本と配布方式
 
@@ -59,6 +59,12 @@ AGENTS.md.sample（Git管理の唯一の正本）
   - 削除: `POST /api/delete-task {taskId}` / `POST /api/delete-tasks {taskIds: [...]}` — **論理削除**（`deleted_at`を立てるのみで物理削除ではない）。子を持つタスクは拒否される（409）
   - ワークスペース移動: `POST /api/move-task {taskId, targetFile}`
   - GitHub連携: `POST /api/github-create-issue {taskId}` / `POST /api/github-link-issue {taskId, issueNumber}` / `GET /api/github-preview-issues?prefix=XX` / `POST /api/github-fetch-issues {prefix, issueNumbers?}`
+  - **DB・環境ファイルのバックアップ（BT-372）**: 1回のバックアップ = `<backlogDir>/backups/backlog-YYYYMMDD-HHmmss/` の1フォルダ（DB・環境ファイル・manifest.jsonをまとめる）。日次7件＋週次4件のローテーションで古いものから自動削除される
+    - 一覧: `GET /api/backups` — `{ backupsDir, backups: [{file, createdAt, sizeBytes, integrity, counts, files, skipped}] }`
+    - 進捗取得: `GET /api/backup-status` — `{ running, percent, phase, startedAt }`（`phase`は`db`/`files`/`verify`/`rotate`/`done`の順。実行中はポーリング用）
+    - 実行: `POST /api/backup {actor?}` — 実行中の二重起動、同秒内の名前衝突はいずれも409（`error: "backup_in_progress"` / `"backup_exists"`）
+    - 削除: `POST /api/delete-backup {file, actor?}` — 不正な名前は400、存在しないものは404、**最新の1件は保護され409**（`latest_protected`）で削除できない
+    - **バックアップ実行中（`running: true`）は、バックアップ系2 API（`/api/backup`、`/api/delete-backup`）以外の全POST系APIが409（`error: "backup_in_progress"`）で拒否される**（取得時点の内容を一貫させるための全体ロック。取得・状態確認系のGETは影響しない）
 
 ## ステータス値の意味（`todo` / `ready` / `do` / `done`）
 - 4値のみ（`未着手`→`todo`、`未着手（素材あり）`→`ready`、`進行中`→`do`、`完了`→`done`）
