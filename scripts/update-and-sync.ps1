@@ -14,6 +14,21 @@ $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 
+# BM-064: ダッシュボード画面のボタン経由(server.jsのspawn)で実行された場合、
+# detached:trueの子プロセスへ親(Node.js)が開いたファイルディスクリプタをstdioとして
+# 直接渡す方式は、Windows上でハンドル継承のタイミング不整合により子プロセスが
+# 何も書き込めず早期終了することが判明した(本番検証で再現。exit code=0のまま
+# スクリプト本体が実行されない)。この依存を無くすため、スクリプト自身が
+# Start-Transcriptで自分のログを書く方式に変更し、呼び出し元のstdio設定に左右
+# されないようにする。ログは追記せず毎回新規作成する(前回の実行結果と混ざらないように)。
+$transcriptPath = Join-Path $repositoryRoot 'backlog-dashboard\logs\run-update.log'
+New-Item -ItemType Directory -Path (Split-Path -Parent $transcriptPath) -Force | Out-Null
+try {
+    Start-Transcript -Path $transcriptPath -Force | Out-Null
+} catch {
+    # Start-Transcriptが使えない環境(多重起動等)でも実行自体は継続する。
+}
+
 # BM-064: 進行状況を backlog-dashboard/logs/update-status.json に書き出す。
 # 画面側(app.js)がこれをポーリングし、"running"(実作業中=pull以降)の間だけボードを
 # ロックする。ブランチ不一致・ローカル変更での即中止は"failed"(実作業に入っていないため
@@ -83,12 +98,14 @@ try {
         if ($NonInteractive) {
             Write-Output '-NonInteractive指定のため、確認せず中止します。'
             Write-UpdateStatus -State 'failed' -Message 'ローカルに未コミットの変更があるため中止しました(-NonInteractive)'
+            Stop-Transcript | Out-Null
             exit 1
         }
         $answer = Read-Host '続行しますか？ [進む: y / やめる: n]'
         if ($answer -notin @('y', 'Y')) {
             Write-Output '中止しました。'
             Write-UpdateStatus -State 'failed' -Message 'ユーザーが中止しました'
+            Stop-Transcript | Out-Null
             exit 1
         }
     } else {
@@ -133,8 +150,15 @@ try {
     # 再起動後のサーバーは直前のステータスファイルをそのまま引き継ぐ(ファイルなので消えない)。
     # ここでdoneを書くのは、再起動完了後に改めて正常終了を記録するため。
     Write-UpdateStatus -State 'done' -Message "更新が完了しました(apiVersion=$($health.apiVersion))"
+    Stop-Transcript | Out-Null
 } catch {
-    Write-Error $_.Exception.Message
+    # $ErrorActionPreference='Stop'の下ではWrite-Errorも「終了エラー」として扱われ、
+    # catchブロックの残りの行(Write-UpdateStatus等)が実行されずスクリプト全体が
+    # 即座に終了してしまう。先に状態を記録してから、エラー表示は一時的にContinueに
+    # 戻して行う(このセッションのInvoke-GitInRepoと同じ対策パターン)。
     Write-UpdateStatus -State 'failed' -Message $_.Exception.Message
+    try { Stop-Transcript | Out-Null } catch {}
+    $ErrorActionPreference = 'Continue'
+    Write-Error $_.Exception.Message
     exit 1
 }

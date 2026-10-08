@@ -710,26 +710,37 @@ function serveStatic(req, res) {
   }
 
   // API: POST /api/run-update (BM-064: 画面の「今すぐ更新する」ボタン用。
-  // scripts/update-and-sync.ps1 -NonInteractive をdetachedな子プロセスとして起動する。
-  // このサーバー自身がpull後に再起動対象になるため、起動した事実だけを即座に返し、
-  // 完了確認は画面側のWebSocket再接続(scheduleReconnect)に委ねる(spawnEditorと同じ切り離し方式)。
-  // stdio: 'ignore'だと成功/失敗や途中経過が一切記録されず診断できないため、
-  // logs/run-update.logへ標準出力・標準エラーをリダイレクトする(start-hidden.ps1と同じ考え方)。
+  // scripts/update-and-sync.ps1 -NonInteractive を、サーバーの再起動に巻き込まれず
+  // 独立して生き続けるプロセスとして起動する。
+  //
+  // 【実機検証で判明した問題と対策】
+  // spawn(..., { detached: true })は、タスクスケジューラ経由で起動した本番のNode.js
+  // プロセスから呼んだ場合、Windows上で子プロセス(powershell.exe)が実際には何も
+  // 実行せず(スクリプトの内容が一切実行されない)即座にexit code=0で終了してしまう
+  // ことを確認した(開発中の対話的セッションからの起動では問題が起きず、気づけなかった)。
+  // detached:falseにすると正常に実行されるが、update-and-sync.ps1の最終ステップで
+  // このサーバー自身をStop-Processするため、素朴にdetached:falseだけにすると
+  // 子プロセスが親(サーバー)の終了に巻き込まれて一緒に死ぬリスクがある。
+  // 対策として、PowerShellのStart-Process(-WindowStyle Hidden)経由で間接的に起動する。
+  // ここでspawnするpowershell.exeは「Start-Processを呼んで即終了するだけの起動元」であり、
+  // detached:falseで構わない(すぐ終わるので再起動時に巻き込まれる心配がない)。
+  // 本体(update-and-sync.ps1)はStart-Processが作る独立プロセスとして、起動元や
+  // このNode.jsプロセス自身とは無関係に生き続ける(start-hidden.ps1と同じ考え方)。
+  //
+  // ログはスクリプト自身がStart-Transcriptでlogs/run-update.logへ書く(詳細は
+  // update-and-sync.ps1のコメント参照)。
   if (req.url === '/api/run-update' && req.method === 'POST') {
     const scriptPath = path.join(REPO_ROOT, 'scripts', 'update-and-sync.ps1');
-    const logPath = path.join(__dirname, 'logs', 'run-update.log');
     try {
-      fs.mkdirSync(path.dirname(logPath), { recursive: true });
-      const logStream = fs.openSync(logPath, 'a');
+      const launchCommand = `Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${scriptPath}','-NonInteractive' -WindowStyle Hidden`;
       const child = spawn(
         'powershell.exe',
-        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-NonInteractive'],
-        { cwd: REPO_ROOT, detached: true, stdio: ['ignore', logStream, logStream] }
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', launchCommand],
+        { cwd: REPO_ROOT, detached: false, stdio: 'ignore' }
       );
       child.on('error', (e) => {
-        console.error('[run-update] Child process error:', e.message);
+        console.error('[run-update] Launcher process error:', e.message);
       });
-      child.unref();
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ ok: true, started: true }));
     } catch (e) {
