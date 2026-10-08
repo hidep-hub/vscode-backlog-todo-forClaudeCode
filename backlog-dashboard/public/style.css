@@ -213,6 +213,82 @@ body.dev-instance {
   }
 }
 
+/* BM-064: 更新の完了/失敗を伝えるトースト通知。画面右下に固定表示する。
+   失敗時は原因メッセージを読み終えるまで自動で消えない(閉じるボタンで明示的に閉じる)。
+   成功時は手動操作不要で数秒後に自動フェードアウトする(app.js側でタイマー制御)。 */
+.update-result-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1400;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 420px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+}
+
+.update-result-toast[hidden] {
+  display: none;
+}
+
+.update-result-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.update-result-toast.success {
+  border-color: #4ade80;
+}
+
+.update-result-toast.success::before {
+  content: '✓';
+  color: #4ade80;
+  font-weight: 700;
+}
+
+.update-result-toast.error {
+  border-color: var(--btn-danger-fg);
+}
+
+.update-result-toast.error::before {
+  content: '!';
+  color: var(--btn-danger-fg);
+  font-weight: 700;
+}
+
+.update-result-toast-text {
+  flex: 1 1 auto;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.update-result-toast-close {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.update-result-toast-close:hover {
+  color: var(--text);
+}
+
 /* BM-064: ロゴ左上に重ねる更新通知バッジ。origin/mainに未取得のコミットがある時だけ表示する。
    接続状態ドット(.conn-status-dot、右下)とは反対の角に置き、互いを隠さないようにする。 */
 .update-badge {
