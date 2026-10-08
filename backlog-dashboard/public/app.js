@@ -1748,6 +1748,14 @@ function hideBoardInitialLoading() {
 function renderBoard(data) {
   hideBoardInitialLoading();
   lastBoardData = data;
+
+  // BM-078: ピン留め等でWebSocket再描画が入ると列が丸ごと作り直されるため、
+  // 破棄前に各列のスクロール位置を保存し、再構築後に書き戻して先頭ジャンプを防ぐ
+  const scrollPositions = {};
+  boardEl.querySelectorAll('.column-body[data-col-id]').forEach(el => {
+    scrollPositions[el.dataset.colId] = el.scrollTop;
+  });
+
   boardEl.innerHTML = '';
   renderRunningStrip(data);
   renderWorkspaceSummary(data);
@@ -1757,6 +1765,10 @@ function renderBoard(data) {
 
   // 狭幅時サイドバー(BM-018)用: カラムごとの全件数(limit適用前)を集めておく
   const railCounts = {};
+  // BM-078: VS Code Simple Browser等のwebview環境では、appendChild直後は
+  // レイアウトがまだ確定しておらずscrollTopの書き戻しが0にクランプされることがある。
+  // 通常のブラウザでは起きないため、次フレームでの再書き戻しを保険として追加する。
+  const columnBodyEls = {};
 
   // プロジェクト別残タスクバッジ表示（クリックでフィルタ連携）
   const badgesEl = document.getElementById('project-badges');
@@ -1857,7 +1869,7 @@ function renderBoard(data) {
           ${!isCompact ? `<button class="add-task-btn" data-col-id="${col.id}" data-col-status="${col.match[0]}" title="タスク追加">+</button>` : ''}
         </div>
       </div>
-      <div class="column-body"></div>
+      <div class="column-body" data-col-id="${col.id}"></div>
     `;
 
     const body = colEl.querySelector('.column-body');
@@ -2015,6 +2027,28 @@ function renderBoard(data) {
     }
 
     boardColumnsEl.appendChild(colEl);
+    // scrollTopはDOM接続後でないと反映されない(接続前は高さが確定せず0にクランプされる)
+    if (scrollPositions[col.id] != null) body.scrollTop = scrollPositions[col.id];
+    columnBodyEls[col.id] = body;
+  }
+
+  // BM-078: webview環境向けの保険。次フレームでレイアウト確定後に再度書き戻す。
+  // 通常ブラウザでは既に正しい位置になっているため、この再設定は実質no-op。
+  // 1回のrAFでレイアウトが確定しきらない環境も想定し、2段(次のフレームのさらに次)で確認する。
+  if (Object.keys(scrollPositions).length > 0) {
+    const reapply = () => {
+      for (const colId of Object.keys(columnBodyEls)) {
+        const target = scrollPositions[colId];
+        const body = columnBodyEls[colId];
+        if (target != null && body && body.scrollTop !== target) {
+          body.scrollTop = target;
+        }
+      }
+    };
+    requestAnimationFrame(() => {
+      reapply();
+      requestAnimationFrame(reapply);
+    });
   }
 
   // +ボタンのイベントリスナーを設定
@@ -3595,6 +3629,11 @@ function renderPlanBoard() {
   const buckets = planBuildBuckets(bucketDefs);
   container.innerHTML = '';
 
+  // BM-078: VS Code Simple Browser等のwebview環境では、appendChild直後は
+  // レイアウトがまだ確定しておらずscrollTopの書き戻しが0にクランプされることがある。
+  // 通常のブラウザでは起きないため、次フレームでの再書き戻しを保険として追加する(ボードと同じ対策)。
+  const planColumnBodyEls = {};
+
   // 絞り込み中はストックのEPICグループを開いたまま出す（畳んだままだと絞り込んだ意味が無い）
   const isFiltered = !!planSearchQuery.trim() || planPinOnly;
 
@@ -3640,6 +3679,24 @@ function renderPlanBoard() {
     container.appendChild(colEl);
     // scrollTopはDOM接続後でないと反映されない(接続前は高さが確定せず0にクランプされる)
     if (scrollPositions[b.id] != null) body.scrollTop = scrollPositions[b.id];
+    planColumnBodyEls[b.id] = body;
+  }
+
+  // BM-078: webview環境向けの保険(ボードと同じ対策)。
+  if (Object.keys(scrollPositions).length > 0) {
+    const reapplyPlanScroll = () => {
+      for (const bucketId of Object.keys(planColumnBodyEls)) {
+        const target = scrollPositions[bucketId];
+        const body = planColumnBodyEls[bucketId];
+        if (target != null && body && body.scrollTop !== target) {
+          body.scrollTop = target;
+        }
+      }
+    };
+    requestAnimationFrame(() => {
+      reapplyPlanScroll();
+      requestAnimationFrame(reapplyPlanScroll);
+    });
   }
 
   container.querySelectorAll('.plan-col-sort-select').forEach((select) => {
@@ -4015,6 +4072,12 @@ function openChildModal(item, parentEpic = null) {
   const body = modal.querySelector('.modal-body');
   const content = modal.querySelector('.modal-content');
   content.classList.remove('modal-wide');
+
+  // BM-078: WS再描画で.modal-body全体を作り直すと説明欄等のスクロール位置が
+  // 失われるため、renderModalContentと同様に保存・復元する
+  const prevScrollEl = body.querySelector('.detail-scroll-content');
+  const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : null;
+
   const parentCrumbHtml = buildParentBreadcrumbHtml(resolveChildParent(item, parentEpic), item);
 
   const statusBadge = `<span class="detail-status">${escapeHtml(item.status || '-')}</span>`;
@@ -4083,6 +4146,16 @@ function openChildModal(item, parentEpic = null) {
     ${buildDetailColumnsHtml(headerHtml, metaHtml)}
     ${buildScrollableDetailHtml(desc, artifactsHtml)}
   `;
+
+  // BM-078: スクロール位置の復元。rAF2段はwebview環境でのレイアウト確定遅延への保険(ボードと同じ対策)。
+  if (prevScrollTop != null) {
+    const scrollEl = body.querySelector('.detail-scroll-content');
+    if (scrollEl) {
+      scrollEl.scrollTop = prevScrollTop;
+      const reapply = () => { if (scrollEl.scrollTop !== prevScrollTop) scrollEl.scrollTop = prevScrollTop; };
+      requestAnimationFrame(() => { reapply(); requestAnimationFrame(reapply); });
+    }
+  }
 
   // 親パンくずのクリック（BT-355）: 子モーダルを閉じて親EPICの詳細へ戻る
   const parentCrumbEl = body.querySelector('.detail-parent-crumb');
@@ -4725,6 +4798,11 @@ function renderModalContent(item) {
   const body = modal.querySelector('.modal-body');
   const content = modal.querySelector('.modal-content');
 
+  // BM-078: WS再描画(ピン留め等)で.modal-body全体を作り直すと、EPIC詳細の
+  // ミニボードをスクロールしていた場合に先頭へ飛ばされるため、位置を保存・復元する
+  const prevScrollEl = body.querySelector('.detail-scroll-content');
+  const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : null;
+
   const isEpic = item.children && item.children.length > 0;
   content.classList.toggle('modal-wide', isEpic);
 
@@ -4811,6 +4889,16 @@ function renderModalContent(item) {
     ${buildDetailColumnsHtml(headerHtml, metaHtml)}
     ${buildScrollableDetailHtml(desc, artifactsHtml, miniBoard)}
   `;
+
+  // BM-078: スクロール位置の復元。rAF2段はwebview環境でのレイアウト確定遅延への保険(ボードと同じ対策)。
+  if (prevScrollTop != null) {
+    const scrollEl = body.querySelector('.detail-scroll-content');
+    if (scrollEl) {
+      scrollEl.scrollTop = prevScrollTop;
+      const reapply = () => { if (scrollEl.scrollTop !== prevScrollTop) scrollEl.scrollTop = prevScrollTop; };
+      requestAnimationFrame(() => { reapply(); requestAnimationFrame(reapply); });
+    }
+  }
 
   // 説明欄の折りたたみトグル初期化（BT-080）
   setupDescriptionToggle(body);
