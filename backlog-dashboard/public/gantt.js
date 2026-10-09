@@ -774,7 +774,13 @@
     ];
     if (item.completedDate) meta.push(`<span>完了: ${esc(item.completedDate)}</span>`);
     if (item.assignee) meta.push(`<span>担当: ${esc(item.assignee)}</span>`);
-    return `<div class="gantt-tip-head"><span class="gantt-tip-id">${esc(item.id)}</span><span class="gantt-tip-title">${esc(item.title || '')}</span></div>${warn}<div class="gantt-tip-meta">${meta.join('')}</div><div class="gantt-tip-desc">${item.description ? esc(item.description) : '<span class="gantt-tip-none">説明はありません</span>'}</div>`;
+    // BM-084: descriptionキー自体が無いitem(board用の軽量データ、取得中)は「読み込み中...」を出す
+    // (public/app.jsのbuildDescriptionSectionHtmlと同じ考え方)。
+    const hasDescKey = Object.prototype.hasOwnProperty.call(item, 'description');
+    const descHtml = !hasDescKey
+      ? '<span class="gantt-tip-none">読み込み中...</span>'
+      : (item.description ? esc(item.description) : '<span class="gantt-tip-none">説明はありません</span>');
+    return `<div class="gantt-tip-head"><span class="gantt-tip-id">${esc(item.id)}</span><span class="gantt-tip-title">${esc(item.title || '')}</span></div>${warn}<div class="gantt-tip-meta">${meta.join('')}</div><div class="gantt-tip-desc">${descHtml}</div>`;
   }
 
   function onMouseOver(e) {
@@ -791,17 +797,44 @@
     tipShowTimer = setTimeout(() => {
       if (!current || drag) return;
       const tip = ensureTip();
+      const taskId = info.item.id;
       tip.innerHTML = tipHtml(info.item, current.ctx);
       tip.style.left = '0px';
       tip.style.top = '0px';
       tip.classList.add('gantt-tip-visible');
-      const margin = 10;
-      const left = Math.min(x + 6, window.innerWidth - tip.offsetWidth - margin);
-      let top = y + 14;
-      if (top + tip.offsetHeight > window.innerHeight - margin) top = Math.max(margin, y - tip.offsetHeight - 10);
-      tip.style.left = `${Math.max(margin, left)}px`;
-      tip.style.top = `${top}px`;
+      positionGanttTip(tip, x, y);
+
+      // BM-084: board用の軽量item(descriptionキー無し)の場合、本文を非同期取得して再描画する
+      // (BM-083/BM-084のdescription非同期取得パターンと同じ)。ホバーは短時間かつ頻発するため、
+      // まずwindow側のキャッシュ(public/app.jsが持つlastRenderedFullItemById)にあれば
+      // それを使い、無ければ/api/task/:idを取得する。ホバーが外れてTIPが消えている/
+      // 別タスクに移っていた場合は再描画しない。
+      if (!Object.prototype.hasOwnProperty.call(info.item, 'description') && typeof window.fetchTaskDetail === 'function') {
+        const cached = typeof window.getCachedFullTaskItem === 'function' ? window.getCachedFullTaskItem(taskId) : null;
+        const applyFull = (full) => {
+          if (!full) return;
+          if (!tip.classList.contains('gantt-tip-visible')) return;
+          const tipIdEl = tip.querySelector('.gantt-tip-id');
+          if (!tipIdEl || tipIdEl.textContent !== (taskId || '-')) return;
+          Object.assign(info.item, full);
+          tip.innerHTML = tipHtml(info.item, current.ctx);
+          positionGanttTip(tip, x, y);
+        };
+        if (cached) applyFull(cached);
+        else window.fetchTaskDetail(taskId).then(applyFull);
+      }
     }, TIP_DELAY);
+  }
+
+  // ツールチップの位置決め(カーソル追従、画面端での折り返し)。再描画(description取得後)でも
+  // 同じ位置計算を再利用するため関数化する。
+  function positionGanttTip(tip, x, y) {
+    const margin = 10;
+    const left = Math.min(x + 6, window.innerWidth - tip.offsetWidth - margin);
+    let top = y + 14;
+    if (top + tip.offsetHeight > window.innerHeight - margin) top = Math.max(margin, y - tip.offsetHeight - 10);
+    tip.style.left = `${Math.max(margin, left)}px`;
+    tip.style.top = `${top}px`;
   }
 
   function onMouseOut(e) {

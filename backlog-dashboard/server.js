@@ -8,7 +8,7 @@ const { WebSocketServer } = require('ws');
 const { spawn, execFileSync, execFile } = require('child_process');
 const githubClient = require('./github-client');
 const { getDb } = require('./db/connection');
-const { buildBoardFromDb, buildTaskDetail } = require('./db/board');
+const { buildBoardFromDb, buildTaskDetail, buildSearchResults, buildWorkspaceCounts } = require('./db/board');
 const { buildActivity, buildRecentEvents } = require('./db/activity');
 const tasksRepo = require('./db/tasks-repo');
 const { createBackupManager } = require('./db/backup');
@@ -517,9 +517,14 @@ const MIME = {
 // BT-188: DB版のboard構築(BT-194で全APIのDB化完了)。db/board.jsのbuildBoardFromDb()に
 // タスクデータの組み立てを委譲し、config.projectsのみに依存する既存ヘルパー(workspaceMap等)
 // をここでマージする。
-function buildBoard() {
+// BM-065: workspace(config.projects[].file)を指定すると、そのワークスペース分のみに絞った
+// board(description列を含まない軽量版)を返す。省略時は従来通り全ワークスペース分(All Projects)。
+// WebSocketのbroadcast(buildBoard())は常に全量配信のまま(ワークスペース別配信は今回スコープ外、
+// BM-065説明欄の方針Aに従う)なので、ここでのworkspace絞り込みはGET /api/boardの
+// クエリパラメータ経由の呼び出しでのみ使われる。
+function buildBoard(workspace = null) {
   const db = getDb(BACKLOG_DIR);
-  const dbBoard = buildBoardFromDb(db, config);
+  const dbBoard = buildBoardFromDb(db, config, workspace);
   return {
     ...dbBoard,
     workspaceMap: getWorkspaceMap(),
@@ -751,11 +756,41 @@ function serveStatic(req, res) {
     return;
   }
 
-  // API: GET /api/board
-  if (req.url === '/api/board' && req.method === 'GET') {
-    const board = buildBoard();
+  // API: GET /api/board?workspace=xxx (BM-065: workspace指定時はそのワークスペース分のみに
+  // 絞った軽量board(description列を含まない)を返す。省略時は従来通り全ワークスペース分)
+  if (req.url && req.url.split('?')[0] === '/api/board' && req.method === 'GET') {
+    const workspaceParam = new URL(req.url, 'http://localhost').searchParams.get('workspace');
+    const board = buildBoard(workspaceParam || null);
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(board));
+    return;
+  }
+
+  // API: GET /api/workspace-counts (BM-065: ワークスペースセレクタ/バッジ用の軽量集計。
+  // セレクタを開いた操作をトリガーに呼ばれる想定で、リアルタイム更新(WebSocket配信)は行わない
+  // ユーザー合意の設計。SELECTはタスクのstatus/workspace/parent_idのみに絞り、description等は
+  // 読まない(集計専用の軽いクエリ)。
+  if (req.url === '/api/workspace-counts' && req.method === 'GET') {
+    const db = getDb(BACKLOG_DIR);
+    const counts = buildWorkspaceCounts(db, config);
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(counts));
+    return;
+  }
+
+  // API: GET /api/search?q=...&includeBody=true (BM-081: タイトル/ID/担当者は常にLIKE、
+  // includeBody=trueの時のみ本文(description)もFTS5(trigram)で検索する。
+  // ワークスペース横断・常に全件対象(boardの絞り込み状態と無関係)。
+  // AIエージェント(Kiro/Claude Code/Codex)が過去タスクを本文から探す窓口としても使う想定のため、
+  // 認証等は既存の他APIと同じ(ローカルループバック運用前提)扱いとする。
+  if (req.url && req.url.split('?')[0] === '/api/search' && req.method === 'GET') {
+    const searchParams = new URL(req.url, 'http://localhost').searchParams;
+    const q = searchParams.get('q') || '';
+    const includeBody = searchParams.get('includeBody') === 'true';
+    const db = getDb(BACKLOG_DIR);
+    const { results, bodySearchSkipped } = buildSearchResults(db, config, q, { includeBody });
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ results, bodySearchSkipped }));
     return;
   }
 

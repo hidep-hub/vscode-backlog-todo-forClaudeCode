@@ -1110,8 +1110,8 @@ body {
 
 .search-result-item {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
   padding: 8px 10px;
   border-radius: 8px;
   background: var(--card);
@@ -1128,6 +1128,12 @@ body {
   border-color: var(--accent);
   background: var(--badge-done-bg, var(--card));
   box-shadow: 0 0 0 1px var(--accent);
+}
+
+.search-result-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .search-indent-1 {
@@ -1157,11 +1163,43 @@ body {
   flex-shrink: 0;
 }
 
+/* BM-082: 本文検索ヒット時のスニペット(ヒット箇所抜粋)。snippet()が返す[...]をハイライトする */
+.search-result-snippet {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result-snippet mark,
+.search-result-snippet b {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .search-result-empty {
   color: var(--text-muted);
   text-align: center;
   padding: 24px 0;
   font-size: 0.85rem;
+}
+
+.search-result-notice {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 6px 0;
+  font-size: 0.75rem;
+}
+
+.search-modal-body-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  cursor: pointer;
 }
 
 .settings-btn {
@@ -2220,6 +2258,12 @@ body {
 
 .description-toggle-btn:hover {
   text-decoration: underline;
+}
+
+/* BM-083: 詳細モーダルがdescriptionを非同期取得している間の表示(board用軽量データで開いた直後) */
+.description-loading {
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .detail-children {
