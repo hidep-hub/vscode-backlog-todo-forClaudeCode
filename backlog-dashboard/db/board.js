@@ -45,7 +45,14 @@ function toTaskItem(row, { statusLabelMap, projectName }) {
     status: statusLabelMap[row.status] || row.status,
     statusCode: row.status,
     category: row.category || '-',
-    description: row.description || '',
+    // BM-065/BM-083: board用の列を絞ったSELECT(listAllForBoard等)はdescription列自体を
+    // 取得しないため、row.descriptionはundefinedになる。buildTaskDetail用(SELECT *、
+    // 常にdescription列を持つ)との違いをクライアント側が判別できるよう、boardの軽量itemには
+    // descriptionキー自体を含めない(undefinedのままJSON.stringifyで省略される)。
+    // 「descriptionが本当に空文字」(buildTaskDetail経由)と「board用で元から取得していない」
+    // (キー自体が無い)を区別することで、クライアント側は`'description' in item`で
+    // 非同期取得が必要かどうかを判定できる。
+    description: row.description === undefined ? undefined : (row.description || ''),
     assignee: row.assignee || null,
     startDate: row.start_date || null,
     dueDate: row.due_date || null,
@@ -80,12 +87,16 @@ function computeParentStatusCode(childRows, parentOwnCode, statusRankMap) {
 }
 
 /**
- * 全ワークスペースの全タスク(削除済み除く)+成果物+pins+running_tasksを読み、
+ * 全タスク(削除済み除く)+成果物+pins+running_tasksを読み、
  * 現行buildBoard()と同じ形状の{columns, projects, remainingByProject, ...}を返す。
+ * description列はboard用のレスポンスには含めない(BM-065: ブラウザが全量データを持つ
+ * ことによるペイロード肥大化対策。詳細はGET /api/task/:id→buildTaskDetailで個別取得する)。
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {object} config - server.jsのconfigオブジェクト(columns/projects/defaultWorkspaceParent)
+ * @param {string|null} workspace - 指定時はこのワークスペース(config.projects[].file)のみに絞る(BM-065)。
+ *   省略/nullは全ワークスペース(All Projects、従来挙動)。
  */
-function buildBoardFromDb(db, config) {
+function buildBoardFromDb(db, config, workspace = null) {
   const statusList = getStatusList(db);
   const statusLabelMap = {};
   const statusRankMap = {};
@@ -98,22 +109,42 @@ function buildBoardFromDb(db, config) {
     if (p.file) workspaceToProjectName[p.file] = p.name;
   }
 
-  const allRows = tasksRepo.listAll(db);
-  const deliverableRows = db.prepare('SELECT * FROM deliverables ORDER BY task_id, sort_order').all();
+  // BM-065: workspace指定時はSQL側(WHERE句)で絞り込む(JS側フィルタではなくDBに委譲)。
+  // 併せてboard用途ではdescription列を転送しない列リストを使う。
+  const allRows = workspace
+    ? tasksRepo.listByWorkspaceForBoard(db, workspace)
+    : tasksRepo.listAllForBoard(db);
+
+  // deliverables/pins/running_tasks/task_execution_sessionsは、workspace指定時のみ
+  // 対象タスクIDに絞る(IN句)。All Projects時は従来通り全件取得(952件分のIN句展開を避ける)。
+  const taskIds = allRows.map(r => r.id);
+  const idPlaceholders = workspace && taskIds.length ? taskIds.map(() => '?').join(',') : null;
+  const scopeClause = idPlaceholders ? `WHERE task_id IN (${idPlaceholders})` : '';
+  const scopeArgs = idPlaceholders ? taskIds : [];
+  // workspace指定で対象タスクが0件の場合、空のIN句を発行しないよう早期に空配列へフォールバックする。
+  const noRowsInScope = workspace && taskIds.length === 0;
+
+  const deliverableRows = noRowsInScope ? [] :
+    db.prepare(`SELECT * FROM deliverables ${scopeClause} ORDER BY task_id, sort_order`).all(...scopeArgs);
   const deliverablesByTaskId = {};
   for (const d of deliverableRows) {
     (deliverablesByTaskId[d.task_id] = deliverablesByTaskId[d.task_id] || []).push(d);
   }
-  const pinnedTaskIds = new Set(db.prepare('SELECT task_id FROM pins').all().map(r => r.task_id));
-  const runningTaskIds = new Set(db.prepare('SELECT task_id FROM running_tasks').all().map(r => r.task_id));
+  const pinnedTaskIds = new Set(noRowsInScope ? [] :
+    db.prepare(`SELECT task_id FROM pins ${scopeClause}`).all(...scopeArgs).map(r => r.task_id));
+  const runningTaskIds = new Set(noRowsInScope ? [] :
+    db.prepare(`SELECT task_id FROM running_tasks ${scopeClause}`).all(...scopeArgs).map(r => r.task_id));
   const activeAgentByTaskId = new Map(
-    db.prepare(`SELECT task_id, agent_id FROM task_execution_sessions
-      WHERE stopped_at IS NULL ORDER BY started_at DESC, id DESC`).all()
+    (noRowsInScope ? [] :
+      db.prepare(`SELECT task_id, agent_id FROM task_execution_sessions
+        ${idPlaceholders ? `WHERE task_id IN (${idPlaceholders}) AND stopped_at IS NULL` : 'WHERE stopped_at IS NULL'}
+        ORDER BY started_at DESC, id DESC`).all(...scopeArgs)
+    )
       .reverse()
       .map(row => [row.task_id, row.agent_id])
   );
 
-  const dueHistoryByTaskId = tasksRepo.listDueDateHistory(db, allRows.map(r => r.id));
+  const dueHistoryByTaskId = tasksRepo.listDueDateHistory(db, taskIds);
   for (const row of allRows) {
     row.__deliverables = deliverablesByTaskId[row.id] || [];
     row.__dueDateHistory = dueHistoryByTaskId[row.id] || [];
@@ -302,4 +333,119 @@ function buildTaskDetail(db, config, displayId) {
   return item;
 }
 
-module.exports = { buildBoardFromDb, buildTaskDetail };
+/**
+ * BM-081: サーバー側検索API用。タイトル/ID/担当者(常にLIKE)+本文(includeBody時のみFTS5)を
+ * ワークスペース横断(常に全件対象、boardの絞り込み状態と無関係)で検索し、
+ * クライアントのグルーピング表示(buildSearchTree相当: Epic→子タスク)に必要な
+ * parentId/parentTitle/isEpicを付与したフラットなリストを返す。
+ * descriptionはフルで返さずsnippet(ヒット箇所抜粋)のみ含める(ペイロード肥大化を避ける、BM-065の方針を継承)。
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {object} config - server.jsのconfigオブジェクト(projects)
+ * @param {string} query
+ * @param {object} opts
+ * @param {boolean} opts.includeBody - trueの時のみ本文(description)もFTS5で検索対象にする
+ * @param {number} opts.limit - タイトル検索・本文検索それぞれの上限件数(デフォルト50)
+ */
+function buildSearchResults(db, config, query, { includeBody = false, limit = 50 } = {}) {
+  const trimmed = (query || '').trim();
+  if (!trimmed) return { results: [], bodySearchSkipped: false };
+
+  const statusList = getStatusList(db);
+  const statusLabelMap = {};
+  for (const s of statusList) statusLabelMap[s.code] = s.label;
+  const workspaceToProjectName = {};
+  for (const p of config.projects || []) {
+    if (p.file) workspaceToProjectName[p.file] = p.name;
+  }
+
+  const titleRows = tasksRepo.searchByTitleIdAssignee(db, trimmed, { limit });
+  // trigramの制約(3文字未満は常に0件)により、本文検索は3文字以上の時だけ実行する。
+  // 2文字以下でincludeBody=trueが指定された場合、呼び出し側(server.js)に
+  // 「本文検索はスキップされた」ことを伝え、UIで案内できるようにする。
+  const bodySearchSkipped = includeBody && trimmed.length < 3;
+  const bodyMatches = includeBody && !bodySearchSkipped ? tasksRepo.searchByBody(db, trimmed, { limit }) : [];
+
+  // タイトル/ID/担当者ヒットと本文ヒットをタスクID基準でマージする(両方にヒットした場合はsnippetを残す)。
+  const merged = new Map(); // taskId -> { row, snippet }
+  for (const row of titleRows) merged.set(row.id, { row, snippet: null });
+  for (const { task, snippet } of bodyMatches) {
+    const existing = merged.get(task.id);
+    if (existing) existing.snippet = snippet;
+    else merged.set(task.id, { row: task, snippet });
+  }
+
+  const results = [];
+  for (const { row, snippet } of merged.values()) {
+    const projectName = workspaceToProjectName[row.workspace] || row.workspace;
+    let parentId = null;
+    let parentTitle = null;
+    let parentStatusCode = null;
+    if (row.parent_id !== null) {
+      const parentRow = tasksRepo.getById(db, row.parent_id);
+      if (parentRow) {
+        parentId = parentRow.display_id;
+        parentTitle = parentRow.title;
+        parentStatusCode = parentRow.status;
+      }
+    }
+    const childCount = row.parent_id === null ? tasksRepo.countChildren(db, row.id) : 0;
+    results.push({
+      id: row.display_id,
+      title: row.title,
+      status: statusLabelMap[row.status] || row.status,
+      statusCode: row.status,
+      project: projectName,
+      assignee: row.assignee || null,
+      parentId,
+      parentTitle,
+      // BM-082: 検索結果はEpic配下の子マッチも親行として表示するグルーピング(buildSearchTree相当)を
+      // クライアント側で再現する必要があるため、親の表示用ラベルも付与しておく。
+      parentStatus: parentStatusCode ? (statusLabelMap[parentStatusCode] || parentStatusCode) : null,
+      isEpic: childCount > 0,
+      snippet: snippet || null,
+    });
+  }
+
+  return { results, bodySearchSkipped };
+}
+
+/**
+ * BM-065: ワークスペースセレクタ/バッジ用の軽量集計。project毎のdo/ready/todo/done件数を返す
+ * ({ [projectName]: { do, ready, todo, done } })。description等は読まず、status/parent_id/workspaceのみの
+ * 軽いSELECTで計算する。クライアント側のrenderWsFilterCounts/project-badges集計(親EPICは実効
+ * ステータスで1件、parentIdを持つ個別完了子表示は対象外)と同じ考え方をSQL結果に対して適用する。
+ * ユーザー合意の設計: リアルタイム更新はせず、セレクタを開く操作をトリガーに都度取得する想定。
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {object} config - server.jsのconfigオブジェクト(projects)
+ */
+function buildWorkspaceCounts(db, config) {
+  const statusRankMap = {};
+  for (const s of getStatusList(db)) statusRankMap[s.code] = s.sort_order;
+  const workspaceToProjectName = {};
+  for (const p of config.projects || []) {
+    if (p.file) workspaceToProjectName[p.file] = p.name;
+  }
+
+  const rows = db.prepare('SELECT id, parent_id, workspace, status FROM tasks WHERE deleted_at IS NULL').all();
+  const childrenByParentId = {};
+  for (const row of rows) {
+    if (row.parent_id !== null) {
+      (childrenByParentId[row.parent_id] = childrenByParentId[row.parent_id] || []).push(row);
+    }
+  }
+
+  const counts = {};
+  for (const row of rows) {
+    if (row.parent_id !== null) continue; // トップレベルのみ(子は親の実効ステータスに集約済み)
+    const projectName = workspaceToProjectName[row.workspace] || row.workspace;
+    if (!projectName) continue;
+    const childRows = childrenByParentId[row.id] || [];
+    const statusCode = computeParentStatusCode(childRows, row.status, statusRankMap);
+    if (!['do', 'ready', 'todo', 'done'].includes(statusCode)) continue;
+    if (!counts[projectName]) counts[projectName] = { do: 0, ready: 0, todo: 0, done: 0 };
+    counts[projectName][statusCode]++;
+  }
+  return counts;
+}
+
+module.exports = { buildBoardFromDb, buildTaskDetail, buildSearchResults, buildWorkspaceCounts };

@@ -2516,13 +2516,16 @@ function setupArtifactCopyButtons(container) {
   });
 }
 
-// 検索クエリ（小文字化済み）がタイトル・ID・説明・担当のいずれかに部分一致するか判定
-function itemMatchesSearch(item, query) {
-  const fields = [item.title, item.id, item.description, item.assignee];
-  return fields.some(f => f && String(f).toLowerCase().includes(query));
-}
+// --- Search Dialog (BM-082: GET /api/searchへの非同期fetch方式。boardのcurrentBoardDataには依存しない) ---
 
-// --- Search Dialog ---
+// 入力停止後にfetchするデバウンス用タイマー。連打的な入力で毎キー毎にAPIを叩かないようにする。
+let searchDebounceTimer = null;
+const SEARCH_DEBOUNCE_MS = 250;
+// 本文検索(「本文も検索する」チェックボックス)のON/OFF状態。モーダルを開き直しても保持する。
+let searchIncludeBody = false;
+// 現在進行中のfetchの世代カウンタ。入力が速いと複数のfetchが同時に飛ぶことがあるため、
+// 最新の入力に対する結果だけを描画する(古い結果が後から返ってきて上書きする事故を防ぐ)。
+let searchRequestSeq = 0;
 
 function getOrCreateSearchModal() {
   let el = document.getElementById('search-modal-overlay');
@@ -2533,7 +2536,8 @@ function getOrCreateSearchModal() {
   el.innerHTML = `
     <div class="modal-content search-modal-content">
       <button class="modal-close" id="search-modal-close">&times;</button>
-      <input type="text" class="search-modal-input" id="search-modal-input" placeholder="タイトル・ID・説明・担当で検索">
+      <input type="text" class="search-modal-input" id="search-modal-input" placeholder="タイトル・ID・担当で検索">
+      <label class="search-modal-body-toggle"><input type="checkbox" id="search-modal-include-body"><span>本文も検索する（3文字以上）</span></label>
       <div class="search-result-list" id="search-result-list"></div>
     </div>
   `;
@@ -2545,7 +2549,7 @@ function getOrCreateSearchModal() {
   closeOnEscape(el, 'modal-visible', closeSearchModal);
   const inputEl = el.querySelector('#search-modal-input');
   inputEl.addEventListener('input', (e) => {
-    renderSearchResults(e.target.value.trim().toLowerCase());
+    scheduleSearchFetch(e.target.value);
   });
   inputEl.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown') {
@@ -2559,108 +2563,167 @@ function getOrCreateSearchModal() {
       activateSearchSelection();
     }
   });
+  const includeBodyEl = el.querySelector('#search-modal-include-body');
+  includeBodyEl.checked = searchIncludeBody;
+  includeBodyEl.addEventListener('change', (e) => {
+    searchIncludeBody = e.target.checked;
+    scheduleSearchFetch(inputEl.value, { immediate: true });
+  });
   return el;
 }
 
 function closeSearchModal() {
   const el = document.getElementById('search-modal-overlay');
   if (el) el.classList.remove('modal-visible');
+  if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null; }
 }
 
 function openSearchModal(initialQuery = '') {
   const el = getOrCreateSearchModal();
   const input = el.querySelector('#search-modal-input');
   input.value = initialQuery;
-  renderSearchResults(initialQuery.trim().toLowerCase());
   el.classList.add('modal-visible');
   input.focus();
+  scheduleSearchFetch(initialQuery, { immediate: true });
 }
 
-// ワークスペース(project) → Epic → 子タスク の階層でグルーピングする
-// （BT-032: 完了カラムのlimitで隠れたタスク／Epic配下の子タスクが検索にかからない問題の解消）
-function buildSearchTree() {
-  const projectMap = new Map(); // project名 -> { epics: Map(epicId -> {epic, children:[]}), singles: [] }
-  if (!currentBoardData) return projectMap;
-  for (const col of currentBoardData.columns) {
-    for (const item of col.items) {
-      if (!item.id || item.id === '-') continue;
-      if (item.parentId) continue; // BT-201: 完了カラムに混在表示中の子タスクは親Epic側で既にカウント済み
-      const proj = item.project || '-';
-      if (!projectMap.has(proj)) projectMap.set(proj, { epics: new Map(), singles: [] });
-      const projEntry = projectMap.get(proj);
-      if (item.children && item.children.length) {
-        const children = item.children
-          .filter(c => c.id && c.id !== '-')
-          .map(c => ({ ...c, project: proj })); // 子タスクはprojectを持たないため親から補う
-        projEntry.epics.set(item.id, { epic: item, children });
-      } else {
-        projEntry.singles.push(item);
-      }
-    }
+// 入力のたびに即座にfetchせず、SEARCH_DEBOUNCE_MS待ってから実行する（immediate指定時は即実行、
+// チェックボックス変更や初期表示など「待たずに結果を見せたい」操作用）。
+function scheduleSearchFetch(rawQuery, { immediate = false } = {}) {
+  if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null; }
+  if (immediate) {
+    fetchAndRenderSearchResults(rawQuery);
+  } else {
+    searchDebounceTimer = setTimeout(() => fetchAndRenderSearchResults(rawQuery), SEARCH_DEBOUNCE_MS);
   }
-  return projectMap;
 }
 
-// 現在の検索クエリに対する表示行（ワークスペース見出し／選択可能なタスク行）を平坦なリストで持つ。
+// 現在の検索結果に対する表示行（ワークスペース見出し／選択可能なタスク行）を平坦なリストで持つ。
 // キーボードの上下移動・Enterでの選択で使う。
 let searchEntries = [];
 let searchSelectableIndices = [];
 let searchSelectedPos = 0;
 
-function buildFilteredEntries(query) {
-  const tree = buildSearchTree();
+// サーバー検索結果(フラットなリスト、親Epic情報はparentId/parentTitle/parentStatusで付与済み)を
+// ワークスペース(project) → Epic → 子タスク の階層にグルーピングする
+// （BT-032由来: 子タスクだけがマッチしても親Epic行を一緒に出す設計を維持）。
+function groupSearchResults(results) {
+  const projectMap = new Map(); // project名 -> { epics: Map(epicId -> {epic, children:[]}), singles: [] }
+  for (const r of results) {
+    const proj = r.project || '-';
+    if (!projectMap.has(proj)) projectMap.set(proj, { epics: new Map(), singles: [] });
+    const projEntry = projectMap.get(proj);
+    if (r.parentId) {
+      // 子タスクのマッチ: 親Epic行が無ければダミーで作っておき、後からchildrenだけ積む
+      if (!projEntry.epics.has(r.parentId)) {
+        projEntry.epics.set(r.parentId, {
+          epic: { id: r.parentId, title: r.parentTitle, status: r.parentStatus, project: proj },
+          children: [],
+          epicMatchedDirectly: false,
+        });
+      }
+      projEntry.epics.get(r.parentId).children.push(r);
+    } else if (r.isEpic) {
+      if (!projEntry.epics.has(r.id)) {
+        projEntry.epics.set(r.id, { epic: r, children: [], epicMatchedDirectly: true });
+      } else {
+        // 子マッチで先にダミーが作られていた場合、本来のEpic行の情報(status等)で上書きする
+        const entry = projEntry.epics.get(r.id);
+        entry.epic = r;
+        entry.epicMatchedDirectly = true;
+      }
+    } else {
+      projEntry.singles.push(r);
+    }
+  }
+  return projectMap;
+}
+
+function buildFilteredEntries(results) {
+  const tree = groupSearchResults(results);
   const entries = [];
   for (const [projName, projEntry] of tree) {
-    const matchedEpics = [];
-    for (const epicEntry of projEntry.epics.values()) {
-      const epicMatches = !query || itemMatchesSearch(epicEntry.epic, query);
-      const matchedChildren = epicEntry.children.filter(c => !query || itemMatchesSearch(c, query));
-      if (epicMatches || matchedChildren.length > 0) {
-        matchedEpics.push({ epic: epicEntry.epic, children: matchedChildren });
-      }
-    }
-    const matchedSingles = projEntry.singles.filter(s => !query || itemMatchesSearch(s, query));
-    if (matchedEpics.length === 0 && matchedSingles.length === 0) continue;
-
     entries.push({ type: 'header', label: projName });
-    for (const me of matchedEpics) {
-      entries.push({ type: 'task', item: me.epic, isChild: false, isEpic: true, indent: 1 });
-      for (const c of me.children) {
+    for (const { epic, children } of projEntry.epics.values()) {
+      entries.push({ type: 'task', item: epic, isChild: false, isEpic: true, indent: 1 });
+      for (const c of children) {
         entries.push({ type: 'task', item: c, isChild: true, indent: 2 });
       }
     }
-    for (const s of matchedSingles) {
+    for (const s of projEntry.singles) {
       entries.push({ type: 'task', item: s, isChild: false, indent: 1 });
     }
   }
   return entries;
 }
 
-function renderSearchResults(query) {
+async function fetchAndRenderSearchResults(rawQuery) {
+  const query = (rawQuery || '').trim();
   const listEl = document.getElementById('search-result-list');
   if (!listEl) return;
 
-  searchEntries = buildFilteredEntries(query);
+  if (!query) {
+    searchEntries = [];
+    searchSelectableIndices = [];
+    searchSelectedPos = 0;
+    listEl.innerHTML = `<div class="search-result-empty">キーワードを入力してね</div>`;
+    return;
+  }
+
+  const seq = ++searchRequestSeq;
+  listEl.innerHTML = `<div class="search-result-empty">検索中...</div>`;
+
+  let data;
+  try {
+    const params = new URLSearchParams({ q: query, includeBody: String(searchIncludeBody) });
+    const res = await fetch(`/api/search?${params.toString()}`);
+    data = await res.json();
+  } catch (e) {
+    if (seq !== searchRequestSeq) return; // より新しい入力に対する結果が既に処理されている
+    listEl.innerHTML = `<div class="search-result-empty">検索に失敗したよ。もう一度試してね</div>`;
+    return;
+  }
+  if (seq !== searchRequestSeq) return; // 入力中に先行fetchが遅れて返ってきた場合は無視する
+
+  renderSearchResults(data.results || [], { bodySearchSkipped: !!data.bodySearchSkipped, query });
+}
+
+function renderSearchResults(results, { bodySearchSkipped = false, query = '' } = {}) {
+  const listEl = document.getElementById('search-result-list');
+  if (!listEl) return;
+
+  searchEntries = buildFilteredEntries(results);
   searchSelectableIndices = [];
   searchEntries.forEach((entry, idx) => { if (entry.type === 'task') searchSelectableIndices.push(idx); });
   searchSelectedPos = 0;
 
+  const skipNoticeHtml = (searchIncludeBody && bodySearchSkipped)
+    ? `<div class="search-result-notice">本文検索は3文字以上のキーワードで有効になるよ（「${escapeHtml(query)}」は${query.length}文字）</div>`
+    : '';
+
   if (searchSelectableIndices.length === 0) {
-    listEl.innerHTML = `<div class="search-result-empty">${query ? '見つからなかったよ' : 'タスクがまだないよ'}</div>`;
+    listEl.innerHTML = `${skipNoticeHtml}<div class="search-result-empty">見つからなかったよ</div>`;
     return;
   }
 
-  listEl.innerHTML = searchEntries.map((entry, idx) => {
+  const rowsHtml = searchEntries.map((entry, idx) => {
     if (entry.type === 'header') {
       return `<div class="search-group-header">${escapeHtml(entry.label)}</div>`;
     }
     const epicIcon = entry.isEpic ? '<span class="epic-icon" title="Epic"><span class="material-icon icon-stacks"></span></span>' : '';
+    const snippetHtml = entry.item.snippet
+      ? `<div class="search-result-snippet">${escapeSearchSnippet(entry.item.snippet)}</div>`
+      : '';
     return `<div class="search-result-item search-indent-${entry.indent}" data-entry-idx="${idx}">
-      ${epicIcon}<span class="search-result-id">${escapeHtml(entry.item.id)}</span>
-      <span class="search-result-title">${escapeHtml(entry.item.title)}</span>
-      <span class="search-result-status">${escapeHtml(entry.item.status || '-')}</span>
+      <div class="search-result-row">
+        ${epicIcon}<span class="search-result-id">${escapeHtml(entry.item.id)}</span>
+        <span class="search-result-title">${escapeHtml(entry.item.title)}</span>
+        <span class="search-result-status">${escapeHtml(entry.item.status || '-')}</span>
+      </div>
+      ${snippetHtml}
     </div>`;
   }).join('');
+  listEl.innerHTML = skipNoticeHtml + rowsHtml;
 
   listEl.querySelectorAll('.search-result-item').forEach(itemEl => {
     const entryIdx = Number(itemEl.dataset.entryIdx);
@@ -2694,20 +2757,58 @@ function updateSearchHighlight() {
   }
 }
 
+// サーバーのsnippet()が'['/']'でヒット箇所を囲んで返す(db/tasks-repo.js searchByBody)。
+// まずHTMLエスケープしてXSSを防ぎ、その後で[ ]を<mark>タグに変換する(エスケープ後の文字列に対して
+// 変換するため、本文中に偶然'['や']'が含まれていてもエスケープ処理自体には影響しない)。
+function escapeSearchSnippet(raw) {
+  const escaped = String(raw).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  return escaped.replace(/\[/g, '<mark>').replace(/\]/g, '</mark>');
+}
+
 function moveSearchSelection(delta) {
   if (searchSelectableIndices.length === 0) return;
   searchSelectedPos = Math.max(0, Math.min(searchSelectableIndices.length - 1, searchSelectedPos + delta));
   updateSearchHighlight();
 }
 
-function activateSearchSelection() {
+// BM-082: 検索APIのレスポンスは軽量な形状(description等を含まない)で、boardのcurrentBoardDataも
+// BM-065によりdescriptionを持たない軽量データになっている。そのため「currentBoardDataにあれば使う」
+// という節約はせず、常に/api/task/:idから完全なデータ(description含む)を個別取得する
+// (BM-083で詳細モーダル側の非同期化が本格対応されるまでの間、検索結果クリックで
+// descriptionが空のモーダルが開かないようにするための橋渡し)。
+// 【注意】buildTaskDetail/buildBoardFromDbが返すitem自体にはparentIdフィールドが無い
+// (子はchildren配列の中にネストされる形のみで、子単体にparent情報が付与されない設計のため)。
+// 親Epicの解決には、検索結果(lightItem)が持つparentIdを使う必要がある。
+async function resolveFullItemForDetail(lightItem) {
+  const full = await fetchTaskDetail(lightItem.id);
+  if (!full) return null;
+  const parentEpic = lightItem.parentId ? await fetchTaskDetail(lightItem.parentId) : null;
+  return { item: full, parentEpic };
+}
+
+async function fetchTaskDetail(id) {
+  const res = await fetch(`/api/task/${encodeURIComponent(id)}`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+// BM-084: gantt.js(別ファイル、グローバルスコープ経由で連携)がホバーツールチップのdescription
+// 非同期取得に使うアクセサ。letで宣言したlastRenderedFullItemByIdはwindowのプロパティには
+// ならない(var/functionと違うES6の仕様)ため、関数経由で明示的に公開する。
+function getCachedFullTaskItem(id) {
+  return lastRenderedFullItemById.get(id) || null;
+}
+
+async function activateSearchSelection() {
   const entryIdx = searchSelectableIndices[searchSelectedPos];
   if (entryIdx === undefined) return;
   const entry = searchEntries[entryIdx];
   if (!entry) return;
   closeSearchModal();
-  if (entry.isChild) openChildModal(entry.item);
-  else openCardDetail(entry.item);
+  const resolved = await resolveFullItemForDetail(entry.item);
+  if (!resolved) return;
+  if (entry.isChild) openChildModal(resolved.item, resolved.parentEpic);
+  else openCardDetail(resolved.item);
 }
 
 function escapeHtml(str) {
@@ -2902,7 +3003,14 @@ function formatDescription(desc) {
 }
 
 // 説明欄のHTML生成（BT-080: 長い説明は2行に折りたたみ、▼で展開できるようにする）
-function buildDescriptionSectionHtml(description) {
+// BM-083: descriptionキー自体が無いitem(board用の軽量データ、取得中)は「読み込み中...」を出す。
+// descriptionキーがあって空文字(buildTaskDetail経由で本当に説明が無いタスク)は従来通り非表示にする。
+function buildDescriptionSectionHtml(item) {
+  const hasKey = item && Object.prototype.hasOwnProperty.call(item, 'description');
+  if (!hasKey) {
+    return `<div class="detail-section detail-description-section"><div class="detail-section-heading"><h4>説明</h4></div><p class="description-loading">読み込み中...</p></div>`;
+  }
+  const description = item.description;
   if (!description) return '';
   return `<div class="detail-section detail-description-section"><div class="detail-section-heading"><h4>説明</h4><button type="button" class="description-toggle-btn" hidden aria-expanded="false">▼ もっと見る</button></div><div class="description-collapsible"><p class="description-text">${formatDescription(description)}</p></div></div>`;
 }
@@ -3983,11 +4091,30 @@ function findChildItemById(id) {
   return null;
 }
 
+// 最後にモーダルへ描画した完全なitem(description取得済み)をタスクIDで保持する。
+// BM-083: WebSocketのboard再送(他ユーザー/他タブの操作含む)でrefreshModalIfOpen/
+// refreshChildModalIfOpenが呼ばれるたびにfindItemById(軽量版、descriptionキー無し)で
+// 作り直すと、せっかく非同期取得した説明文が「読み込み中...」に戻ってしまう。
+// 直前に完全データで描画したタスクであれば、再送されたitemのdescription以外のフィールド
+// (status等、WS再送で更新されうる値)だけ使い、descriptionは保持済みの値を引き継ぐ。
+let lastRenderedFullItemById = new Map(); // taskId -> 完全なitem(description含む)
+
+function mergeKeepingDescription(lightItem) {
+  if (!lightItem || !lightItem.id) return lightItem;
+  if (Object.prototype.hasOwnProperty.call(lightItem, 'description')) {
+    lastRenderedFullItemById.set(lightItem.id, lightItem);
+    return lightItem;
+  }
+  const prevFull = lastRenderedFullItemById.get(lightItem.id);
+  if (!prevFull) return lightItem; // まだ完全データを持っていない(初回取得中)ので軽量版のまま
+  return { ...lightItem, description: prevFull.description };
+}
+
 function refreshModalIfOpen() {
   refreshChildModalIfOpen();
   if (!currentModalItemId || !modalEl || !modalEl.classList.contains('modal-visible')) return;
   const item = findItemById(currentModalItemId);
-  if (item) renderModalContent(item);
+  if (item) renderModalContent(mergeKeepingDescription(item));
 }
 
 // BT-366: 子詳細モーダルもWS更新で最新化する（停止ボタン押下後に「停止中...」のまま残るのを防ぐ）。
@@ -3997,7 +4124,7 @@ function refreshChildModalIfOpen() {
   const el = document.getElementById('child-modal-overlay');
   if (!el || !el.classList.contains('modal-visible')) return;
   if (el.querySelector('#edit-task-title')) return;
-  const item = findChildItemById(currentChildModalItemId) || findItemById(currentChildModalItemId);
+  const item = mergeKeepingDescription(findChildItemById(currentChildModalItemId) || findItemById(currentChildModalItemId));
   if (item) openChildModal(item);
 }
 
@@ -4012,6 +4139,34 @@ function openCardDetail(item, parentEpic = null) {
     modalParentEpic = null;
     modal.classList.add('modal-visible');
     renderModalContent(item);
+    loadFullDescriptionIfMissing(item, currentModalItemId, renderModalContent);
+  }
+}
+
+// BM-083/BM-084: board用の軽量item(descriptionキーを持たない)が渡された場合、まず軽量な内容で
+// 即座に描画(呼び出し元で既に実施済み)したうえで、/api/task/:idから完全なデータ(description含む)を
+// 非同期取得して再描画する。取得完了までの間にモーダル/TIPが閉じられた・別タスクに切り替わっていた
+// 場合は再描画しない。isStillValidを省略した場合は詳細モーダル(currentModalItemId/
+// currentChildModalItemId)向けの判定を使う(既存呼び出し元との後方互換)。クイックTIP等、
+// 独自の状態管理を持つ呼び出し元はisStillValidコールバックを渡して判定方法を差し替えられる。
+async function loadFullDescriptionIfMissing(item, expectedModalItemId, rerender, isStillValid = null) {
+  if (Object.prototype.hasOwnProperty.call(item, 'description')) {
+    lastRenderedFullItemById.set(item.id, item); // 既に完全なデータ(検索結果経由等)。キャッシュだけ更新
+    return;
+  }
+  if (!item.id || item.id === '-') return;
+  try {
+    const res = await fetch(`/api/task/${encodeURIComponent(item.id)}`);
+    if (!res.ok) return;
+    const full = await res.json();
+    lastRenderedFullItemById.set(item.id, full); // WS再送時にdescriptionを保持するためキャッシュしておく
+    const stillValid = isStillValid
+      ? isStillValid()
+      : (currentModalItemId === expectedModalItemId || currentChildModalItemId === expectedModalItemId);
+    if (!stillValid) return;
+    rerender(full);
+  } catch (e) {
+    console.error('[detail] Failed to load full task detail:', e);
   }
 }
 
@@ -4068,6 +4223,7 @@ function buildParentBreadcrumbHtml(epic, item) {
 
 function openChildModal(item, parentEpic = null) {
   currentChildModalItemId = item.id;
+  loadFullDescriptionIfMissing(item, item.id, (full) => openChildModal(full, parentEpic));
   const modal = getOrCreateChildModal();
   const body = modal.querySelector('.modal-body');
   const content = modal.querySelector('.modal-content');
@@ -4085,7 +4241,7 @@ function openChildModal(item, parentEpic = null) {
   const project = item.project ? `<span class="detail-tag project">${escapeHtml(item.project)}</span>` : '';
   const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
 
-  const desc = buildDescriptionSectionHtml(item.description);
+  const desc = buildDescriptionSectionHtml(item);
 
   // 成果物セクション
   const artifactsHtml = buildArtifactsHtml(item);
@@ -4213,8 +4369,14 @@ function openChildModal(item, parentEpic = null) {
   // 複製ボタンのイベント（BM-061: 子タスク→親に紐付けない独立したトップレベルタスクとして複製）
   const copyBtnEl = body.querySelector('#modal-copy-btn');
   if (copyBtnEl) {
-    copyBtnEl.addEventListener('click', () => {
-      openAddTaskForm('todo', item.project, '', { title: item.title, description: item.description });
+    copyBtnEl.addEventListener('click', async () => {
+      // BM-083: board用の軽量item(descriptionキー無し)のまま複製すると説明文が空のタスクが
+      // 作られてしまうため、クリックされた瞬間に完全なデータを確定させてから複製フォームを開く。
+      let full = item;
+      if (!Object.prototype.hasOwnProperty.call(item, 'description')) {
+        full = lastRenderedFullItemById.get(item.id) || await fetchTaskDetail(item.id) || item;
+      }
+      openAddTaskForm('todo', full.project, '', { title: full.title, description: full.description });
     });
   }
 
@@ -4273,6 +4435,20 @@ async function detachTask(taskId) {
  * @param {(item: object) => void} renderFn - 表示モードに戻す際に呼ぶ描画関数
  */
 function enterEditMode(item, body, isArchivedSingle, renderFn) {
+  // BM-083: board用の軽量item(descriptionキー無し)で編集フォームを開くと、取得前の空文字を
+  // 保存して本文を消してしまう事故になる。キーが無い場合は完全なデータを取得してから
+  // 編集フォームを開き直す(キャッシュがあれば先にそれを使う、無ければ/api/task/:idを待つ)。
+  if (!Object.prototype.hasOwnProperty.call(item, 'description')) {
+    const cached = lastRenderedFullItemById.get(item.id);
+    if (cached) {
+      enterEditMode(cached, body, isArchivedSingle, renderFn);
+    } else {
+      fetchTaskDetail(item.id).then(full => {
+        if (full) enterEditMode(full, body, isArchivedSingle, renderFn);
+      });
+    }
+    return;
+  }
   const descValue = item.description || '';
   const descField = isArchivedSingle
     ? `<div class="detail-section"><p class="archived-note">完了済みタスクのため説明は編集できないよ</p></div>`
@@ -4818,7 +4994,7 @@ function renderModalContent(item) {
     badgeHtml = `<span class="card-badge ${badgeClass}"><span class="badge-num"><span class="material-icon icon-check"></span>${item.childrenDone}</span><span class="badge-den">/${item.childrenTotal}</span></span>`;
   }
 
-  const desc = buildDescriptionSectionHtml(item.description);
+  const desc = buildDescriptionSectionHtml(item);
 
   // 成果物セクション
   const artifactsHtml = buildArtifactsHtml(item);
@@ -4968,8 +5144,14 @@ function renderModalContent(item) {
   // 複製ボタンのイベント（BM-061: タイトル・説明だけ引き継いだ新規作成フォームを開く）
   const copyBtnEl = body.querySelector('#modal-copy-btn');
   if (copyBtnEl) {
-    copyBtnEl.addEventListener('click', () => {
-      openAddTaskForm('todo', item.project, '', { title: item.title, description: item.description });
+    copyBtnEl.addEventListener('click', async () => {
+      // BM-083: board用の軽量item(descriptionキー無し)のまま複製すると説明文が空のタスクが
+      // 作られてしまうため、クリックされた瞬間に完全なデータを確定させてから複製フォームを開く。
+      let full = item;
+      if (!Object.prototype.hasOwnProperty.call(item, 'description')) {
+        full = lastRenderedFullItemById.get(item.id) || await fetchTaskDetail(item.id) || item;
+      }
+      openAddTaskForm('todo', full.project, '', { title: full.title, description: full.description });
     });
   }
 
@@ -5387,6 +5569,14 @@ function positionTaskQuickTip(tip) {
   tip.style.top = `${Math.max(margin, top)}px`;
 }
 
+// BM-084: descriptionキー自体が無いitem(board用の軽量データ、取得中)は「読み込み中...」を出す
+// (BM-083のbuildDescriptionSectionHtmlと同じ考え方)。
+function buildTaskQuickTipDescriptionInner(item) {
+  const hasKey = Object.prototype.hasOwnProperty.call(item, 'description');
+  if (!hasKey) return '<span class="task-quick-tip-description-loading">読み込み中...</span>';
+  return item.description ? escapeHtml(item.description) : '<span>説明はありません</span>';
+}
+
 function buildTaskQuickTipHtml(item) {
   const meta = [];
   if (item.category && item.category !== '-') meta.push(`<span class="task-quick-tip-tag">${escapeHtml(item.category)}</span>`);
@@ -5403,7 +5593,7 @@ function buildTaskQuickTipHtml(item) {
   return `
     <div class="task-quick-tip-header"><span class="task-quick-tip-id">${escapeHtml(item.id || '-')}</span><div class="task-quick-tip-header-right">${editBtn}<span class="task-quick-tip-hint">Esc または外側クリックで閉じる</span></div></div>
     <div class="task-quick-tip-title">${escapeHtml(item.title || '')}</div>
-    <div class="task-quick-tip-description">${item.description ? escapeHtml(item.description) : '<span>説明はありません</span>'}</div>
+    <div class="task-quick-tip-description">${buildTaskQuickTipDescriptionInner(item)}</div>
     ${meta.length ? `<div class="task-quick-tip-meta">${meta.join('')}</div>` : ''}
     ${artifacts ? `<div class="task-quick-tip-artifacts"><span>成果物</span><ul>${artifacts}${moreArtifacts}</ul></div>` : ''}
   `;
@@ -5433,6 +5623,20 @@ function buildTaskQuickTipEditHtml(item, isArchivedSingle) {
 }
 
 function enterTaskQuickTipEditMode(tip, item) {
+  // BM-084: board用の軽量item(descriptionキー無し)のまま編集フォームを開くと、取得前の空文字を
+  // 保存して本文を消してしまう事故になる(BM-083のenterEditModeと同じ対策)。
+  // キーが無い場合は完全なデータを取得してから編集フォームを開き直す。
+  if (!Object.prototype.hasOwnProperty.call(item, 'description')) {
+    const cached = lastRenderedFullItemById.get(item.id);
+    if (cached) {
+      enterTaskQuickTipEditMode(tip, cached);
+    } else {
+      fetchTaskDetail(item.id).then(full => {
+        if (full) enterTaskQuickTipEditMode(tip, full);
+      });
+    }
+    return;
+  }
   const isEpic = item.childrenTotal > 0;
   const isArchivedSingle = !isEpic && item.statusCode === 'done';
   tip.innerHTML = buildTaskQuickTipEditHtml(item, isArchivedSingle);
@@ -5532,6 +5736,25 @@ function setupTaskQuickTip(card, item) {
     wireTaskQuickTipEditButton(tip, item);
     tip.classList.add('task-quick-tip-visible');
     positionTaskQuickTip(tip);
+
+    // BM-084: board用の軽量item(descriptionキー無し)の場合、表示直後に完全なデータを
+    // 非同期取得して再描画する(BM-083のloadFullDescriptionIfMissingと同じパターン)。
+    // TIPが開いたままタスクIDが変わっていない場合のみ再描画する(閉じた後に遅れて
+    // 結果が返ってきて別タスクのTIPを上書きする事故を防ぐ。TIPはモーダルと違う独自の
+    // 開閉状態を持つため、isStillValidコールバックで判定方法を差し替える)。
+    const targetId = item.id;
+    const isTipStillShowingThisTask = () => {
+      if (!tip.classList.contains('task-quick-tip-visible')) return false;
+      if (tip.querySelector('.task-quick-tip-edit-form')) return false; // 編集フォーム表示中は壊さない
+      const currentIdEl = tip.querySelector('.task-quick-tip-id');
+      return !!currentIdEl && currentIdEl.textContent === (targetId || '-');
+    };
+    loadFullDescriptionIfMissing(item, targetId, (full) => {
+      Object.assign(item, full); // 以後のwireTaskQuickTipEditButton等が同じitem参照を使うため上書きする
+      tip.innerHTML = buildTaskQuickTipHtml(item);
+      wireTaskQuickTipEditButton(tip, item);
+      positionTaskQuickTip(tip);
+    }, isTipStillShowingThisTask);
   });
 }
 

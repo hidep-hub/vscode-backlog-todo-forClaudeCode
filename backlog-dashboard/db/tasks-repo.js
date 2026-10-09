@@ -35,6 +35,21 @@ function getByDisplayId(db, displayId) {
 }
 
 /**
+ * 内部ID(tasks.id)から1件取得する(BM-081: 検索結果の親タスク解決に使う。
+ * parent_idは内部IDで保持されているためdisplayIdでは引けない)。無ければnull。
+ */
+function getById(db, id) {
+  return db.prepare('SELECT * FROM tasks WHERE id = ? AND deleted_at IS NULL').get(id) || null;
+}
+
+/**
+ * 指定タスクの直下の子の件数(削除済み除く)を返す(BM-081: 検索結果のEpic判定に使う)。
+ */
+function countChildren(db, taskId) {
+  return db.prepare('SELECT COUNT(*) AS c FROM tasks WHERE parent_id = ? AND deleted_at IS NULL').get(taskId).c;
+}
+
+/**
  * 指定ワークスペースの全タスク(削除済み除く)をフラットに返す。
  */
 function listByWorkspace(db, workspace) {
@@ -46,6 +61,30 @@ function listByWorkspace(db, workspace) {
  */
 function listAll(db) {
   return db.prepare('SELECT * FROM tasks WHERE deleted_at IS NULL ORDER BY workspace, sort_order').all();
+}
+
+// board用途ではdescriptionを転送しない(BM-065: ブラウザが全量データを持つことによる
+// ペイロード肥大化対策)。descriptionが必要な単体詳細取得(buildTaskDetail)は
+// listAll/listByWorkspaceではなくgetByDisplayId(SELECT *)を使うため影響を受けない。
+const BOARD_COLUMNS = `
+  id, workspace, seq_no, display_id, parent_id, title, status, category, assignee,
+  start_date, due_date, github_issue_number, github_issue_url, commit_hash, sort_order,
+  completed_at, deleted_at, created_at, created_by, updated_at, updated_by
+`;
+
+/**
+ * 全ワークスペースの全タスク(削除済み除く)をフラットに返す(board用、description列を含まない)。
+ */
+function listAllForBoard(db) {
+  return db.prepare(`SELECT ${BOARD_COLUMNS} FROM tasks WHERE deleted_at IS NULL ORDER BY workspace, sort_order`).all();
+}
+
+/**
+ * 指定ワークスペースの全タスク(削除済み除く)をフラットに返す(board用、description列を含まない)。
+ * ?workspace=xxxでの絞り込み(BM-065)に使う。
+ */
+function listByWorkspaceForBoard(db, workspace) {
+  return db.prepare(`SELECT ${BOARD_COLUMNS} FROM tasks WHERE workspace = ? AND deleted_at IS NULL ORDER BY sort_order`).all(workspace);
 }
 
 /**
@@ -496,10 +535,58 @@ function listGithubLinkedNumbers(db, workspace) {
   return new Set(rows.map(r => String(r.github_issue_number)));
 }
 
+// BM-081: サーバー側検索API用。ワークスペース横断(常に全件対象、boardの絞り込み状態と無関係)で
+// タイトル/ID/担当者をLIKE、本文(description)をFTS5(trigram)で検索する。
+// LIKEの'%','_','\'はエスケープし、ユーザー入力をそのままワイルドカードとして使わせない。
+function escapeLikePattern(value) {
+  return value.replace(/[\\%_]/g, c => `\\${c}`);
+}
+
+/**
+ * タイトル・表示ID・担当者を対象にLIKE検索する(ワークスペース横断、常に全件)。
+ * 大文字小文字区別なし(LIKEのデフォルト、ASCII範囲)。
+ * @returns {Array} tasks行の配列(deleted_at IS NULL、SELECT *なのでdescriptionも含むが
+ *   呼び出し側(server.js)でレスポンスに含めるかどうかを判断する)
+ */
+function searchByTitleIdAssignee(db, query, { limit = 50 } = {}) {
+  const pattern = `%${escapeLikePattern(query)}%`;
+  return db.prepare(`SELECT * FROM tasks
+    WHERE deleted_at IS NULL
+      AND (title LIKE ? ESCAPE '\\' OR display_id LIKE ? ESCAPE '\\' OR assignee LIKE ? ESCAPE '\\')
+    ORDER BY workspace, sort_order
+    LIMIT ?`).all(pattern, pattern, pattern, limit);
+}
+
+// FTS5のMATCH右辺はクエリ構文(AND/OR/-/*/"等)として解釈される。ユーザー入力をそのまま渡すと
+// 括弧やダブルクォートを含む検索語でsyntax errorになる(実機検証済み)。ダブルクォートで囲んで
+// リテラルフレーズとして扱わせ、内部のダブルクォートは""にエスケープする(FTS5仕様上の表記)。
+function quoteForFtsPhrase(query) {
+  return `"${query.replace(/"/g, '""')}"`;
+}
+
+/**
+ * 本文(description)をFTS5(trigram)で検索する(ワークスペース横断、常に全件)。
+ * trigramは3文字未満のクエリだと常に0件になる(インデックス構造上の制約、実機検証済み)ため、
+ * 呼び出し側で3文字未満の場合はこの関数を呼ばず空配列を返す運用にする。
+ * @returns {Array<{task: object, snippet: string}>} タスク行とスニペット(本文中のヒット箇所抜粋)の配列
+ */
+function searchByBody(db, query, { limit = 50 } = {}) {
+  if (!query || query.length < 3) return [];
+  const ftsQuery = quoteForFtsPhrase(query);
+  const rows = db.prepare(`SELECT t.*, snippet(tasks_fts, 1, '[', ']', '...', 12) AS snippet
+    FROM tasks_fts
+    JOIN tasks t ON t.id = tasks_fts.rowid
+    WHERE tasks_fts MATCH ? AND t.deleted_at IS NULL
+    ORDER BY t.workspace, t.sort_order
+    LIMIT ?`).all(ftsQuery, limit);
+  return rows.map(r => ({ task: r, snippet: r.snippet }));
+}
+
 module.exports = {
-  getByDisplayId, listByWorkspace, listAll, allocateSeq, create, updateStatus,
+  getByDisplayId, getById, countChildren, listByWorkspace, listAll, listAllForBoard, listByWorkspaceForBoard,
+  allocateSeq, create, updateStatus,
   setPin, setRunning, isPinned, isRunning, updateFields, updateCommitHash, setArtifacts, softDelete,
   attachToParent, detachFromParent, reorder, moveWorkspace, getEffectiveStatus,
   setGithubLink, getChildren, findByGithubIssueNumber, listGithubLinkedNumbers, insertEvent, normalizeActor,
-  listDueDateHistory,
+  listDueDateHistory, searchByTitleIdAssignee, searchByBody,
 };
