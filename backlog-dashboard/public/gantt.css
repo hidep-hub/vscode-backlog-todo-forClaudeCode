@@ -64,6 +64,9 @@
 .gantt-zoom .gantt-btn:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
 .gantt-check { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .gantt-stats { display: inline-flex; align-items: center; gap: 6px; }
+.gantt-selection-actions { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.gantt-selection-count { font-size: 0.74rem; color: var(--accent); white-space: nowrap; }
+.gantt-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .gantt-stat {
   border: 1px solid var(--border);
@@ -242,6 +245,22 @@ button.gantt-stat { cursor: pointer; }
 }
 
 .gantt-label-task { cursor: pointer; }
+.gantt-label-task.is-selecting { cursor: pointer; }
+.gantt-label-task.is-selecting:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.gantt-selection-mark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  box-sizing: border-box;
+  border: 1px solid var(--text-muted);
+  border-radius: 3px;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+.gantt-selection-mark.is-selected { background: var(--accent); border-color: var(--accent); }
 
 /* BM-033: EPIC配下の子タスク行。背景はテーマのaccentから薄く計算し、固定色は使わない。
    transparentではなくvar(--surface)と混ぜて不透明にする(半透明だと後ろのガントの祝日バンド等が透けて見えてしまうため) */

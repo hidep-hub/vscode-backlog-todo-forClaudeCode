@@ -5843,7 +5843,7 @@ function setBulkDueDate(taskIds, dueDate) {
 }
 
 // gantt.js は app.js より先に読み込まれるため、実行時に参照できる公開APIとしても渡す。
-window.bulkTaskActions = { setPinned: setBulkPinned, setDueDate: setBulkDueDate };
+window.bulkTaskActions = { setPinned: setBulkPinned, setDueDate: setBulkDueDate, openDueDatePicker };
 
 function finishSelectionMode() {
   selectionMode = false;
