@@ -4649,6 +4649,9 @@ body {
   opacity: 0;
   pointer-events: none;
   transition: transform 0.2s ease, opacity 0.2s ease;
+  max-width: calc(100vw - 24px);
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .selection-bar.selection-bar-visible {
@@ -4693,6 +4696,19 @@ body {
 }
 
 .selection-bar-move:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.selection-bar-pin,
+.selection-bar-due {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.selection-bar-pin:hover,
+.selection-bar-due:hover {
   background: var(--accent);
   color: #fff;
 }
