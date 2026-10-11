@@ -78,6 +78,8 @@
     extraAfter: 0,          // 範囲を未来へ広げた週数
     needsInitialScroll: true,
     scrollTarget: null,     // 'left'|'right': 「4週」で範囲を広げた直後に、増えた側へスクロールする
+    selecting: false,       // 複数選択モード。EPIC・完了タスクは対象外
+    selectedIds: new Set(),
   };
 
   let current = null;       // { container, ctx, scrollEl, lookup, range, dw }
@@ -254,6 +256,8 @@
           <button type="button" class="gantt-btn${state.zoom === 'week' ? ' is-on' : ''}" data-act="zoom" data-zoom="week">週</button>
         </span>
         <label class="gantt-check"><input type="checkbox" data-act="show-done"${state.showDone ? ' checked' : ''}> 完了を表示</label>
+        <button type="button" class="gantt-btn${state.selecting ? ' is-on' : ''}" data-act="toggle-select" title="複数の未完了タスクを選択して一括操作">選択</button>
+        ${state.selecting ? `<span class="gantt-selection-actions"><span class="gantt-selection-count">${state.selectedIds.size}件選択中</span><button type="button" class="gantt-btn" data-act="bulk-pin"${state.selectedIds.size ? '' : ' disabled'}>📌 ピン留め</button><button type="button" class="gantt-btn" data-act="bulk-unpin"${state.selectedIds.size ? '' : ' disabled'}>📌 ピン解除</button><button type="button" class="gantt-btn" data-act="bulk-due"${state.selectedIds.size ? '' : ' disabled'}>期日を設定</button></span>` : ''}
         <span class="gantt-stats">
           ${stats.overdue ? `<button type="button" class="gantt-stat gantt-stat-overdue" data-act="jump-overdue" title="期日を過ぎて未完了のタスク。クリックで一番古いものへ移動">遅延 ${stats.overdue}件</button>` : ''}
           ${stats.lateStart ? `<span class="gantt-stat gantt-stat-late" title="開始日を過ぎたのにTODO/READYのまま">開始遅れ ${stats.lateStart}件</span>` : ''}
@@ -367,7 +371,9 @@
       const stateCell = `<span class="gantt-state">${running || '<span class="gantt-running-slot"></span>'}<span class="gantt-status-text st-${esc(item.statusCode)}" title="${esc(item.status || item.statusCode)}">${esc(String(item.statusCode).toUpperCase())}</span></span>`;
       // BM-033: 子タスクはis-childでツリー線用の背景・インデントを付与。is-lastは縦線を自分の行で止める印
       const childCls = r.parent ? ` is-child${r.isLast ? ' is-last' : ''}` : '';
-      const label = `<div class="gantt-label gantt-label-task${childCls}" data-act="open" data-task-id="${esc(item.id)}">${stateCell}<span class="gantt-id">${esc(item.id)}</span><span class="gantt-title">${esc(item.title)}</span>${pin}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;
+      const selectable = state.selecting && !done;
+      const selectionMark = selectable ? `<span class="gantt-selection-mark${state.selectedIds.has(item.id) ? ' is-selected' : ''}" aria-hidden="true">${state.selectedIds.has(item.id) ? '✓' : ''}</span>` : '';
+      const label = `<div class="gantt-label gantt-label-task${childCls}${selectable ? ' is-selecting' : ''}" data-act="${selectable ? 'select-task' : 'open'}" data-task-id="${esc(item.id)}">${selectionMark}${stateCell}<span class="gantt-id">${esc(item.id)}</span><span class="gantt-title">${esc(item.title)}</span>${pin}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;
 
       let trackInner = '';
       let trackClass = 'gantt-track';
@@ -527,6 +533,22 @@
       rerender();
       return;
     }
+    if (act === 'toggle-select') {
+      state.selecting = !state.selecting;
+      if (!state.selecting) state.selectedIds.clear();
+      rerender();
+      return;
+    }
+    if (act === 'select-task') {
+      const id = actEl.dataset.taskId;
+      if (state.selectedIds.has(id)) state.selectedIds.delete(id); else state.selectedIds.add(id);
+      rerender();
+      return;
+    }
+    if (act === 'bulk-pin' || act === 'bulk-unpin' || act === 'bulk-due') {
+      applyBulkSelection(act, actEl);
+      return;
+    }
     if (act === 'jump-overdue') { if (current.stats.oldestOverdue) scrollToDate(current.stats.oldestOverdue); return; }
     if (act === 'toggle-ws') {
       const ws = actEl.dataset.ws;
@@ -561,6 +583,28 @@
       console.error('[gantt] save failed:', err);
     }
     rerender();
+  }
+
+  async function applyBulkSelection(action, anchor) {
+    const actions = root.bulkTaskActions;
+    const ids = [...state.selectedIds];
+    if (!actions || !ids.length) return;
+    let ok = false;
+    if (action === 'bulk-pin') ok = await actions.setPinned(ids, true);
+    else if (action === 'bulk-unpin') ok = await actions.setPinned(ids, false);
+    else if (action === 'bulk-due' && typeof actions.openDueDatePicker === 'function') {
+      actions.openDueDatePicker(anchor, '', async (dueDate) => {
+        if (await actions.setDueDate(ids, dueDate)) {
+          state.selectedIds.clear();
+          rerender();
+        }
+      });
+      return;
+    }
+    if (ok) {
+      state.selectedIds.clear();
+      rerender();
+    }
   }
 
   // ---- ドラッグ(バーの移動/リサイズ、未計画行の範囲設定) ----
