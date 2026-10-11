@@ -86,6 +86,32 @@ const DDL = [
     actor TEXT NOT NULL,
     occurred_at TEXT NOT NULL
   )`,
+  // BT-392: タグ機能(EPIC BT-391)。tasksは拡張せず、deliverables/pinsと同じ付随テーブル方式で持つ。
+  // name_keyは表記ゆれ(大小文字・全半角・前後空白)を正規化した重複判定用キーで、生成はアプリ側(BT-393)。
+  // UNIQUE(workspace, name_key)により、同一ワークスペース内の似たタグ乱立をDBレベルでも防ぐ。
+  `CREATE TABLE IF NOT EXISTS tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace TEXT NOT NULL,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL,
+    color TEXT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT NOT NULL,
+    UNIQUE(workspace, name_key)
+  )`,
+  // タグ削除・統合時に付与行が残らないよう、tag_id側はON DELETE CASCADE。
+  // タスクは論理削除のためtask_id側のCASCADEは不要(付与は論理削除後も保持される)。
+  `CREATE TABLE IF NOT EXISTS task_tags (
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    PRIMARY KEY (task_id, tag_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag_id)`,
 ];
 
 // BM-081: タイトル・本文(description)のサーバー側全文検索用FTS5仮想テーブル。

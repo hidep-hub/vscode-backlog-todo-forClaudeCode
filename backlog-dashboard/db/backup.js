@@ -24,6 +24,8 @@ const COUNT_TABLES = {
   executionSessions: 'SELECT COUNT(*) AS n FROM task_execution_sessions',
   pins: 'SELECT COUNT(*) AS n FROM pins',
   runningTasks: 'SELECT COUNT(*) AS n FROM running_tasks',
+  tags: 'SELECT COUNT(*) AS n FROM tags',
+  taskTags: 'SELECT COUNT(*) AS n FROM task_tags',
 };
 
 function pad(n, len = 2) {
