@@ -301,6 +301,12 @@ button.gantt-stat { cursor: pointer; }
 .gantt-epic-icon { display: inline-flex; align-items: center; }
 .gantt-epic-icon .material-icon { width: 14px; height: 14px; }
 .gantt-id { color: var(--text-muted); font-size: 0.7rem; flex: none; }
+/* タイトルの右のタグ。タイトルより先に縮まないよう幅の上限を持たせ、はみ出す分は切る(全文はホバーのtitle) */
+.gantt-tags { flex: 0 1 auto; min-width: 0; max-width: 34%; overflow: hidden; display: inline-flex; align-items: center; }
+.gantt-tags .card-tags { flex-wrap: nowrap; }
+/* 行の幅が限られるため、チップは短めに切り、タイトルが読める最小幅を確保する(ラベル列の幅を広げればタグも広がる) */
+.gantt-tags .tag-chip-sm { max-width: 5.5em; }
+.gantt-label:has(.gantt-tags) .gantt-title { min-width: 5em; }
 .gantt-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 
 .gantt-count {

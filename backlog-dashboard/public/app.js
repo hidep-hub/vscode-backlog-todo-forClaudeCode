@@ -3732,6 +3732,8 @@ function renderPlanGantt() {
     holidayName: (ymd) => (window.jpHolidays ? window.jpHolidays.getHolidayName(ymd) : null),
     groupByWorkspace: !currentFilter && projects.size > 1,
     footerCounts: { total: totalCounts, shown: shownCounts, filterLabel },
+    // タイトルの右に出すタグ。EPICは自分のタグに子由来のタグ(薄)を続ける
+    tagsHtml: (item) => tagLogic.buildCardTagsHtml(item.tags, item.childTags, 2),
     onSaveDates: planSaveGanttDates,
     onOpen: (item, parentEpic) => {
       if (parentEpic) {
@@ -3933,6 +3935,7 @@ function getOrCreatePlanBoardModal() {
           <button type="button" class="plan-search-clear-btn" id="plan-search-clear-btn" title="絞込解除">&#10005;</button>
         </div>
         <button type="button" class="plan-pin-filter-btn" id="plan-pin-filter-btn" title="📌ピンを付けたタスクだけ表示する（EPICは子に📌があればEPICごと表示）"><span class="material-icon icon-keep"></span><span class="plan-pin-count" id="plan-pin-count"></span></button>
+        <button type="button" class="plan-pin-filter-btn plan-tag-filter-btn tag-filter-trigger" id="plan-tag-filter-btn" aria-haspopup="dialog" title="タグで絞り込み（ボード・週次計画・ガント共通）"><span class="material-icon icon-tag"></span><span class="tag-filter-count" hidden></span></button>
         <button type="button" class="plan-pin-filter-btn plan-done-filter-btn" id="plan-done-filter-btn"><span class="material-icon icon-check-box"></span></button>
         <button class="plan-board-close" id="plan-board-close">&times;</button>
       </div>
@@ -3983,6 +3986,10 @@ function getOrCreatePlanBoardModal() {
     planPinOnly = !planPinOnly;
     renderPlanBoard();
   });
+
+  // BT-397: 計画画面を開くとヘッダーのタグ絞り込みが隠れるため、画面内にも同じボタンを置く（状態・条件はヘッダーと共通）
+  overlay.querySelector('#plan-tag-filter-btn').addEventListener('click', (e) => toggleTagFilterPopover(e.currentTarget));
+  renderTagFilterControls();
 
   // BT-315: 完了タスクを出すかどうかのトグル（週次カンバンのみ）
   overlay.querySelector('#plan-done-filter-btn').addEventListener('click', () => {

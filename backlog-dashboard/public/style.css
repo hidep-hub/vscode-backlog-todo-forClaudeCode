@@ -6106,3 +6106,23 @@ body {
   justify-content: space-between;
   gap: 8px;
 }
+
+/* 週次計画/ガント画面内のタグ絞り込みボタン(BT-397)。件数バッジを角に載せる */
+.plan-tag-filter-btn {
+  position: relative;
+}
+
+/* タグ絞り込みの「クリア」(選択解除)。条件切替の行の右端 */
+.tag-filter-clear-sel {
+  margin-left: auto;
+  padding: 1px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.tag-filter-clear-sel:hover:not(:disabled) { background: var(--drop-highlight); }
+.tag-filter-clear-sel:disabled { color: var(--text-muted); opacity: 0.5; cursor: default; }

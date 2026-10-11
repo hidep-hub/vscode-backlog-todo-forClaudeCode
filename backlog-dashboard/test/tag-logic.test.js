@@ -233,3 +233,40 @@ test('タグ絞り込みはボード・週次計画・ガントに配線され�
   has(tagsJs, "localStorage.setItem('tagFilter'");
   has(css, '.tag-filter-btn.filter-active');
 });
+
+test('週次計画・ガント画面の中にも、ヘッダーと状態を共有するタグ絞り込みボタンがある (BT-397)', () => {
+  const has = (src, text) => assert.ok(src.includes(text), `含まれる: ${text}`);
+  has(app, 'id="plan-tag-filter-btn"');
+  has(app, "overlay.querySelector('#plan-tag-filter-btn').addEventListener('click', (e) => toggleTagFilterPopover(e.currentTarget));");
+  has(html, 'class="activity-btn tag-filter-btn tag-filter-trigger"');
+  has(tagsJs, 'function toggleTagFilterPopover(anchor)');
+  has(tagsJs, "document.querySelectorAll('.tag-filter-trigger')");
+  has(tagsJs, "e.target.closest('.tag-filter-trigger')");
+  has(css, '.plan-tag-filter-btn');
+  // ポップオーバー(1300)は計画画面(.plan-board-overlay)より手前に出る
+  const z = (selector) => {
+    const start = css.indexOf(`\n${selector} {`);
+    assert.ok(start >= 0, `${selector} のルールがある`);
+    return Number(/z-index:\s*(\d+)/.exec(css.slice(start, css.indexOf('}', start)))[1]);
+  };
+  assert.ok(z('.tag-picker') > z('.plan-board-overlay'), 'ポップオーバーは計画画面より手前');
+  assert.ok(z('.tag-modal-overlay') > z('.plan-board-overlay'), 'タグ管理も計画画面より手前');
+});
+
+test('ガントはタイトルの右にタグを出し、タグ絞り込みの画面には「クリア」(選択解除)がある', () => {
+  const has = (src, text) => assert.ok(src.includes(text), `含まれる: ${text}`);
+  const gantt = fs.readFileSync(path.join(publicDir, 'gantt.js'), 'utf8');
+  const ganttCss = fs.readFileSync(path.join(publicDir, 'gantt.css'), 'utf8');
+  has(gantt, 'const tagsCell = (it) =>');
+  has(gantt, '${esc(item.title)}</span>${tagsCell(item)}');
+  has(gantt, '${esc(r.epic.title)}</span>${tagsCell(r.epic)}');
+  has(app, 'tagsHtml: (item) => tagLogic.buildCardTagsHtml(item.tags, item.childTags, 2)');
+  has(ganttCss, '.gantt-tags {');
+  // タグはタイトルより先に縮まず、はみ出す分は切る(タイトルを押しつぶさないよう幅の上限を持つ)
+  assert.ok(/\.gantt-tags \{[^}]*max-width:\s*\d+%/.test(ganttCss));
+  // クリア: ボタンは条件切替の行にあり、選択が無いときは押せない。旧「絞り込みを解除」(フッター)は置き換え
+  has(tagsJs, 'class="tag-filter-clear-sel" data-act="clear"');
+  has(tagsJs, "el.querySelector('.tag-filter-clear-sel').disabled = tagFilter.tags.length === 0;");
+  assert.ok(!tagsJs.includes('絞り込みを解除</button>'), 'フッターの旧ボタンは廃止');
+  has(css, '.tag-filter-clear-sel:disabled');
+});
