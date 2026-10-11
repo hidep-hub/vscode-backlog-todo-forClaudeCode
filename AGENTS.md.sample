@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.2.0（BT-212、BT-336、BT-372。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.3.0（BT-212、BT-336、BT-372、BT-393。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## ルール正本と配布方式
 
@@ -65,6 +65,15 @@ AGENTS.md.sample（Git管理の唯一の正本）
     - 実行: `POST /api/backup {actor?}` — 実行中の二重起動、同秒内の名前衝突はいずれも409（`error: "backup_in_progress"` / `"backup_exists"`）
     - 削除: `POST /api/delete-backup {file, actor?}` — 不正な名前は400、存在しないものは404、**最新の1件は保護され409**（`latest_protected`）で削除できない
     - **バックアップ実行中（`running: true`）は、バックアップ系2 API（`/api/backup`、`/api/delete-backup`）以外の全POST系APIが409（`error: "backup_in_progress"`）で拒否される**（取得時点の内容を一貫させるための全体ロック。取得・状態確認系のGETは影響しない）
+  - **タグ（BT-391、API 2.3.0）**: タスクに付ける分類ラベル。**ワークスペース単位**で管理し、`tags`/`task_tags`テーブルに持つ（`tasks`は拡張しない）。タスクへ付けられるのは**既存タグのみ**で、別ワークスペースのタグは付けられない（400 `workspace_mismatch`）
+    - 一覧: `GET /api/tags?workspace=<projects[].file>` — `{tags: [{id, workspace, name, color, sortOrder, usageCount}]}`（`usageCount`は論理削除されていないタスクへの付与数）。`workspace`省略で全ワークスペース
+    - 類似名の事前確認: `GET /api/tags/similar?workspace=XX&name=...` — `{similar: [...]}`（完全一致は含まない）
+    - 作成: `POST /api/create-tag {workspace, name, color?, confirmSimilar?, actor?}` — **自由入力でタグが乱立しないよう、表記ゆれ（全角半角・大小文字・空白）を含む完全一致は409 `duplicate_tag`（`existing`付き）、似た名前（部分一致2文字以上／4文字以上で編集距離1）は409 `similar_tags`（`similar`付き）で拒否**される。内容を確認したうえで本当に必要な場合だけ`confirmSimilar:true`を付けて再送する。名前は40文字まで、`color`は`#rrggbb`
+    - 更新・削除・統合: `POST /api/update-tag {tagId, name?, color?}`（`color:null`で色なし）/ `POST /api/delete-tag {tagId}`（付与も外れる）/ `POST /api/merge-tags {sourceId, targetId}`（同一ワークスペース内。sourceを削除し、付いていたタスクをtargetへ付け替える）
+    - 付け外し: `POST /api/update-task-tags {taskId, add?: [tagId], remove?: [tagId], actor?}` — 変更後のタスクのタグ配列を返す。既に付いている／付いていないタグの指定は無視される（冪等）
+    - 取得: `GET /api/board`・`GET /api/task/:id`のitemに`tags: [{id,name,color}]`が付く。親EPICには子由来のタグ`childTags`（子のタグのうち親自身に無いもの）も付く（EPICのタグは子から導出するだけで、継承はしない）
+    - 履歴: 付け外しは`tag_added`/`tag_removed`として`/api/activity`に残る（`newValue`/`oldValue`はタグ名）。`move-task`でワークスペースを移すと、タグはワークスペース単位のため解除され`tag_removed`が記録される
+    - **AIがタグを付ける・作る場合の作法**: 付与の前に`GET /api/tags`で既存タグを確認し、似た名前があれば新規作成せず既存タグを使う。新規作成が必要な場合も、自己判断で`confirmSimilar:true`を付けず、ユーザーに確認してから行う
 
 ## ステータス値の意味（`todo` / `ready` / `do` / `done`）
 - 4値のみ（`未着手`→`todo`、`未着手（素材あり）`→`ready`、`進行中`→`do`、`完了`→`done`）
