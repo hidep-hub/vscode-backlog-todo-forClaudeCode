@@ -66,6 +66,11 @@
         <div class="badge-mode-menu" id="badge-mode-menu" role="menu" hidden></div>
       </div>
       <span id="project-badges" class="project-badges"></span>
+      <!-- BT-396: タグ絞り込み。1段目のボタン群は幅が限界のため、バッジ行の右端に置く -->
+      <div class="tag-filter-wrap">
+        <div class="tag-filter-bar" id="tag-filter-bar" hidden></div>
+        <button class="activity-btn tag-filter-btn" id="tag-filter-btn" title="タグで絞り込み（ボード・週次計画・ガント共通）" aria-haspopup="dialog"><span class="material-icon icon-tag"></span><span class="tag-filter-count" id="tag-filter-count" hidden></span></button>
+      </div>
     </div>
   </header>
   <div class="running-strip" id="running-strip">

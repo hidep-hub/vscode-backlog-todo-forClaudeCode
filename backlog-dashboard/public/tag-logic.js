@@ -69,6 +69,60 @@
     return button('', '色なし', ' tag-swatch-none') + TAG_COLOR_PALETTE.map(c => button(c.value, c.name, '')).join('');
   }
 
+  // ---- タグ絞り込み(BT-396): ボード・週次計画・ガントで共通に使う判定 ----
+  // 絞り込みはタグ名(tagNameKey)で行う。タグはワークスペース単位でIDが異なるが、
+  // 「全プロジェクト」表示でも同じ名前のタグをまとめて絞り込めるようにするため。
+
+  /** tags=[{name}] が、キー配列keysに対してmode('or'=どれか / 'and'=すべて)で一致するか。keysが空なら常にtrue。 */
+  function matchesTagFilter(tags, keys, mode) {
+    if (!keys || keys.length === 0) return true;
+    const have = new Set((tags || []).map(t => tagNameKey(t.name)));
+    return mode === 'and' ? keys.every(k => have.has(k)) : keys.some(k => have.has(k));
+  }
+
+  /** ボードのitem用。EPICは自分のタグに子由来のタグ(childTags)を足して判定する(子がタグを持てば親も出す)。 */
+  function matchesTagFilterForBoardItem(item, keys, mode) {
+    return matchesTagFilter([...(item.tags || []), ...(item.childTags || [])], keys, mode);
+  }
+
+  /**
+   * 絞り込み候補。ワークスペースをまたいで同名のタグを1件にまとめ(使用数は合算)、使用中のものだけを
+   * 使用数の多い順→名前順で返す。[{key,name,color,usageCount}]
+   */
+  function buildTagFilterOptions(tags) {
+    const byKey = new Map();
+    for (const t of tags || []) {
+      const key = tagNameKey(t.name);
+      if (!key) continue;
+      const cur = byKey.get(key);
+      if (cur) cur.usageCount += t.usageCount || 0;
+      else byKey.set(key, { key, name: cleanTagName(t.name), color: t.color || null, usageCount: t.usageCount || 0 });
+    }
+    return [...byKey.values()].filter(o => o.usageCount > 0)
+      .sort((a, b) => b.usageCount - a.usageCount || a.name.localeCompare(b.name, 'ja'));
+  }
+
+  /** localStorage保存値(JSON文字列)から絞り込み状態を復元する。壊れた値は「絞り込みなし」にする。 */
+  function parseTagFilter(json) {
+    const empty = { mode: 'or', tags: [] };
+    if (!json) return empty;
+    try {
+      const v = JSON.parse(json);
+      const tags = (Array.isArray(v.tags) ? v.tags : [])
+        .filter(t => t && typeof t.key === 'string' && t.key && typeof t.name === 'string')
+        .map(t => ({ key: t.key, name: t.name, color: /^#[0-9a-f]{6}$/i.test(t.color || '') ? t.color : null }));
+      return { mode: v.mode === 'and' ? 'and' : 'or', tags };
+    } catch (e) {
+      return empty;
+    }
+  }
+
+  /** 画面に出す絞り込み条件の文言。例「タグ: 重要 または 調査」。絞り込みなしは空文字。 */
+  function describeTagFilter(filter) {
+    if (!filter || filter.tags.length === 0) return '';
+    return `タグ: ${filter.tags.map(t => t.name).join(filter.mode === 'and' ? ' かつ ' : ' または ')}`;
+  }
+
   function buildDeleteMessage(tag) {
     const used = tag.usageCount || 0;
     return used > 0
@@ -147,5 +201,6 @@
   return {
     cleanTagName, tagNameKey, findExactTag, readableTextColor, buildDeleteMessage, buildMergeMessage, describeTagError,
     escapeText, buildTagChipHtml, buildCardTagsHtml, TAG_COLOR_PALETTE, buildSwatchesHtml,
+    matchesTagFilter, matchesTagFilterForBoardItem, buildTagFilterOptions, parseTagFilter, describeTagFilter,
   };
 });

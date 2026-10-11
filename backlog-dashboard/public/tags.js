@@ -562,3 +562,170 @@ document.addEventListener('click', (e) => {
     },
   });
 });
+
+// ============================================================
+// タグ絞り込み(BT-396): ヘッダーのボタン+ポップオーバー、絞り込み中バー
+// ============================================================
+// 状態(tagFilter)はapp.jsが持つ。ここでは変更・保存・再描画を行う。判定はtag-logic.js。
+// 絞り込みはタグ名で行うため、全プロジェクト表示では同名タグをワークスペースをまたいで1つにまとめて出す。
+
+let tagFilterPopEl = null;
+
+function saveTagFilter() {
+  try { localStorage.setItem('tagFilter', JSON.stringify(tagFilter)); } catch (e) { /* 保存できなくても動作は続ける */ }
+}
+
+/** 状態の変更後に呼ぶ: 保存し、ボタン・バーを更新して、開いている画面(ボード/週次計画/ガント)を再描画する。 */
+function applyTagFilter() {
+  saveTagFilter();
+  renderTagFilterControls();
+  if (currentBoardData) renderBoard(currentBoardData);
+  const plan = document.getElementById('plan-board-overlay');
+  if (plan && plan.classList.contains('active') && typeof renderPlanBoard === 'function') renderPlanBoard();
+}
+
+function setTagFilterMode(mode) {
+  tagFilter = { ...tagFilter, mode: mode === 'and' ? 'and' : 'or' };
+  applyTagFilter();
+}
+
+function toggleTagFilterKey(option, checked) {
+  const rest = tagFilter.tags.filter(t => t.key !== option.key);
+  tagFilter = { ...tagFilter, tags: checked ? rest.concat({ key: option.key, name: option.name, color: option.color }) : rest };
+  applyTagFilter();
+}
+
+function clearTagFilter() {
+  tagFilter = { ...tagFilter, tags: [] };
+  applyTagFilter();
+}
+
+function renderTagFilterControls() {
+  const btn = document.getElementById('tag-filter-btn');
+  const count = document.getElementById('tag-filter-count');
+  const bar = document.getElementById('tag-filter-bar');
+  const active = tagFilter.tags.length > 0;
+  btn.classList.toggle('filter-active', active);
+  count.hidden = !active;
+  count.textContent = String(tagFilter.tags.length);
+  bar.hidden = !active;
+  if (!active) { bar.innerHTML = ''; return; }
+  const modeLabel = tagFilter.mode === 'and' ? 'すべて' : 'どれか';
+  bar.innerHTML = `<span class="tag-filter-bar-label">タグ</span>`
+    + tagFilter.tags.map(t => tagLogic.buildTagChipHtml({ id: t.key, name: t.name, color: t.color }, { small: true, removable: true })).join('')
+    + `<button type="button" class="tag-filter-mode-btn" title="複数のタグの条件を切り替える（どれか / すべて）">${modeLabel}</button>`
+    + '<button type="button" class="tag-filter-clear-btn" title="タグの絞り込みを解除">解除</button>';
+}
+
+function closeTagFilterPopover() {
+  if (tagFilterPopEl) tagFilterPopEl.remove();
+  tagFilterPopEl = null;
+}
+
+async function openTagFilterPopover() {
+  closeTagFilterPopover();
+  closeTagPicker();
+  const anchor = document.getElementById('tag-filter-btn');
+  const el = document.createElement('div');
+  el.className = 'tag-picker tag-filter-pop';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-label', 'タグで絞り込み');
+  el.innerHTML = `
+    <div class="tag-filter-mode" role="radiogroup" aria-label="複数のタグの条件">
+      <label><input type="radio" name="tag-filter-mode" value="or"> どれかを含む</label>
+      <label><input type="radio" name="tag-filter-mode" value="and"> すべてを含む</label>
+    </div>
+    <input type="search" class="tag-picker-search tag-input" placeholder="タグを絞り込み" aria-label="タグを絞り込み" autocomplete="off">
+    <div class="tag-picker-list" role="group" aria-label="タグ一覧"><div class="tag-picker-empty">読み込み中...</div></div>
+    <div class="tag-picker-footer tag-filter-footer">
+      <button type="button" class="tag-picker-manage" data-act="manage">タグ管理を開く…</button>
+      <button type="button" class="tag-picker-manage" data-act="clear">絞り込みを解除</button>
+    </div>`;
+  document.body.appendChild(el);
+  tagFilterPopEl = el;
+  positionTagPicker(el, anchor);
+
+  const listEl = el.querySelector('.tag-picker-list');
+  const searchEl = el.querySelector('.tag-picker-search');
+  let options = [];
+  const selectedKeys = () => new Set(tagFilter.tags.map(t => t.key));
+  const syncMode = () => { el.querySelector(`input[name="tag-filter-mode"][value="${tagFilter.mode}"]`).checked = true; };
+  const renderList = () => {
+    const query = tagLogic.tagNameKey(searchEl.value);
+    const chosen = selectedKeys();
+    // 選択中のタグは(使用数が0になっていても)必ず並べ、解除できるようにする
+    const merged = options.concat(tagFilter.tags.filter(t => !options.some(o => o.key === t.key)).map(t => ({ ...t, usageCount: 0 })));
+    const shown = merged.filter(o => !query || o.key.includes(query));
+    if (merged.length === 0) {
+      listEl.innerHTML = '<div class="tag-picker-empty">タスクに付いているタグがまだありません。</div>';
+    } else if (shown.length === 0) {
+      listEl.innerHTML = '<div class="tag-picker-empty">一致するタグがありません。</div>';
+    } else {
+      listEl.innerHTML = shown.map(o => `<label class="tag-picker-row">
+        <input type="checkbox" data-key="${tagLogic.escapeText(o.key)}"${chosen.has(o.key) ? ' checked' : ''}>${tagLogic.buildTagChipHtml({ id: o.key, name: o.name, color: o.color })}
+        <span class="tag-filter-usage">${o.usageCount}件</span></label>`).join('');
+    }
+    positionTagPicker(el, anchor);
+  };
+  syncMode();
+  el.querySelectorAll('input[name="tag-filter-mode"]').forEach(r => r.addEventListener('change', () => setTagFilterMode(r.value)));
+  searchEl.addEventListener('input', renderList);
+  listEl.addEventListener('change', (e) => {
+    const box = e.target.closest('input[type="checkbox"]');
+    if (!box) return;
+    const merged = options.concat(tagFilter.tags.map(t => ({ ...t, usageCount: 0 })));
+    const option = merged.find(o => o.key === box.dataset.key);
+    if (option) toggleTagFilterKey(option, box.checked);
+    if (tagFilterPopEl === el) renderList();
+  });
+  el.querySelector('.tag-filter-footer').addEventListener('click', (e) => {
+    const act = e.target.closest('[data-act]');
+    if (!act) return;
+    if (act.dataset.act === 'clear') { clearTagFilter(); renderList(); return; }
+    closeTagFilterPopover();
+    openTagModal(currentFilter ? tagWorkspaceForProject(currentFilter) : undefined);
+  });
+  searchEl.focus();
+
+  try {
+    const file = currentFilter ? tagWorkspaceForProject(currentFilter) : '';
+    const res = await tagFetchJson(file ? `/api/tags?workspace=${encodeURIComponent(file)}` : '/api/tags');
+    if (res.status !== 200) throw new Error(res.body.error || `HTTP ${res.status}`);
+    if (tagFilterPopEl !== el) return; // 取得中に閉じられた
+    options = tagLogic.buildTagFilterOptions(res.body.tags || []);
+    renderList();
+  } catch (e) {
+    listEl.innerHTML = `<div class="tag-picker-empty">タグを取得できませんでした（${escapeHtml(e.message)}）</div>`;
+  }
+}
+
+document.getElementById('tag-filter-btn').addEventListener('click', () => {
+  if (tagFilterPopEl) closeTagFilterPopover(); else openTagFilterPopover();
+});
+
+// 絞り込み中バーの操作: 個別の×、条件(どれか/すべて)の切り替え、解除
+document.getElementById('tag-filter-bar').addEventListener('click', (e) => {
+  const remove = e.target.closest('.tag-chip-remove');
+  if (remove) {
+    tagFilter = { ...tagFilter, tags: tagFilter.tags.filter(t => t.key !== remove.dataset.tagId) };
+    applyTagFilter();
+    return;
+  }
+  if (e.target.closest('.tag-filter-mode-btn')) { setTagFilterMode(tagFilter.mode === 'and' ? 'or' : 'and'); return; }
+  if (e.target.closest('.tag-filter-clear-btn')) clearTagFilter();
+});
+
+// Escで先に閉じる/外側クリックで閉じる(タグ選択ポップオーバーと同じ作法)
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !tagFilterPopEl) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  closeTagFilterPopover();
+}, true);
+document.addEventListener('mousedown', (e) => {
+  if (!tagFilterPopEl) return;
+  if (tagFilterPopEl.contains(e.target) || e.target.closest('#tag-filter-btn')) return;
+  closeTagFilterPopover();
+});
+
+renderTagFilterControls();

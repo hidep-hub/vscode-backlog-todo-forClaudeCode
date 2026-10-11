@@ -6000,3 +6000,109 @@ body {
   color: var(--text-muted);
   font-size: 0.78rem;
 }
+
+/* --- タグ絞り込み (BT-396) --- */
+.tag-filter-btn {
+  position: relative;
+}
+
+/* 絞り込み中は「今日やる」フィルターと同じ強調色(ヘッダーの青地でも目立たせる) */
+.tag-filter-btn.filter-active {
+  background: var(--today-accent);
+  color: #fff;
+  border-color: var(--today-accent);
+}
+
+/* バーのチップは×付きのため、カード用の上限より広く取って名前が切れにくくする */
+.tag-filter-bar .tag-chip-sm {
+  max-width: 16em;
+}
+
+.tag-filter-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--btn-danger-fg);
+  color: #fff;
+  font-size: 0.6rem;
+  line-height: 14px;
+  text-align: center;
+}
+
+/* バッジ行の右端。project-badgesの右に寄せる */
+.tag-filter-wrap {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tag-filter-bar {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tag-filter-bar[hidden] { display: none; }
+
+.tag-filter-bar-label {
+  color: var(--brand-fg, var(--text-muted));
+  font-size: 0.7rem;
+  opacity: 0.85;
+}
+
+.tag-filter-mode-btn,
+.tag-filter-clear-btn {
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--brand-fg, var(--text));
+  font-size: 0.66rem;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.tag-filter-mode-btn:hover,
+.tag-filter-clear-btn:hover {
+  background: var(--drop-highlight);
+}
+
+.tag-filter-pop {
+  width: 300px;
+}
+
+.tag-filter-mode {
+  display: flex;
+  gap: 14px;
+  padding: 8px 10px 0;
+  font-size: 0.78rem;
+}
+
+.tag-filter-mode label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.tag-filter-usage {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-filter-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}

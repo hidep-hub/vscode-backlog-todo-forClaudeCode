@@ -159,3 +159,77 @@ test('タグ管理モーダルは詳細・登録フォームより手前、ピ�
   assert.ok(tagModal < z('.backup-progress-overlay'), 'バックアップ進捗(全操作ブロック)より後ろ');
   assert.match(css, /\.modal-overlay\s*\{[^}]*z-index:\s*1000/, '詳細モーダルの層の前提');
 });
+
+test('matchesTagFilterはタグ名(表記ゆれ込み)で、orはどれか・andはすべてを判定し、空の条件は常に一致する', () => {
+  const tags = [{ name: 'Backend' }, { name: 'ガント' }];
+  assert.equal(tagLogic.matchesTagFilter(tags, [], 'or'), true);
+  assert.equal(tagLogic.matchesTagFilter([], [], 'and'), true);
+  assert.equal(tagLogic.matchesTagFilter(tags, ['backend', 'other'], 'or'), true);
+  assert.equal(tagLogic.matchesTagFilter(tags, ['backend', 'other'], 'and'), false);
+  assert.equal(tagLogic.matchesTagFilter(tags, ['backend', 'ガント'], 'and'), true);
+  assert.equal(tagLogic.matchesTagFilter([], ['backend'], 'or'), false);
+  assert.equal(tagLogic.matchesTagFilter(null, ['backend'], 'or'), false);
+  // タグ名の正規化(全角・大文字)を経ても同じキーとして一致する
+  assert.equal(tagLogic.matchesTagFilter([{ name: 'ＢＡＣＫＥＮＤ' }], ['backend'], 'or'), true);
+});
+
+test('EPICのボード判定は自分のタグに子由来のタグを足す(子がタグを持てば親も出る)', () => {
+  const epic = { tags: [{ name: 'A' }], childTags: [{ name: 'B' }] };
+  assert.equal(tagLogic.matchesTagFilterForBoardItem(epic, ['b'], 'or'), true, '子のタグだけでも親が出る');
+  assert.equal(tagLogic.matchesTagFilterForBoardItem(epic, ['a', 'b'], 'and'), true, 'andは自分+子の和集合で判定');
+  assert.equal(tagLogic.matchesTagFilterForBoardItem(epic, ['a', 'c'], 'and'), false);
+  assert.equal(tagLogic.matchesTagFilterForBoardItem({ tags: [{ name: 'A' }] }, ['b'], 'or'), false);
+  assert.equal(tagLogic.matchesTagFilterForBoardItem({}, ['a'], 'or'), false, 'タグ情報のないitemも落ちない');
+});
+
+test('buildTagFilterOptionsは同名タグを合算し、使用中のものだけを使用数の多い順に返す', () => {
+  const options = tagLogic.buildTagFilterOptions([
+    { name: 'Backend', color: '#336699', usageCount: 2 },
+    { name: 'ｂａｃｋｅｎｄ', color: null, usageCount: 3 }, // 別ワークスペースの同名タグ(全角)
+    { name: '重要', color: '#e53935', usageCount: 9 },
+    { name: '未使用', color: null, usageCount: 0 },
+  ]);
+  assert.deepEqual(options.map(o => [o.key, o.name, o.usageCount]), [['重要', '重要', 9], ['backend', 'Backend', 5]]);
+  assert.equal(options[1].color, '#336699', '最初に見つかった色を使う');
+  assert.deepEqual(tagLogic.buildTagFilterOptions(null), []);
+});
+
+test('parseTagFilterは壊れた保存値を絞り込みなしに戻し、不正な色や項目を捨てる', () => {
+  const empty = { mode: 'or', tags: [] };
+  assert.deepEqual(tagLogic.parseTagFilter(null), empty);
+  assert.deepEqual(tagLogic.parseTagFilter('{broken'), empty);
+  assert.deepEqual(tagLogic.parseTagFilter('{"mode":"and","tags":"x"}'), { mode: 'and', tags: [] });
+  const parsed = tagLogic.parseTagFilter(JSON.stringify({
+    mode: 'weird',
+    tags: [{ key: 'a', name: 'A', color: '#e53935' }, { key: 'b', name: 'B', color: 'red' }, { name: 'no key' }, null],
+  }));
+  assert.equal(parsed.mode, 'or');
+  assert.deepEqual(parsed.tags, [{ key: 'a', name: 'A', color: '#e53935' }, { key: 'b', name: 'B', color: null }]);
+});
+
+test('describeTagFilterは条件をorなら「または」andなら「かつ」でつなぎ、なしは空文字', () => {
+  assert.equal(tagLogic.describeTagFilter({ mode: 'or', tags: [] }), '');
+  assert.equal(tagLogic.describeTagFilter(null), '');
+  const tags = [{ key: 'a', name: '重要' }, { key: 'b', name: '調査' }];
+  assert.equal(tagLogic.describeTagFilter({ mode: 'or', tags }), 'タグ: 重要 または 調査');
+  assert.equal(tagLogic.describeTagFilter({ mode: 'and', tags }), 'タグ: 重要 かつ 調査');
+});
+
+test('タグ絞り込みはボード・週次計画・ガントに配線され、ヘッダーにボタンと絞り込みバーがある', () => {
+  const has = (src, text) => assert.ok(src.includes(text), `含まれる: ${text}`);
+  has(app, "tagLogic.parseTagFilter(");
+  has(app, 'tagLogic.matchesTagFilterForBoardItem(item, tagKeys, tagFilter.mode)');
+  has(app, 'function planMatchesTags(item, epic)');
+  assert.equal((app.match(/planMatchesTags\(/g) || []).length, 5, '定義1+週次計画(子・単発)+ガント(子・単発)');
+  has(app, 'tagLogic.describeTagFilter(tagFilter)');
+  assert.equal((app.match(/tagFilter\.tags\.length > 0/g) || []).length >= 3, true, '各絞り込み判定にタグ条件が入る');
+  has(html, 'id="tag-filter-btn"');
+  has(html, 'id="tag-filter-bar"');
+  // 1段目のボタン群は幅が限界(増やすとヘッダーが横にはみ出す)のため、バッジ行の右端に置く
+  assert.ok(html.indexOf('id="tag-filter-btn"') > html.indexOf('class="header-badges-row"'), 'バッジ行に置く');
+  assert.ok(html.indexOf('id="tag-filter-btn"') > html.indexOf('id="project-badges"'), 'プロジェクトバッジの右');
+  has(tagsJs, 'function applyTagFilter()');
+  has(tagsJs, 'renderPlanBoard');
+  has(tagsJs, "localStorage.setItem('tagFilter'");
+  has(css, '.tag-filter-btn.filter-active');
+});

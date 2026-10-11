@@ -153,6 +153,9 @@ let planDragData = null; // { kind: 'single', id } | { kind: 'group', epicId, ch
 let planCollapsedGroups = new Set(); // 折りたたみ中のEPICグループキー('epicId_bucketId')
 let planSearchQuery = ''; // BM-012: ID・件名・親EPICタイトルの部分一致（空文字=絞り込みなし）
 let planPinOnly = false; // BM-012: 📌ピンが付いたタスク（EPICは子の集約）だけ表示する
+// BT-396: タグ絞り込み。ボード・週次計画・ガントで共通。判定はtag-logic.js、操作UIはtags.js。
+// { mode: 'or'|'and', tags: [{key,name,color}] }（keyは表記ゆれを正規化したタグ名）
+let tagFilter = tagLogic.parseTagFilter((() => { try { return localStorage.getItem('tagFilter'); } catch (e) { return null; } })());
 let planShowDone = true; // BT-315: 週次カンバンで完了タスクを(列内の折りたたみグループとして)出すか。選択はlocalStorageに保持
 let planExpandedDone = new Set(); // BT-315: 開いている完了グループのバケットID（既定は折りたたみ）
 try { if (localStorage.getItem('planShowDone') === '0') planShowDone = false; } catch { /* 無視 */ }
@@ -1814,6 +1817,11 @@ function renderBoard(data) {
       // todayFlagが残っていても、ピン数0のEpicをフィルタ結果へ混ぜない。
       items = items.filter(item => item.childrenTotal > 0 ? item.todayCount > 0 : item.todayFlag);
     }
+    if (tagFilter.tags.length > 0) {
+      // BT-396: EPICは子のタグも含めて判定する（子がタグを持てば親も出す）
+      const tagKeys = tagFilter.tags.map(t => t.key);
+      items = items.filter(item => tagLogic.matchesTagFilterForBoardItem(item, tagKeys, tagFilter.mode));
+    }
     // 完了カラム「本日完了だけ」表示（達成感モード）: completedDateが今日(JST)のものだけ
     const doneTodayActive = isCompact && doneTodayOnly;
     if (doneTodayActive) {
@@ -3394,6 +3402,14 @@ function planMatchesSearch(item, query) {
   return q.split(/\s+/).every((term) => hay.includes(term));
 }
 
+// BT-396: タグ絞り込み。子はEPIC自身のタグが一致していてもEPICごと出す（検索・ピンと同じ考え方）。
+function planMatchesTags(item, epic) {
+  if (tagFilter.tags.length === 0) return true;
+  const keys = tagFilter.tags.map(t => t.key);
+  return tagLogic.matchesTagFilter(item.tags, keys, tagFilter.mode)
+    || (!!epic && tagLogic.matchesTagFilter(epic.tags, keys, tagFilter.mode));
+}
+
 // BT-315: 完了タスクの置き場。遅延列には出さない（終わったものは遅延としない）／ヘッダーのトグルOFFなら出さない。
 // 出す場合は通常カードに混ぜず、列内の折りたたみグループ(doneItems)へ振り分ける。
 function planPushDone(bucket, bucketId, item, epic) {
@@ -3405,7 +3421,7 @@ function planBuildBuckets(bucketDefs) {
   const buckets = {};
   for (const b of bucketDefs) buckets[b.id] = { singles: [], epicGroups: new Map(), doneItems: [] };
 
-  const isFiltered = !!planSearchQuery.trim() || planPinOnly;
+  const isFiltered = !!planSearchQuery.trim() || planPinOnly || tagFilter.tags.length > 0;
 
   for (const item of planCollectItems()) {
     const isEpic = (item.children && item.children.length > 0) || item.childrenTotal > 0;
@@ -3418,7 +3434,7 @@ function planBuildBuckets(bucketDefs) {
         if (isFiltered) {
           const matchesPin = !planPinOnly || epicPinned;
           const matchesSearch = planMatchesSearch(child, planSearchQuery) || planMatchesSearch(item, planSearchQuery);
-          if (!matchesPin || !matchesSearch) continue;
+          if (!matchesPin || !matchesSearch || !planMatchesTags(child, item)) continue;
         }
         if (child.statusCode === 'done') { planPushDone(buckets[bucketId], bucketId, child, item); continue; }
         let group = buckets[bucketId].epicGroups.get(item.id);
@@ -3434,6 +3450,7 @@ function planBuildBuckets(bucketDefs) {
       if (isFiltered) {
         if (planPinOnly && !planPinActive(item)) continue;
         if (!planMatchesSearch(item, planSearchQuery)) continue;
+        if (!planMatchesTags(item, null)) continue;
       }
       if (item.statusCode === 'done') { planPushDone(buckets[bucketId], bucketId, item, null); continue; }
       buckets[bucketId].singles.push(item);
@@ -3627,7 +3644,7 @@ function planSetupDropZone(bodyEl, bucketId) {
 // EPIC+子の組(epic=null は単発タスクの束)にして gantt.js へ渡す。日付は update-task の既存項目だけ使う。
 // BM-046: フッターの母数(絞り込み前の件数)を出すため、検索・ピン絞り込みを無視した版を作れるようにする
 function planBuildGanttGroups(ignoreFilter) {
-  const isFiltered = !ignoreFilter && (!!planSearchQuery.trim() || planPinOnly);
+  const isFiltered = !ignoreFilter && (!!planSearchQuery.trim() || planPinOnly || tagFilter.tags.length > 0);
   const groups = [];
   const singles = [];
   for (const item of planCollectItems()) {
@@ -3638,13 +3655,14 @@ function planBuildGanttGroups(ignoreFilter) {
         if (!isFiltered) return true;
         const matchesPin = !planPinOnly || epicPinned;
         const matchesSearch = planMatchesSearch(child, planSearchQuery) || planMatchesSearch(item, planSearchQuery);
-        return matchesPin && matchesSearch;
+        return matchesPin && matchesSearch && planMatchesTags(child, item);
       });
       if (children.length > 0) groups.push({ epic: item, children });
     } else {
       if (isFiltered) {
         if (planPinOnly && !planPinActive(item)) continue;
         if (!planMatchesSearch(item, planSearchQuery)) continue;
+        if (!planMatchesTags(item, null)) continue;
       }
       singles.push(item);
     }
@@ -3701,11 +3719,11 @@ function renderPlanGantt() {
   // 反映し検索・ピン絞り込みは無視、絞り込み後(groups)はそれらも反映した件数。絞り込みが無い時はshownを出さない
   const allGroups = planBuildGanttGroups(true);
   const query = planSearchQuery.trim();
-  const filtered = !!query || planPinOnly;
+  const filtered = !!query || planPinOnly || tagFilter.tags.length > 0;
   const totalCounts = planGanttStatusCounts(allGroups);
   const shownCounts = filtered ? planGanttStatusCounts(groups) : null;
   // 絞り込みメッセージに出す条件文言。現状の絞り込み手段はキーワード検索と📌今日やるのみ
-  const filterLabel = [query ? `「${query}」` : '', planPinOnly ? '📌今日やる' : ''].filter(Boolean).join(' + ');
+  const filterLabel = [query ? `「${query}」` : '', planPinOnly ? '📌今日やる' : '', tagLogic.describeTagFilter(tagFilter)].filter(Boolean).join(' + ');
 
   window.ganttView.render(root, {
     groups,
