@@ -297,6 +297,9 @@ button.gantt-stat { cursor: pointer; }
 .gantt-label-epic { cursor: pointer; font-weight: 600; }
 .gantt-label-head { font-weight: 600; color: var(--text-muted); cursor: pointer; }
 .gantt-toggle { width: 12px; color: var(--text-muted); flex: none; }
+/* BT-390: EPIC行ラベルのアイコン(看板と同じepic-icon部品) */
+.gantt-epic-icon { display: inline-flex; align-items: center; }
+.gantt-epic-icon .material-icon { width: 14px; height: 14px; }
 .gantt-id { color: var(--text-muted); font-size: 0.7rem; flex: none; }
 .gantt-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 
@@ -330,9 +333,13 @@ button.gantt-stat { cursor: pointer; }
 .gantt-row-task.is-done .gantt-title { color: var(--text-muted); text-decoration: line-through; }
 
 /* BM-060: 完了行(タスク・EPIC)は、タイトルの取り消し線だけでは生きているタスクと見分けにくいため、
-   行全体を薄く(opacity)して「完了済みで後ろに引いている」感を出す。バー・ID・ステータス文字等も含めて丸ごと対象 */
-.gantt-row-task.is-done,
-.gantt-row-epic.is-done { opacity: 0.55; }
+   行を薄く(opacity)して「完了済みで後ろに引いている」感を出す。バー・ID・ステータス文字等も含めて対象。
+   BT-390: 行そのものにopacityをかけると、左に固定(sticky)したラベルの背景まで半透明になり、
+   下をスクロールで通るバー・週末色が透けて見える。そのためラベルの中身とトラックだけを薄くし、ラベル背景は不透明のまま残す */
+.gantt-row-task.is-done > .gantt-label > *,
+.gantt-row-epic.is-done > .gantt-label > *,
+.gantt-row-task.is-done > .gantt-track,
+.gantt-row-epic.is-done > .gantt-track { opacity: 0.55; }
 
 .gantt-track { position: relative; flex: none; height: 100%; }
 .gantt-track.is-empty { cursor: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2728%27%20height=%2728%27%20viewBox=%270%200%2024%2024%27%3E%3Crect%20x=%273%27%20y=%274.5%27%20width=%2718%27%20height=%2716.5%27%20rx=%272.5%27%20fill=%27white%27%20stroke=%27%232f6fdb%27%20stroke-width=%272%27/%3E%3Cpath%20d=%27M3%2010h18%27%20stroke=%27%232f6fdb%27%20stroke-width=%272%27/%3E%3Cpath%20d=%27M8%202.5v4M16%202.5v4%27%20stroke=%27%232f6fdb%27%20stroke-width=%272%27%20stroke-linecap=%27round%27/%3E%3Crect%20x=%277%27%20y=%2713%27%20width=%273.2%27%20height=%273.2%27%20fill=%27%232f6fdb%27/%3E%3C/svg%3E") 14 14, pointer; } /* カレンダーアイコン: 「日付を置く」操作だと分かるように */

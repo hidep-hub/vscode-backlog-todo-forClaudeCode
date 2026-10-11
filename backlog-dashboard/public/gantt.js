@@ -349,11 +349,12 @@
           // 子に日付が1つも無いEPICは、バーの代わりに今日の線の右へ完了度だけ出す
           bar = `<span class="gantt-epic-solo" style="left:${todayIdx * dw + dw + 6}px">${progress}</span>`;
         }
-        // BT-365: EPICにも [スピナー][ステータス文字]。EPICのstatusCodeは子から導出された値。完了もDONEと文字で出す
+        // BT-390: EPIC行は「▾ EPICアイコン ID タイトル 件数」。BT-365のステータス文字は外し(状態は子の行で見る)、
+        // EPIC内で今動いている情報を失わないよう、実行中/進行中のスピナーだけタイトルの左に残す
         const eRunning = r.epic.running || r.epic.statusCode === 'do'
-          ? `<span class="gantt-running${r.epic.running ? '' : ' is-idle'}" title="${r.epic.running ? '実行中' : '進行中'}"></span>` : '<span class="gantt-running-slot"></span>';
-        const epicState = `<span class="gantt-state">${eRunning}<span class="gantt-status-text st-${esc(r.epic.statusCode)}" title="${esc(r.epic.status || r.epic.statusCode)}">${esc(String(r.epic.statusCode).toUpperCase())}</span></span>`;
-        return `<div class="gantt-row gantt-row-epic${r.epic.statusCode === 'done' ? ' is-done' : ''}" data-epic-id="${esc(r.epic.id)}"><div class="gantt-label gantt-label-epic" data-act="toggle-epic" data-epic-id="${esc(r.epic.id)}" data-task-id="${esc(r.epic.id)}"><span class="gantt-toggle">${collapsed ? '▸' : '▾'}</span>${epicState}<span class="gantt-id">${esc(r.epic.id)}</span><span class="gantt-title">${esc(r.epic.title)}</span><span class="gantt-count">${r.done}/${r.total}</span><i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px">${bar}</div></div>`;
+          ? `<span class="gantt-running${r.epic.running ? '' : ' is-idle'}" title="${r.epic.running ? '実行中' : '進行中'}"></span>` : '';
+        const epicIcon = '<span class="epic-icon gantt-epic-icon" title="EPIC（子タスクを束ねる親タスク）"><span class="material-icon icon-stacks"></span></span>';
+        return `<div class="gantt-row gantt-row-epic${r.epic.statusCode === 'done' ? ' is-done' : ''}" data-epic-id="${esc(r.epic.id)}"><div class="gantt-label gantt-label-epic" data-act="toggle-epic" data-epic-id="${esc(r.epic.id)}" data-task-id="${esc(r.epic.id)}"><span class="gantt-toggle">${collapsed ? '▸' : '▾'}</span>${epicIcon}<span class="gantt-id">${esc(r.epic.id)}</span>${eRunning}<span class="gantt-title">${esc(r.epic.title)}</span><span class="gantt-count">${r.done}/${r.total}</span><i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px">${bar}</div></div>`;
       }
       const item = r.item;
       const done = isDone(item);
