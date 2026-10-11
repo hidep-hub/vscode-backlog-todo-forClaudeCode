@@ -5779,6 +5779,9 @@ function getOrCreateSelectionBar() {
     <span class="selection-bar-count"></span>
     <button class="selection-bar-btn selection-bar-parent" id="selection-pick-parent">親を選ぶ</button>
     <button class="selection-bar-btn selection-bar-move" id="selection-pick-move"><span class="material-icon icon-local-shipping"></span> 移動</button>
+    <button class="selection-bar-btn selection-bar-pin" id="selection-pin"><span class="material-icon icon-keep"></span> ピン留め</button>
+    <button class="selection-bar-btn selection-bar-pin" id="selection-unpin"><span class="material-icon icon-keep"></span> ピン解除</button>
+    <button class="selection-bar-btn selection-bar-due" id="selection-set-due"><span class="material-icon icon-calendar-month"></span> 期日を設定</button>
     <button class="selection-bar-btn selection-bar-github" id="selection-github-create"><span class="material-icon icon-upload"></span> GitHub登録</button>
     <button class="selection-bar-btn selection-bar-delete danger" id="selection-delete"><span class="material-icon icon-delete"></span> 削除</button>
     <button class="selection-bar-btn selection-bar-cancel" id="selection-cancel">キャンセル</button>
@@ -5786,15 +5789,75 @@ function getOrCreateSelectionBar() {
   document.body.appendChild(selectionBarEl);
   selectionBarEl.querySelector('#selection-pick-parent').addEventListener('click', () => openParentPicker());
   selectionBarEl.querySelector('#selection-pick-move').addEventListener('click', () => openMovePicker(null, false));
+  selectionBarEl.querySelector('#selection-pin').addEventListener('click', () => applySelectedPin(true));
+  selectionBarEl.querySelector('#selection-unpin').addEventListener('click', () => applySelectedPin(false));
+  selectionBarEl.querySelector('#selection-set-due').addEventListener('click', (event) => {
+    // currentDueは空にして、選択中のタスクの期日が混在していても今日を起点に選べるようにする。
+    openDueDatePicker(event.currentTarget, '', (dueDate) => applySelectedDueDate(dueDate));
+  });
   selectionBarEl.querySelector('#selection-github-create').addEventListener('click', () => openBulkGithubCreateConfirm());
   selectionBarEl.querySelector('#selection-delete').addEventListener('click', () => openBulkDeleteConfirm());
   selectionBarEl.querySelector('#selection-cancel').addEventListener('click', () => {
-    selectionMode = false;
-    selectedIds.clear();
-    document.getElementById('select-mode-btn').classList.remove('filter-active');
-    renderBoard(lastBoardData);
+    finishSelectionMode();
   });
   return selectionBarEl;
+}
+
+// 選択UIを持つ画面（将来のガントを含む）から使える一括更新の共通部品。
+// 成功時の再描画・選択解除は呼び出し側が決めるため、ここでは結果だけを返す。
+async function applyBulkTaskAction(taskIds, label, request) {
+  if (!taskIds.length) return false;
+  const results = await Promise.all(taskIds.map(async (taskId) => {
+    try {
+      const response = await request(taskId);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok !== true) throw new Error(data.error || `HTTP ${response.status}`);
+      return { taskId, ok: true };
+    } catch (error) {
+      console.error(`[bulk-action] ${label} failed for ${taskId}:`, error);
+      return { taskId, ok: false, error: error.message };
+    }
+  }));
+  const failed = results.filter(result => !result.ok);
+  if (failed.length) {
+    alert(`${label}できなかったタスクがあるよ: ${failed.map(result => result.taskId).join(', ')}。選択はそのまま残してあるよ。`);
+    return false;
+  }
+  return true;
+}
+
+function setBulkPinned(taskIds, value) {
+  return applyBulkTaskAction(taskIds, value ? 'ピン留め' : 'ピン解除', (taskId) => fetch('/api/toggle-today', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId, value }),
+  }));
+}
+
+function setBulkDueDate(taskIds, dueDate) {
+  return applyBulkTaskAction(taskIds, dueDate ? '期日設定' : '期日解除', (taskId) => fetch('/api/update-task', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId, dueDate }),
+  }));
+}
+
+// gantt.js は app.js より先に読み込まれるため、実行時に参照できる公開APIとしても渡す。
+window.bulkTaskActions = { setPinned: setBulkPinned, setDueDate: setBulkDueDate };
+
+function finishSelectionMode() {
+  selectionMode = false;
+  selectedIds.clear();
+  document.getElementById('select-mode-btn').classList.remove('filter-active');
+  if (lastBoardData) renderBoard(lastBoardData);
+}
+
+async function applySelectedPin(value) {
+  if (await setBulkPinned([...selectedIds], value)) finishSelectionMode();
+}
+
+async function applySelectedDueDate(dueDate) {
+  if (await setBulkDueDate([...selectedIds], dueDate)) finishSelectionMode();
 }
 
 /**
