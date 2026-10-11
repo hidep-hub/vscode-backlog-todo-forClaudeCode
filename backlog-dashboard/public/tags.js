@@ -42,10 +42,7 @@ function tagDefaultWorkspace(options) {
 }
 
 function tagChipHtml(tag) {
-  const bg = tag.color || '';
-  const fg = tagLogic.readableTextColor(bg);
-  const style = bg ? ` style="background:${escapeHtml(bg)};color:${fg};border-color:${escapeHtml(bg)}"` : '';
-  return `<span class="tag-chip${bg ? '' : ' tag-chip-plain'}"${style}>${escapeHtml(tag.name)}</span>`;
+  return tagLogic.buildTagChipHtml(tag);
 }
 
 // --- モーダル ---
@@ -65,9 +62,14 @@ function getOrCreateTagModal() {
       </div>
       <form class="tag-create-bar" id="tag-create-form" autocomplete="off">
         <input type="text" id="tag-create-name" class="tag-input" placeholder="新しいタグ名（40文字まで）" maxlength="80" aria-label="新しいタグ名">
-        <input type="color" id="tag-create-color" class="tag-color-input" value="#4a90d9" title="色" aria-label="色">
-        <label class="tag-nocolor"><input type="checkbox" id="tag-create-nocolor" checked> 色なし</label>
         <button type="submit" class="tag-create-btn" id="tag-create-btn">＋ 追加</button>
+        <div class="tag-color-field">
+          <div class="tag-swatches" role="group" aria-label="色見本">${tagLogic.buildSwatchesHtml('')}</div>
+          <label class="tag-custom-color" title="見本にない色を選ぶ">その他の色
+            <input type="color" id="tag-create-color" class="tag-color-input" value="#4a90d9" aria-label="その他の色">
+          </label>
+          <label class="tag-nocolor"><input type="checkbox" id="tag-create-nocolor" checked> 色なし</label>
+        </div>
       </form>
       <div class="tag-note" id="tag-create-note" role="status" aria-live="polite" hidden></div>
       <div class="tag-modal-body" id="tag-modal-body"><div class="tag-empty">読み込み中...</div></div>
@@ -91,19 +93,34 @@ function getOrCreateTagModal() {
   const form = tagModalEl.querySelector('#tag-create-form');
   form.addEventListener('submit', (e) => { e.preventDefault(); submitTagCreate(false); });
   tagModalEl.querySelector('#tag-create-name').addEventListener('input', scheduleSimilarHint);
-  tagModalEl.querySelector('#tag-create-color').addEventListener('input', () => {
-    tagModalEl.querySelector('#tag-create-nocolor').checked = false;
+  // 色の選択(作成フォーム・編集行で共通): 見本クリック/カラーピッカー/「色なし」を .tag-color-field 単位で同期する
+  tagModalEl.addEventListener('click', (e) => {
+    const swatch = e.target.closest('.tag-swatch');
+    if (!swatch) return;
+    const field = swatch.closest('.tag-color-field');
+    const noColor = field.querySelector('.tag-nocolor input');
+    if (swatch.dataset.color === '') {
+      noColor.checked = true;
+    } else {
+      field.querySelector('input[type="color"]').value = swatch.dataset.color;
+      noColor.checked = false;
+    }
+    syncTagSwatches(field);
+  });
+  tagModalEl.addEventListener('input', (e) => {
+    if (!e.target.matches('.tag-color-field input[type="color"]')) return;
+    const field = e.target.closest('.tag-color-field');
+    field.querySelector('.tag-nocolor input').checked = false;
+    syncTagSwatches(field);
+  });
+  tagModalEl.addEventListener('change', (e) => {
+    if (e.target.matches('.tag-nocolor input')) syncTagSwatches(e.target.closest('.tag-color-field'));
   });
   tagModalEl.querySelector('#tag-create-note').addEventListener('click', (e) => {
     if (e.target.closest('.tag-note-force')) submitTagCreate(true);
     if (e.target.closest('.tag-note-cancel')) clearTagNote();
   });
   tagModalEl.querySelector('#tag-modal-body').addEventListener('click', onTagBodyClick);
-  tagModalEl.querySelector('#tag-modal-body').addEventListener('input', (e) => {
-    if (e.target.classList.contains('tag-edit-color')) {
-      tagModalEl.querySelector('.tag-edit-nocolor').checked = false;
-    }
-  });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (tagModalEl.classList.contains('modal-visible') && typeof isTopmostDialog === 'function' && isTopmostDialog(tagModalEl)) {
@@ -115,17 +132,26 @@ function getOrCreateTagModal() {
   return tagModalEl;
 }
 
-function openTagModal() {
+/** 選択中の色(「色なし」なら空)に一致する見本だけを押下状態(aria-pressed)にする。 */
+function syncTagSwatches(field) {
+  const current = field.querySelector('.tag-nocolor input').checked
+    ? '' : field.querySelector('input[type="color"]').value.toLowerCase();
+  field.querySelectorAll('.tag-swatch').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.color === current)));
+}
+
+function openTagModal(workspaceFile) {
   const modal = getOrCreateTagModal();
   const options = tagWorkspaceOptions();
   const select = modal.querySelector('#tag-workspace-select');
   select.innerHTML = options.map(o => `<option value="${escapeHtml(o.file)}">${escapeHtml(o.name)}</option>`).join('');
-  tagManagerWorkspace = tagDefaultWorkspace(options);
+  tagManagerWorkspace = options.some(o => o.file === workspaceFile) ? workspaceFile : tagDefaultWorkspace(options);
   select.value = tagManagerWorkspace;
   tagEditingId = null;
   tagMergingId = null;
   clearTagNote();
   modal.querySelector('#tag-create-name').value = '';
+  modal.querySelector('#tag-create-nocolor').checked = true; // 色は毎回「色なし」から選び直す
+  syncTagSwatches(modal.querySelector('#tag-create-form .tag-color-field'));
   modal.classList.add('modal-visible');
   loadTags();
   modal.querySelector('#tag-create-name').focus();
@@ -185,10 +211,15 @@ function renderEditRow(tag) {
     <td colspan="3">
       <div class="tag-edit-form">
         <input type="text" class="tag-input tag-edit-name" value="${escapeHtml(tag.name)}" maxlength="80" aria-label="タグ名">
-        <input type="color" class="tag-color-input tag-edit-color" value="${escapeHtml(tag.color || '#4a90d9')}" aria-label="色">
-        <label class="tag-nocolor"><input type="checkbox" class="tag-edit-nocolor"${tag.color ? '' : ' checked'}> 色なし</label>
         <button type="button" class="tag-action-btn tag-primary" data-action="save">保存</button>
         <button type="button" class="tag-action-btn" data-action="cancel-edit">キャンセル</button>
+        <div class="tag-color-field">
+          <div class="tag-swatches" role="group" aria-label="色見本">${tagLogic.buildSwatchesHtml(tag.color)}</div>
+          <label class="tag-custom-color" title="見本にない色を選ぶ">その他の色
+            <input type="color" class="tag-color-input tag-edit-color" value="${escapeHtml(tag.color || '#4a90d9')}" aria-label="その他の色">
+          </label>
+          <label class="tag-nocolor"><input type="checkbox" class="tag-edit-nocolor"${tag.color ? '' : ' checked'}> 色なし</label>
+        </div>
       </div>
       <div class="tag-row-error" role="alert" hidden></div>
     </td>
@@ -334,4 +365,200 @@ async function submitTagCreate(confirmSimilar) {
   }
 }
 
-document.getElementById('tag-btn').addEventListener('click', openTagModal);
+document.getElementById('tag-btn').addEventListener('click', () => openTagModal());
+
+// ============================================================
+// タグの付け外し(BT-395): ポップオーバーのピッカー、詳細モーダルのタグ欄、登録フォームのタグ選択
+// ============================================================
+// タスクへ付けられるのは既存タグのみ(新規作成はタグ管理画面で、似た名前の確認を経て行う)。
+
+let tagPickerEl = null;
+let tagPickerCtx = null;
+
+function tagWorkspaceForProject(projectName) {
+  const map = (currentBoardData && currentBoardData.projectFileMap) || {};
+  return map[projectName] || projectName || '';
+}
+
+function closeTagPicker() {
+  if (tagPickerEl) tagPickerEl.remove();
+  tagPickerEl = null;
+  tagPickerCtx = null;
+}
+
+function positionTagPicker(el, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  const width = el.offsetWidth;
+  const height = el.offsetHeight;
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+  const below = rect.bottom + 4;
+  const top = below + height > window.innerHeight - 8 ? Math.max(8, rect.top - height - 4) : below;
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+}
+
+/**
+ * 既存タグから選んで付け外しするポップオーバーを開く。
+ * ctx: { anchor, workspace, selectedIds:Set, onToggle(tag, checked) => Promise<boolean> }
+ * onToggleがfalseを返したら(失敗)チェック状態を元に戻す。
+ */
+async function openTagPicker(ctx) {
+  closeTagPicker();
+  const el = document.createElement('div');
+  el.className = 'tag-picker';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-label', 'タグを選択');
+  el.innerHTML = `
+    <input type="search" class="tag-picker-search tag-input" placeholder="タグを絞り込み" aria-label="タグを絞り込み" autocomplete="off">
+    <div class="tag-picker-list" role="group" aria-label="タグ一覧"><div class="tag-picker-empty">読み込み中...</div></div>
+    <div class="tag-picker-footer"><button type="button" class="tag-picker-manage">タグ管理を開く…</button></div>`;
+  document.body.appendChild(el);
+  tagPickerEl = el;
+  tagPickerCtx = { ...ctx, tags: [] };
+  positionTagPicker(el, ctx.anchor);
+
+  const listEl = el.querySelector('.tag-picker-list');
+  const searchEl = el.querySelector('.tag-picker-search');
+  const renderList = () => {
+    const query = tagLogic.tagNameKey(searchEl.value);
+    const tags = tagPickerCtx.tags.filter(t => !query || tagLogic.tagNameKey(t.name).includes(query));
+    if (tagPickerCtx.tags.length === 0) {
+      listEl.innerHTML = '<div class="tag-picker-empty">このワークスペースにはタグがありません。「タグ管理を開く」から作成できます。</div>';
+    } else if (tags.length === 0) {
+      listEl.innerHTML = '<div class="tag-picker-empty">一致するタグがありません。</div>';
+    } else {
+      listEl.innerHTML = tags.map(t => `<label class="tag-picker-row">
+        <input type="checkbox" data-tag-id="${t.id}"${ctx.selectedIds.has(t.id) ? ' checked' : ''}>${tagLogic.buildTagChipHtml(t)}</label>`).join('');
+    }
+    positionTagPicker(el, ctx.anchor);
+  };
+  searchEl.addEventListener('input', renderList);
+  listEl.addEventListener('change', async (e) => {
+    const box = e.target.closest('input[type="checkbox"]');
+    if (!box) return;
+    const tag = tagPickerCtx.tags.find(t => t.id === Number(box.dataset.tagId));
+    if (!tag) return;
+    box.disabled = true;
+    let ok = false;
+    try { ok = await ctx.onToggle(tag, box.checked); } catch (err) { ok = false; }
+    if (!ok) box.checked = !box.checked;
+    box.disabled = false;
+  });
+  el.querySelector('.tag-picker-manage').addEventListener('click', () => {
+    closeTagPicker();
+    openTagModal(ctx.workspace);
+  });
+  searchEl.focus();
+
+  try {
+    const res = await tagFetchJson(`/api/tags?workspace=${encodeURIComponent(ctx.workspace)}`);
+    if (res.status !== 200) throw new Error(res.body.error || `HTTP ${res.status}`);
+    if (tagPickerEl !== el) return; // 取得中に閉じられた
+    tagPickerCtx.tags = res.body.tags || [];
+    renderList();
+  } catch (e) {
+    listEl.innerHTML = `<div class="tag-picker-empty">タグを取得できませんでした（${escapeHtml(e.message)}）</div>`;
+  }
+}
+
+// Escはピッカーだけを先に閉じる(背後のモーダルまで閉じない)。ピッカー外のクリックでも閉じる。
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !tagPickerEl) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  closeTagPicker();
+}, true);
+document.addEventListener('mousedown', (e) => {
+  if (!tagPickerEl) return;
+  if (tagPickerEl.contains(e.target) || (tagPickerCtx && tagPickerCtx.anchor.contains(e.target))) return;
+  closeTagPicker();
+});
+
+// --- 詳細モーダルのタグ欄(.detail-tag-list はapp.jsのbuildDetailTagsHtmlが描画する) ---
+function tagIdsFromList(listEl) {
+  return (listEl.dataset.tagIds || '').split(',').filter(Boolean).map(Number);
+}
+
+async function updateTaskTagsApi(taskId, change) {
+  const res = await tagPost('/api/update-task-tags', { taskId, ...change });
+  if (res.status !== 200) {
+    alert(`タグを更新できませんでした: ${tagLogic.describeTagError(res.body).message}`);
+    return null;
+  }
+  return res.body.tags || [];
+}
+
+document.addEventListener('click', async (e) => {
+  if (e.target.closest('#add-task-tags')) return; // 登録フォーム側は下の専用ハンドラが処理する
+  const addBtn = e.target.closest('.detail-tag-add-btn');
+  if (addBtn) {
+    const listEl = addBtn.closest('.detail-tag-list');
+    const taskId = listEl.dataset.taskId;
+    const selectedIds = new Set(tagIdsFromList(listEl));
+    openTagPicker({
+      anchor: addBtn,
+      workspace: listEl.dataset.workspace,
+      selectedIds,
+      onToggle: async (tag, checked) => {
+        const tags = await updateTaskTagsApi(taskId, checked ? { add: [tag.id] } : { remove: [tag.id] });
+        if (!tags) return false;
+        selectedIds.clear();
+        tags.forEach(t => selectedIds.add(t.id));
+        return true;
+      },
+    });
+    return;
+  }
+  const removeBtn = e.target.closest('.detail-tag-list .tag-chip-remove');
+  if (removeBtn) {
+    const listEl = removeBtn.closest('.detail-tag-list');
+    removeBtn.disabled = true;
+    const tags = await updateTaskTagsApi(listEl.dataset.taskId, { remove: [Number(removeBtn.dataset.tagId)] });
+    if (!tags) removeBtn.disabled = false; // 成功時はboardの再描画でタグ欄ごと更新される
+  }
+});
+
+// --- 登録フォームのタグ選択(app.jsのgetOrCreateAddFormが #add-task-tags を用意する) ---
+let addFormTags = []; // 選択中のタグ [{id,name,color}]
+
+function getAddFormTagIds() {
+  return addFormTags.map(t => t.id);
+}
+
+function renderAddFormTags(form) {
+  const box = form.querySelector('#add-task-tags');
+  if (!box) return;
+  box.innerHTML = addFormTags.map(t => tagLogic.buildTagChipHtml(t, { removable: true })).join('')
+    + '<button type="button" class="add-form-tag-btn" title="既存のタグから選ぶ">＋ タグ</button>';
+}
+
+function resetAddFormTags(form) {
+  addFormTags = [];
+  closeTagPicker();
+  renderAddFormTags(form);
+}
+
+document.addEventListener('click', (e) => {
+  const box = e.target.closest('#add-task-tags');
+  if (!box) return;
+  const form = box.closest('.modal-overlay');
+  const removeBtn = e.target.closest('.tag-chip-remove');
+  if (removeBtn) {
+    addFormTags = addFormTags.filter(t => t.id !== Number(removeBtn.dataset.tagId));
+    renderAddFormTags(form);
+    return;
+  }
+  const addBtn = e.target.closest('.add-form-tag-btn');
+  if (!addBtn) return;
+  const projectName = form.querySelector('#add-task-project').value;
+  openTagPicker({
+    anchor: addBtn,
+    workspace: tagWorkspaceForProject(projectName),
+    selectedIds: new Set(getAddFormTagIds()),
+    onToggle: async (tag, checked) => {
+      addFormTags = checked ? addFormTags.concat(tag) : addFormTags.filter(t => t.id !== tag.id);
+      renderAddFormTags(form);
+      return true;
+    },
+  });
+});

@@ -1943,7 +1943,9 @@ function renderBoard(data) {
       const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>' : '';
       const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
       const dueBadge = item.dueDate ? renderDueDateBadge(item.dueDate, item.statusCode) : '';
-      const metaParts = [projectTag, category, artifactIndicator, githubBadge, dueBadge, completedDate].filter(Boolean);
+      // BT-395: タグは小さなチップで表示(完了カラムのコンパクトカードでは出さない)
+      const tagsHtml = isCompact ? '' : tagLogic.buildCardTagsHtml(item.tags, item.childTags);
+      const metaParts = [projectTag, category, artifactIndicator, githubBadge, dueBadge, completedDate, tagsHtml].filter(Boolean);
       if (badge) metaParts.push(badge);
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
 
@@ -2391,7 +2393,23 @@ function buildMetaHtml(item) {
   if (item.updatedBy) metaParts.push(`<li><strong>更新者:</strong> ${escapeHtml(item.updatedBy)}</li>`);
   const dueHtml = buildDueDateTrailHtml(item);
   if (dueHtml) metaParts.push(dueHtml);
-  return metaParts.length > 0 ? `<div class="detail-section"><h4>情報</h4><ul class="detail-meta">${metaParts.join('')}</ul></div>` : '';
+  const infoHtml = metaParts.length > 0 ? `<div class="detail-section"><h4>情報</h4><ul class="detail-meta">${metaParts.join('')}</ul></div>` : '';
+  return buildDetailTagsHtml(item) + infoHtml;
+}
+
+// 詳細モーダルのタグ欄（BT-395）。自分のタグは×で外せ、「＋ タグ」で既存タグから選んで付け外しする。
+// EPICは子由来のタグ(childTags)を薄く添える(読み取り専用)。付け外しの操作はtags.jsが委譲で処理する。
+function buildDetailTagsHtml(item) {
+  if (!item.id || item.id === '-') return '';
+  const own = item.tags || [];
+  const chips = own.map(t => tagLogic.buildTagChipHtml(t, { removable: true })).join('');
+  const derived = (item.childTags || []).map(t => tagLogic.buildTagChipHtml(t, { dim: true })).join('');
+  const derivedHtml = derived ? `<div class="detail-tag-derived"><span class="detail-tag-derived-label">子のタグ</span>${derived}</div>` : '';
+  const projectFile = ((currentBoardData && currentBoardData.projectFileMap) || {})[item.project] || item.project || '';
+  return `<div class="detail-section detail-tags-section"><h4>タグ</h4>
+    <div class="detail-tag-list" data-task-id="${escapeHtml(item.id)}" data-workspace="${escapeHtml(projectFile)}" data-tag-ids="${own.map(t => t.id).join(',')}">
+      ${chips}<button type="button" class="detail-tag-add-btn" title="既存のタグから選んで付け外しする">＋ タグ</button>
+    </div>${derivedHtml}</div>`;
 }
 
 // 詳細モーダル本体を「左3/4:説明」「右1/4:情報+成果物」の横長2カラムにまとめる（BT-261）
@@ -5304,6 +5322,9 @@ function buildMiniBoard(epic) {
       if (child.completedDate) {
         mParts.push(renderCompletedDateBadge(child.completedDate));
       }
+      if (child.tags && child.tags.length > 0) {
+        mParts.push(tagLogic.buildCardTagsHtml(child.tags, null));
+      }
       const mHtml = mParts.length > 0 ? `<div class="card-meta">${mParts.join('')}</div>` : '';
 
       // ピンボタン（ミニボード子カード）
@@ -6252,6 +6273,10 @@ function getOrCreateAddForm() {
             </select>
           </div>
           <div class="settings-group">
+            <label>タグ（任意）</label>
+            <div class="add-task-tags" id="add-task-tags"></div>
+          </div>
+          <div class="settings-group">
             <label>担当（任意）</label>
             <input type="text" id="add-task-assignee" placeholder="担当者">
           </div>
@@ -6284,6 +6309,8 @@ function getOrCreateAddForm() {
   closeOnEscape(addFormEl, 'modal-visible', closeAddForm);
 
   addFormEl.querySelector('#add-task-submit').addEventListener('click', submitAddTask);
+  // BT-395: タグはワークスペース単位のため、ワークスペースを変えたら選択済みタグをクリアする
+  addFormEl.querySelector('#add-task-project').addEventListener('change', () => resetAddFormTags(addFormEl));
 
   // Enterキーで送信（タイトル未入力時はsubmitAddTask側で弾かれる）
   addFormEl.querySelector('#add-task-title').addEventListener('keydown', (e) => {
@@ -6305,6 +6332,7 @@ function readAddFormValues() {
     assignee: form.querySelector('#add-task-assignee').value.trim(),
     startDate: form.querySelector('#add-task-start-date').value,
     dueDate: form.querySelector('#add-task-due-date').value,
+    tags: getAddFormTagIds().join(','),
   };
 }
 
@@ -6362,6 +6390,7 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId, defaults) {
   form.querySelector('#add-task-assignee').value = '';
   form.querySelector('#add-task-start-date').value = '';
   form.querySelector('#add-task-due-date').value = '';
+  resetAddFormTags(form);
 
   // 前回開いた時のエラー表示を引きずらないようリセット
   const errorEl = form.querySelector('#add-task-error');
@@ -6416,6 +6445,20 @@ async function submitAddTask() {
       body: JSON.stringify(body),
     });
     if (resp.ok) {
+      // BT-395: 選択したタグは、採番されたタスクIDが分かってから付与する(付与に失敗してもタスク自体は作成済み)
+      const tagIds = getAddFormTagIds();
+      if (tagIds.length > 0) {
+        try {
+          const created = await resp.json();
+          await fetch('/api/update-task-tags', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId: created.id, add: tagIds, actor: 'user' }),
+          });
+        } catch (e) {
+          console.error('[add-task] Tagging failed:', e);
+        }
+      }
       closeAddForm();
     } else {
       const err = await resp.json();

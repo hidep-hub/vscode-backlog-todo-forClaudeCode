@@ -5571,7 +5571,9 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 900;
+  /* 詳細モーダル(1000)・前面モーダル/登録フォーム(1200)の「タグ管理を開く」から出すため、それらより手前。
+     タグ選択ポップオーバー(1300)・バックアップ進捗(2500)よりは後ろ */
+  z-index: 1250;
 }
 
 .tag-modal-overlay.modal-visible {
@@ -5792,4 +5794,209 @@ body {
   color: var(--text-muted);
   font-size: 0.74rem;
   line-height: 1.5;
+}
+
+/* --- タグの付け外し・カード表示 (BT-395) --- */
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tag-chip-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tag-chip-remove {
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+  font-size: 0.95em;
+  line-height: 1;
+  padding: 0;
+}
+
+.tag-chip-remove:hover:not(:disabled) { opacity: 1; }
+.tag-chip-remove:disabled { cursor: progress; opacity: 0.35; }
+
+/* カード上は小さく控えめに(うるさくならないよう、文字・余白とも最小限) */
+.card-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 文字サイズはカードの他のタグ(--fs-tag)の約8割。S/M/Lのカードサイズ設定にも連動する */
+.tag-chip-sm {
+  font-size: calc(var(--fs-tag, 0.65rem) * 0.8);
+  line-height: 1.35;
+  padding: 0 5px;
+  border-radius: 8px;
+  max-width: 9em;
+  white-space: nowrap;
+}
+
+.tag-chip-sm .tag-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}
+
+.tag-chip-dim {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.tag-chip-more {
+  color: var(--text-muted);
+}
+
+/* 詳細モーダルのタグ欄 */
+.detail-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail-tag-derived {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.detail-tag-derived-label {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.detail-tag-add-btn,
+.add-form-tag-btn {
+  padding: 1px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.detail-tag-add-btn:hover,
+.add-form-tag-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.add-task-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* タグ選択ポップオーバー(モーダルより前面) */
+.tag-picker {
+  position: fixed;
+  z-index: 1300;
+  width: 260px;
+  max-height: 340px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.tag-picker-search {
+  margin: 8px;
+}
+
+.tag-picker-list {
+  overflow: auto;
+  padding: 0 8px 4px;
+}
+
+.tag-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+
+.tag-picker-empty {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  padding: 10px 4px;
+}
+
+.tag-picker-footer {
+  border-top: 1px solid var(--border);
+  padding: 6px 8px;
+}
+
+.tag-picker-manage {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.tag-picker-manage:hover { text-decoration: underline; }
+
+/* --- タグの色見本 (BT-394追補) --- */
+.tag-color-field {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.tag-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition: transform 0.08s;
+}
+
+.tag-swatch:hover { transform: scale(1.15); }
+
+.tag-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 「色なし」: 斜線入りの空白丸 */
+.tag-swatch-none {
+  background: linear-gradient(135deg, transparent 44%, #e53935 44%, #e53935 56%, transparent 56%), var(--card);
+}
+
+.tag-custom-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
 }
