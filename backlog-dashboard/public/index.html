@@ -35,6 +35,7 @@
         <button class="select-mode-btn" id="select-mode-btn" title="複数選択して親タスクにまとめる"><span class="material-icon icon-check"></span></button>
         <button class="activity-btn" id="activity-btn" title="履歴"><span class="material-icon icon-history"></span></button>
         <button class="activity-btn backup-btn" id="backup-btn" title="バックアップ（DB・環境ファイルの保全）"><span class="material-icon icon-backup"></span></button>
+        <button class="activity-btn tag-btn" id="tag-btn" title="タグ管理（作成・改名・統合・削除）"><span class="material-icon icon-tag"></span></button>
         </div>
         <div class="header-action-row header-workspace-row">
         <div class="ws-filter-wrap" id="ws-filter-wrap">
@@ -65,6 +66,11 @@
         <div class="badge-mode-menu" id="badge-mode-menu" role="menu" hidden></div>
       </div>
       <span id="project-badges" class="project-badges"></span>
+      <!-- BT-396: タグ絞り込み。1段目のボタン群は幅が限界のため、バッジ行の右端に置く -->
+      <div class="tag-filter-wrap">
+        <div class="tag-filter-bar" id="tag-filter-bar" hidden></div>
+        <button class="activity-btn tag-filter-btn tag-filter-trigger" id="tag-filter-btn" title="タグで絞り込み（ボード・週次計画・ガント共通）" aria-haspopup="dialog"><span class="material-icon icon-tag"></span><span class="tag-filter-count" hidden></span></button>
+      </div>
     </div>
   </header>
   <div class="running-strip" id="running-strip">
@@ -173,8 +179,10 @@
   <script src="column-sort.js"></script>
   <script src="holidays.js"></script>
   <script src="gantt.js"></script>
+  <script src="tag-logic.js"></script>
   <script src="app.js"></script>
   <script src="activity.js"></script>
   <script src="backup.js"></script>
+  <script src="tags.js"></script>
 </body>
 </html>

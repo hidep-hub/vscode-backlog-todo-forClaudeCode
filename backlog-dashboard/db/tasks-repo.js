@@ -489,6 +489,14 @@ function moveWorkspace(db, displayId, targetFile, projects) {
   const maxSort = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM tasks').get().m;
   const now = nowIso();
 
+  // タグはワークスペース単位のため、移動すると付与は引き継げない(BT-393)。解除を履歴に残す。
+  const attachedTags = db.prepare(`SELECT t.id, t.name FROM task_tags tt JOIN tags t ON t.id = tt.tag_id
+    WHERE tt.task_id = ?`).all(task.id);
+  for (const tag of attachedTags) {
+    insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'tag_removed', oldValue: tag.name });
+  }
+  db.prepare('DELETE FROM task_tags WHERE task_id = ?').run(task.id);
+
   db.prepare(`UPDATE tasks SET workspace = ?, seq_no = ?, display_id = ?, parent_id = NULL,
     sort_order = ?, updated_at = ?, updated_by = ? WHERE id = ?`)
     .run(targetProject.file, seqNo, newDisplayId, maxSort + 1, now, 'user', task.id);

@@ -5560,3 +5560,569 @@ body {
   width: auto;
   min-width: 80px;
 }
+
+/* --- タグ管理画面 (BT-394、EPIC BT-391) --- */
+.material-icon.icon-tag           { -webkit-mask-image: url('icons/local_offer.svg'); mask-image: url('icons/local_offer.svg'); }
+
+.tag-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-overlay);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  /* 詳細モーダル(1000)・前面モーダル/登録フォーム(1200)の「タグ管理を開く」から出すため、それらより手前。
+     タグ選択ポップオーバー(1300)・バックアップ進捗(2500)よりは後ろ */
+  z-index: 1250;
+}
+
+.tag-modal-overlay.modal-visible {
+  display: flex;
+}
+
+.tag-modal-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: min(720px, 96vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.tag-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.tag-modal-header h3 {
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.tag-ws-label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  min-width: 0;
+}
+
+.tag-ws-select,
+.tag-input,
+.tag-merge-target {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 0.85rem;
+  min-width: 0;
+}
+
+.tag-ws-select { flex: 1; max-width: 280px; }
+
+.tag-modal-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+.tag-modal-close:hover { color: var(--text); }
+
+.tag-create-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.tag-create-bar .tag-input { flex: 1; min-width: 160px; }
+
+.tag-color-input {
+  width: 34px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tag-nocolor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.tag-create-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tag-create-btn:hover { background: var(--drop-highlight); }
+
+.tag-note {
+  padding: 8px 16px;
+  font-size: 0.8rem;
+  line-height: 1.7;
+  border-bottom: 1px solid var(--border);
+}
+
+.tag-note-warn { background: var(--badge-progress-bg); color: var(--badge-progress-fg); }
+.tag-note-error { background: var(--btn-danger-bg); color: var(--btn-danger-fg); }
+.tag-note-actions { display: inline-flex; gap: 6px; margin-left: 8px; }
+
+.tag-modal-body {
+  overflow: auto;
+  padding: 8px 16px;
+  min-height: 120px;
+}
+
+.tag-empty {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 28px 0;
+  text-align: center;
+}
+
+.tag-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.tag-table th,
+.tag-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.tag-table th {
+  color: var(--text-muted);
+  font-weight: normal;
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+
+.tag-table .tag-col-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; width: 80px; }
+.tag-table .tag-col-actions { text-align: right; white-space: nowrap; width: 1%; }
+
+.tag-chip {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.tag-chip-plain {
+  background: var(--card);
+  color: var(--text);
+}
+
+.tag-action-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.tag-action-btn:hover:not(:disabled) { background: var(--drop-highlight); }
+.tag-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.tag-action-btn.tag-danger { background: var(--btn-danger-bg); color: var(--btn-danger-fg); }
+.tag-action-btn.tag-primary { border-color: var(--accent); color: var(--accent); }
+
+.tag-edit-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tag-edit-form .tag-edit-name { flex: 1; min-width: 160px; }
+.tag-merge-label { font-size: 0.82rem; }
+.tag-merge-target { flex: 1; min-width: 160px; }
+
+.tag-row-error {
+  margin-top: 6px;
+  color: var(--btn-danger-fg);
+  font-size: 0.78rem;
+}
+
+.tag-edit-row td,
+.tag-merge-row td { background: var(--drop-highlight); }
+
+.tag-modal-footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+/* --- タグの付け外し・カード表示 (BT-395) --- */
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tag-chip-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tag-chip-remove {
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+  font-size: 0.95em;
+  line-height: 1;
+  padding: 0;
+}
+
+.tag-chip-remove:hover:not(:disabled) { opacity: 1; }
+.tag-chip-remove:disabled { cursor: progress; opacity: 0.35; }
+
+/* カード上は小さく控えめに(うるさくならないよう、文字・余白とも最小限) */
+.card-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 文字サイズはカードの他のタグ(--fs-tag)の約8割。S/M/Lのカードサイズ設定にも連動する */
+.tag-chip-sm {
+  font-size: calc(var(--fs-tag, 0.65rem) * 0.8);
+  line-height: 1.35;
+  padding: 0 5px;
+  border-radius: 8px;
+  max-width: 9em;
+  white-space: nowrap;
+}
+
+.tag-chip-sm .tag-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}
+
+.tag-chip-dim {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.tag-chip-more {
+  color: var(--text-muted);
+}
+
+/* 詳細モーダルのタグ欄 */
+.detail-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail-tag-derived {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.detail-tag-derived-label {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.detail-tag-add-btn,
+.add-form-tag-btn {
+  padding: 1px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.detail-tag-add-btn:hover,
+.add-form-tag-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.add-task-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* タグ選択ポップオーバー(モーダルより前面) */
+.tag-picker {
+  position: fixed;
+  z-index: 1300;
+  width: 260px;
+  max-height: 340px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.tag-picker-search {
+  margin: 8px;
+}
+
+.tag-picker-list {
+  overflow: auto;
+  padding: 0 8px 4px;
+}
+
+.tag-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+
+.tag-picker-empty {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  padding: 10px 4px;
+}
+
+.tag-picker-footer {
+  border-top: 1px solid var(--border);
+  padding: 6px 8px;
+}
+
+.tag-picker-manage {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.tag-picker-manage:hover { text-decoration: underline; }
+
+/* --- タグの色見本 (BT-394追補) --- */
+.tag-color-field {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.tag-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition: transform 0.08s;
+}
+
+.tag-swatch:hover { transform: scale(1.15); }
+
+.tag-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 「色なし」: 斜線入りの空白丸 */
+.tag-swatch-none {
+  background: linear-gradient(135deg, transparent 44%, #e53935 44%, #e53935 56%, transparent 56%), var(--card);
+}
+
+.tag-custom-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+/* --- タグ絞り込み (BT-396) --- */
+.tag-filter-btn {
+  position: relative;
+}
+
+/* 絞り込み中は「今日やる」フィルターと同じ強調色(ヘッダーの青地でも目立たせる) */
+.tag-filter-btn.filter-active {
+  background: var(--today-accent);
+  color: #fff;
+  border-color: var(--today-accent);
+}
+
+/* バーのチップは×付きのため、カード用の上限より広く取って名前が切れにくくする */
+.tag-filter-bar .tag-chip-sm {
+  max-width: 16em;
+}
+
+.tag-filter-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--btn-danger-fg);
+  color: #fff;
+  font-size: 0.6rem;
+  line-height: 14px;
+  text-align: center;
+}
+
+/* バッジ行の右端。project-badgesの右に寄せる */
+.tag-filter-wrap {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tag-filter-bar {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tag-filter-bar[hidden] { display: none; }
+
+.tag-filter-bar-label {
+  color: var(--brand-fg, var(--text-muted));
+  font-size: 0.7rem;
+  opacity: 0.85;
+}
+
+.tag-filter-mode-btn,
+.tag-filter-clear-btn {
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--brand-fg, var(--text));
+  font-size: 0.66rem;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.tag-filter-mode-btn:hover,
+.tag-filter-clear-btn:hover {
+  background: var(--drop-highlight);
+}
+
+.tag-filter-pop {
+  width: 300px;
+}
+
+.tag-filter-mode {
+  display: flex;
+  gap: 14px;
+  padding: 8px 10px 0;
+  font-size: 0.78rem;
+}
+
+.tag-filter-mode label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.tag-filter-usage {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-filter-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 週次計画/ガント画面内のタグ絞り込みボタン(BT-397)。件数バッジを角に載せる */
+.plan-tag-filter-btn {
+  position: relative;
+}
+
+/* タグ絞り込みの「クリア」(選択解除)。条件切替の行の右端 */
+.tag-filter-clear-sel {
+  margin-left: auto;
+  padding: 1px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.tag-filter-clear-sel:hover:not(:disabled) { background: var(--drop-highlight); }
+.tag-filter-clear-sel:disabled { color: var(--text-muted); opacity: 0.5; cursor: default; }

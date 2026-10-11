@@ -43,7 +43,7 @@ const settingsGithubHintEl = document.getElementById('settings-github-hint');
 // z-index が同じ場合はDOM末尾の要素が前面になるCSSの規則にも従う。
 function isTopmostDialog(el) {
   const visible = document.querySelectorAll(
-    '.modal-overlay.modal-visible, .settings-overlay.settings-visible, .plan-board-overlay.active, .activity-modal-overlay.modal-visible, .backup-modal-overlay.modal-visible'
+    '.modal-overlay.modal-visible, .settings-overlay.settings-visible, .plan-board-overlay.active, .activity-modal-overlay.modal-visible, .backup-modal-overlay.modal-visible, .tag-modal-overlay.modal-visible'
   );
   let top = null;
   let topLayer = -Infinity;
@@ -153,6 +153,9 @@ let planDragData = null; // { kind: 'single', id } | { kind: 'group', epicId, ch
 let planCollapsedGroups = new Set(); // 折りたたみ中のEPICグループキー('epicId_bucketId')
 let planSearchQuery = ''; // BM-012: ID・件名・親EPICタイトルの部分一致（空文字=絞り込みなし）
 let planPinOnly = false; // BM-012: 📌ピンが付いたタスク（EPICは子の集約）だけ表示する
+// BT-396: タグ絞り込み。ボード・週次計画・ガントで共通。判定はtag-logic.js、操作UIはtags.js。
+// { mode: 'or'|'and', tags: [{key,name,color}] }（keyは表記ゆれを正規化したタグ名）
+let tagFilter = tagLogic.parseTagFilter((() => { try { return localStorage.getItem('tagFilter'); } catch (e) { return null; } })());
 let planShowDone = true; // BT-315: 週次カンバンで完了タスクを(列内の折りたたみグループとして)出すか。選択はlocalStorageに保持
 let planExpandedDone = new Set(); // BT-315: 開いている完了グループのバケットID（既定は折りたたみ）
 try { if (localStorage.getItem('planShowDone') === '0') planShowDone = false; } catch { /* 無視 */ }
@@ -1814,6 +1817,11 @@ function renderBoard(data) {
       // todayFlagが残っていても、ピン数0のEpicをフィルタ結果へ混ぜない。
       items = items.filter(item => item.childrenTotal > 0 ? item.todayCount > 0 : item.todayFlag);
     }
+    if (tagFilter.tags.length > 0) {
+      // BT-396: EPICは子のタグも含めて判定する（子がタグを持てば親も出す）
+      const tagKeys = tagFilter.tags.map(t => t.key);
+      items = items.filter(item => tagLogic.matchesTagFilterForBoardItem(item, tagKeys, tagFilter.mode));
+    }
     // 完了カラム「本日完了だけ」表示（達成感モード）: completedDateが今日(JST)のものだけ
     const doneTodayActive = isCompact && doneTodayOnly;
     if (doneTodayActive) {
@@ -1943,7 +1951,9 @@ function renderBoard(data) {
       const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>' : '';
       const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
       const dueBadge = item.dueDate ? renderDueDateBadge(item.dueDate, item.statusCode) : '';
-      const metaParts = [projectTag, category, artifactIndicator, githubBadge, dueBadge, completedDate].filter(Boolean);
+      // BT-395: タグは小さなチップで表示(完了カラムのコンパクトカードでは出さない)
+      const tagsHtml = isCompact ? '' : tagLogic.buildCardTagsHtml(item.tags, item.childTags);
+      const metaParts = [projectTag, category, artifactIndicator, githubBadge, dueBadge, completedDate, tagsHtml].filter(Boolean);
       if (badge) metaParts.push(badge);
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
 
@@ -2391,7 +2401,23 @@ function buildMetaHtml(item) {
   if (item.updatedBy) metaParts.push(`<li><strong>更新者:</strong> ${escapeHtml(item.updatedBy)}</li>`);
   const dueHtml = buildDueDateTrailHtml(item);
   if (dueHtml) metaParts.push(dueHtml);
-  return metaParts.length > 0 ? `<div class="detail-section"><h4>情報</h4><ul class="detail-meta">${metaParts.join('')}</ul></div>` : '';
+  const infoHtml = metaParts.length > 0 ? `<div class="detail-section"><h4>情報</h4><ul class="detail-meta">${metaParts.join('')}</ul></div>` : '';
+  return buildDetailTagsHtml(item) + infoHtml;
+}
+
+// 詳細モーダルのタグ欄（BT-395）。自分のタグは×で外せ、「＋ タグ」で既存タグから選んで付け外しする。
+// EPICは子由来のタグ(childTags)を薄く添える(読み取り専用)。付け外しの操作はtags.jsが委譲で処理する。
+function buildDetailTagsHtml(item) {
+  if (!item.id || item.id === '-') return '';
+  const own = item.tags || [];
+  const chips = own.map(t => tagLogic.buildTagChipHtml(t, { removable: true })).join('');
+  const derived = (item.childTags || []).map(t => tagLogic.buildTagChipHtml(t, { dim: true })).join('');
+  const derivedHtml = derived ? `<div class="detail-tag-derived"><span class="detail-tag-derived-label">子のタグ</span>${derived}</div>` : '';
+  const projectFile = ((currentBoardData && currentBoardData.projectFileMap) || {})[item.project] || item.project || '';
+  return `<div class="detail-section detail-tags-section"><h4>タグ</h4>
+    <div class="detail-tag-list" data-task-id="${escapeHtml(item.id)}" data-workspace="${escapeHtml(projectFile)}" data-tag-ids="${own.map(t => t.id).join(',')}">
+      ${chips}<button type="button" class="detail-tag-add-btn" title="既存のタグから選んで付け外しする">＋ タグ</button>
+    </div>${derivedHtml}</div>`;
 }
 
 // 詳細モーダル本体を「左3/4:説明」「右1/4:情報+成果物」の横長2カラムにまとめる（BT-261）
@@ -3376,6 +3402,14 @@ function planMatchesSearch(item, query) {
   return q.split(/\s+/).every((term) => hay.includes(term));
 }
 
+// BT-396: タグ絞り込み。子はEPIC自身のタグが一致していてもEPICごと出す（検索・ピンと同じ考え方）。
+function planMatchesTags(item, epic) {
+  if (tagFilter.tags.length === 0) return true;
+  const keys = tagFilter.tags.map(t => t.key);
+  return tagLogic.matchesTagFilter(item.tags, keys, tagFilter.mode)
+    || (!!epic && tagLogic.matchesTagFilter(epic.tags, keys, tagFilter.mode));
+}
+
 // BT-315: 完了タスクの置き場。遅延列には出さない（終わったものは遅延としない）／ヘッダーのトグルOFFなら出さない。
 // 出す場合は通常カードに混ぜず、列内の折りたたみグループ(doneItems)へ振り分ける。
 function planPushDone(bucket, bucketId, item, epic) {
@@ -3387,7 +3421,7 @@ function planBuildBuckets(bucketDefs) {
   const buckets = {};
   for (const b of bucketDefs) buckets[b.id] = { singles: [], epicGroups: new Map(), doneItems: [] };
 
-  const isFiltered = !!planSearchQuery.trim() || planPinOnly;
+  const isFiltered = !!planSearchQuery.trim() || planPinOnly || tagFilter.tags.length > 0;
 
   for (const item of planCollectItems()) {
     const isEpic = (item.children && item.children.length > 0) || item.childrenTotal > 0;
@@ -3400,7 +3434,7 @@ function planBuildBuckets(bucketDefs) {
         if (isFiltered) {
           const matchesPin = !planPinOnly || epicPinned;
           const matchesSearch = planMatchesSearch(child, planSearchQuery) || planMatchesSearch(item, planSearchQuery);
-          if (!matchesPin || !matchesSearch) continue;
+          if (!matchesPin || !matchesSearch || !planMatchesTags(child, item)) continue;
         }
         if (child.statusCode === 'done') { planPushDone(buckets[bucketId], bucketId, child, item); continue; }
         let group = buckets[bucketId].epicGroups.get(item.id);
@@ -3416,6 +3450,7 @@ function planBuildBuckets(bucketDefs) {
       if (isFiltered) {
         if (planPinOnly && !planPinActive(item)) continue;
         if (!planMatchesSearch(item, planSearchQuery)) continue;
+        if (!planMatchesTags(item, null)) continue;
       }
       if (item.statusCode === 'done') { planPushDone(buckets[bucketId], bucketId, item, null); continue; }
       buckets[bucketId].singles.push(item);
@@ -3609,7 +3644,7 @@ function planSetupDropZone(bodyEl, bucketId) {
 // EPIC+子の組(epic=null は単発タスクの束)にして gantt.js へ渡す。日付は update-task の既存項目だけ使う。
 // BM-046: フッターの母数(絞り込み前の件数)を出すため、検索・ピン絞り込みを無視した版を作れるようにする
 function planBuildGanttGroups(ignoreFilter) {
-  const isFiltered = !ignoreFilter && (!!planSearchQuery.trim() || planPinOnly);
+  const isFiltered = !ignoreFilter && (!!planSearchQuery.trim() || planPinOnly || tagFilter.tags.length > 0);
   const groups = [];
   const singles = [];
   for (const item of planCollectItems()) {
@@ -3620,13 +3655,14 @@ function planBuildGanttGroups(ignoreFilter) {
         if (!isFiltered) return true;
         const matchesPin = !planPinOnly || epicPinned;
         const matchesSearch = planMatchesSearch(child, planSearchQuery) || planMatchesSearch(item, planSearchQuery);
-        return matchesPin && matchesSearch;
+        return matchesPin && matchesSearch && planMatchesTags(child, item);
       });
       if (children.length > 0) groups.push({ epic: item, children });
     } else {
       if (isFiltered) {
         if (planPinOnly && !planPinActive(item)) continue;
         if (!planMatchesSearch(item, planSearchQuery)) continue;
+        if (!planMatchesTags(item, null)) continue;
       }
       singles.push(item);
     }
@@ -3683,11 +3719,11 @@ function renderPlanGantt() {
   // 反映し検索・ピン絞り込みは無視、絞り込み後(groups)はそれらも反映した件数。絞り込みが無い時はshownを出さない
   const allGroups = planBuildGanttGroups(true);
   const query = planSearchQuery.trim();
-  const filtered = !!query || planPinOnly;
+  const filtered = !!query || planPinOnly || tagFilter.tags.length > 0;
   const totalCounts = planGanttStatusCounts(allGroups);
   const shownCounts = filtered ? planGanttStatusCounts(groups) : null;
   // 絞り込みメッセージに出す条件文言。現状の絞り込み手段はキーワード検索と📌今日やるのみ
-  const filterLabel = [query ? `「${query}」` : '', planPinOnly ? '📌今日やる' : ''].filter(Boolean).join(' + ');
+  const filterLabel = [query ? `「${query}」` : '', planPinOnly ? '📌今日やる' : '', tagLogic.describeTagFilter(tagFilter)].filter(Boolean).join(' + ');
 
   window.ganttView.render(root, {
     groups,
@@ -3696,6 +3732,8 @@ function renderPlanGantt() {
     holidayName: (ymd) => (window.jpHolidays ? window.jpHolidays.getHolidayName(ymd) : null),
     groupByWorkspace: !currentFilter && projects.size > 1,
     footerCounts: { total: totalCounts, shown: shownCounts, filterLabel },
+    // タイトルの右に出すタグ。EPICは自分のタグに子由来のタグ(薄)を続ける
+    tagsHtml: (item) => tagLogic.buildCardTagsHtml(item.tags, item.childTags, 2),
     onSaveDates: planSaveGanttDates,
     onOpen: (item, parentEpic) => {
       if (parentEpic) {
@@ -3897,6 +3935,7 @@ function getOrCreatePlanBoardModal() {
           <button type="button" class="plan-search-clear-btn" id="plan-search-clear-btn" title="絞込解除">&#10005;</button>
         </div>
         <button type="button" class="plan-pin-filter-btn" id="plan-pin-filter-btn" title="📌ピンを付けたタスクだけ表示する（EPICは子に📌があればEPICごと表示）"><span class="material-icon icon-keep"></span><span class="plan-pin-count" id="plan-pin-count"></span></button>
+        <button type="button" class="plan-pin-filter-btn plan-tag-filter-btn tag-filter-trigger" id="plan-tag-filter-btn" aria-haspopup="dialog" title="タグで絞り込み（ボード・週次計画・ガント共通）"><span class="material-icon icon-tag"></span><span class="tag-filter-count" hidden></span></button>
         <button type="button" class="plan-pin-filter-btn plan-done-filter-btn" id="plan-done-filter-btn"><span class="material-icon icon-check-box"></span></button>
         <button class="plan-board-close" id="plan-board-close">&times;</button>
       </div>
@@ -3947,6 +3986,10 @@ function getOrCreatePlanBoardModal() {
     planPinOnly = !planPinOnly;
     renderPlanBoard();
   });
+
+  // BT-397: 計画画面を開くとヘッダーのタグ絞り込みが隠れるため、画面内にも同じボタンを置く（状態・条件はヘッダーと共通）
+  overlay.querySelector('#plan-tag-filter-btn').addEventListener('click', (e) => toggleTagFilterPopover(e.currentTarget));
+  renderTagFilterControls();
 
   // BT-315: 完了タスクを出すかどうかのトグル（週次カンバンのみ）
   overlay.querySelector('#plan-done-filter-btn').addEventListener('click', () => {
@@ -5304,6 +5347,9 @@ function buildMiniBoard(epic) {
       if (child.completedDate) {
         mParts.push(renderCompletedDateBadge(child.completedDate));
       }
+      if (child.tags && child.tags.length > 0) {
+        mParts.push(tagLogic.buildCardTagsHtml(child.tags, null));
+      }
       const mHtml = mParts.length > 0 ? `<div class="card-meta">${mParts.join('')}</div>` : '';
 
       // ピンボタン（ミニボード子カード）
@@ -6252,6 +6298,10 @@ function getOrCreateAddForm() {
             </select>
           </div>
           <div class="settings-group">
+            <label>タグ（任意）</label>
+            <div class="add-task-tags" id="add-task-tags"></div>
+          </div>
+          <div class="settings-group">
             <label>担当（任意）</label>
             <input type="text" id="add-task-assignee" placeholder="担当者">
           </div>
@@ -6284,6 +6334,8 @@ function getOrCreateAddForm() {
   closeOnEscape(addFormEl, 'modal-visible', closeAddForm);
 
   addFormEl.querySelector('#add-task-submit').addEventListener('click', submitAddTask);
+  // BT-395: タグはワークスペース単位のため、ワークスペースを変えたら選択済みタグをクリアする
+  addFormEl.querySelector('#add-task-project').addEventListener('change', () => resetAddFormTags(addFormEl));
 
   // Enterキーで送信（タイトル未入力時はsubmitAddTask側で弾かれる）
   addFormEl.querySelector('#add-task-title').addEventListener('keydown', (e) => {
@@ -6305,6 +6357,7 @@ function readAddFormValues() {
     assignee: form.querySelector('#add-task-assignee').value.trim(),
     startDate: form.querySelector('#add-task-start-date').value,
     dueDate: form.querySelector('#add-task-due-date').value,
+    tags: getAddFormTagIds().join(','),
   };
 }
 
@@ -6362,6 +6415,7 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId, defaults) {
   form.querySelector('#add-task-assignee').value = '';
   form.querySelector('#add-task-start-date').value = '';
   form.querySelector('#add-task-due-date').value = '';
+  resetAddFormTags(form);
 
   // 前回開いた時のエラー表示を引きずらないようリセット
   const errorEl = form.querySelector('#add-task-error');
@@ -6416,6 +6470,20 @@ async function submitAddTask() {
       body: JSON.stringify(body),
     });
     if (resp.ok) {
+      // BT-395: 選択したタグは、採番されたタスクIDが分かってから付与する(付与に失敗してもタスク自体は作成済み)
+      const tagIds = getAddFormTagIds();
+      if (tagIds.length > 0) {
+        try {
+          const created = await resp.json();
+          await fetch('/api/update-task-tags', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId: created.id, add: tagIds, actor: 'user' }),
+          });
+        } catch (e) {
+          console.error('[add-task] Tagging failed:', e);
+        }
+      }
       closeAddForm();
     } else {
       const err = await resp.json();

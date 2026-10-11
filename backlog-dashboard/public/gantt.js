@@ -25,7 +25,7 @@
 //  - EPICは子の期間を集約した読み取り専用バー
 
 (function (root) {
-  const LABEL_W_DEFAULT = 300;
+  const LABEL_W_DEFAULT = 380; // 既定幅。タイトルの右にタグ(BT-397追補)を出すため、300から広げた。ドラッグで変更した幅(localStorage)はそのまま維持される
   const LABEL_W_MIN = 220;
   const LABEL_W_MAX = 640;
   const ROW_H = 28;
@@ -234,6 +234,8 @@
     hoverEl = null; // 再描画でDOMごと消えるため参照だけ捨てる
     if (drag) return; // ドラッグ中にWS更新で再描画されるとバー要素が差し替わるため、終わるまで待つ
     const esc = ctx.escapeHtml;
+    // BT-397追補: タイトルの右に出すタグ(app.jsがctx.tagsHtmlで渡す。無ければ出さない)
+    const tagsCell = (it) => { const h = ctx.tagsHtml ? ctx.tagsHtml(it) : ''; return h ? `<span class="gantt-tags">${h}</span>` : ''; };
     const prev = container.querySelector('.gantt-scroll');
     const prevLeft = prev ? prev.scrollLeft : 0;
     const prevTop = prev ? prev.scrollTop : 0;
@@ -354,7 +356,7 @@
         const eRunning = r.epic.running || r.epic.statusCode === 'do'
           ? `<span class="gantt-running${r.epic.running ? '' : ' is-idle'}" title="${r.epic.running ? '実行中' : '進行中'}"></span>` : '';
         const epicIcon = '<span class="epic-icon gantt-epic-icon" title="EPIC（子タスクを束ねる親タスク）"><span class="material-icon icon-stacks"></span></span>';
-        return `<div class="gantt-row gantt-row-epic${r.epic.statusCode === 'done' ? ' is-done' : ''}" data-epic-id="${esc(r.epic.id)}"><div class="gantt-label gantt-label-epic" data-act="toggle-epic" data-epic-id="${esc(r.epic.id)}" data-task-id="${esc(r.epic.id)}"><span class="gantt-toggle">${collapsed ? '▸' : '▾'}</span>${epicIcon}<span class="gantt-id">${esc(r.epic.id)}</span>${eRunning}<span class="gantt-title">${esc(r.epic.title)}</span><span class="gantt-count">${r.done}/${r.total}</span><i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px">${bar}</div></div>`;
+        return `<div class="gantt-row gantt-row-epic${r.epic.statusCode === 'done' ? ' is-done' : ''}" data-epic-id="${esc(r.epic.id)}"><div class="gantt-label gantt-label-epic" data-act="toggle-epic" data-epic-id="${esc(r.epic.id)}" data-task-id="${esc(r.epic.id)}"><span class="gantt-toggle">${collapsed ? '▸' : '▾'}</span>${epicIcon}<span class="gantt-id">${esc(r.epic.id)}</span>${eRunning}<span class="gantt-title">${esc(r.epic.title)}</span>${tagsCell(r.epic)}<span class="gantt-count">${r.done}/${r.total}</span><i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px">${bar}</div></div>`;
       }
       const item = r.item;
       const done = isDone(item);
@@ -374,7 +376,7 @@
       const childCls = r.parent ? ` is-child${r.isLast ? ' is-last' : ''}` : '';
       const selectable = state.selecting && !done;
       const selectionMark = selectable ? `<span class="gantt-selection-mark${state.selectedIds.has(item.id) ? ' is-selected' : ''}" aria-hidden="true">${state.selectedIds.has(item.id) ? '✓' : ''}</span>` : '';
-      const label = `<div class="gantt-label gantt-label-task${childCls}${selectable ? ' is-selecting' : ''}" data-act="${selectable ? 'select-task' : 'open'}" data-task-id="${esc(item.id)}">${selectionMark}${stateCell}<span class="gantt-id">${esc(item.id)}</span><span class="gantt-title">${esc(item.title)}</span>${pin}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;
+      const label = `<div class="gantt-label gantt-label-task${childCls}${selectable ? ' is-selecting' : ''}" data-act="${selectable ? 'select-task' : 'open'}" data-task-id="${esc(item.id)}">${selectionMark}${stateCell}<span class="gantt-id">${esc(item.id)}</span><span class="gantt-title">${esc(item.title)}</span>${tagsCell(item)}${pin}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;
 
       let trackInner = '';
       let trackClass = 'gantt-track';
