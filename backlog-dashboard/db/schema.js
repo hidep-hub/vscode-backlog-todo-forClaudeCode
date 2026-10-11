@@ -160,6 +160,9 @@ const EVENT_TYPE_SEED = [
   { code: 'assigned', label: '担当変更', sort_order: 7 },
   { code: 'deleted', label: '削除', sort_order: 8 },
   { code: 'due_date_changed', label: '期日変更', sort_order: 9 },
+  // BT-393: タグ付け外し。old_value/new_valueにはタグ名を記録する
+  { code: 'tag_added', label: 'タグ追加', sort_order: 10 },
+  { code: 'tag_removed', label: 'タグ解除', sort_order: 11 },
 ];
 
 /**

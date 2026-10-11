@@ -6,6 +6,7 @@
 // 返却するJSON構造は現行server.jsのbuildBoard()と同じ形を目指す。
 
 const tasksRepo = require('./tasks-repo');
+const tagsRepo = require('./tags-repo');
 
 function getStatusList(db) {
   return db.prepare('SELECT code, label, sort_order FROM statuses ORDER BY sort_order').all();
@@ -67,7 +68,26 @@ function toTaskItem(row, { statusLabelMap, projectName }) {
     updatedBy: row.updated_by,
     artifacts: deliverables.length ? deliverables.map(d => d.path).filter(Boolean) : undefined,
     dueDateHistory: row.__dueDateHistory || [],
+    // BT-393: タスク自身に付いているタグ({id,name,color}の配列、タグのsort_order順)
+    tags: row.__tags || [],
   };
+}
+
+// 子を持つ親(EPIC)に、子が持っているタグのうち親自身に付いていないものをchildTagsとして付与する(BT-393)。
+// EPICのタグ表示は子から導出する方針(継承はしない)で、絞り込み時に「子がタグを持てば親も出す」ために使う。
+function attachChildTags(item, children) {
+  if (children.length === 0) return;
+  const own = new Set(item.tags.map(t => t.id));
+  const seen = new Set();
+  const childTags = [];
+  for (const child of children) {
+    for (const tag of child.tags) {
+      if (own.has(tag.id) || seen.has(tag.id)) continue;
+      seen.add(tag.id);
+      childTags.push(tag);
+    }
+  }
+  item.childTags = childTags;
 }
 
 // 子を持つ親の実効ステータスcodeを、子の最大進捗と親自身のステータスの大きい方から決める
@@ -145,9 +165,12 @@ function buildBoardFromDb(db, config, workspace = null) {
   );
 
   const dueHistoryByTaskId = tasksRepo.listDueDateHistory(db, taskIds);
+  // workspace指定時のみIN句で絞る(All Projects時は全件取得、deliverables等と同じ方針)
+  const tagsByTaskId = noRowsInScope ? {} : tagsRepo.listTagsForTasks(db, idPlaceholders ? taskIds : null);
   for (const row of allRows) {
     row.__deliverables = deliverablesByTaskId[row.id] || [];
     row.__dueDateHistory = dueHistoryByTaskId[row.id] || [];
+    row.__tags = tagsByTaskId[row.id] || [];
   }
 
   const rowsById = {};
@@ -176,6 +199,7 @@ function buildBoardFromDb(db, config, workspace = null) {
       return childItem;
     });
     item.children = children;
+    attachChildTags(item, children);
     item.todayFlag = pinnedTaskIds.has(row.id);
     item.running = runningTaskIds.has(row.id);
     item.agentId = activeAgentByTaskId.get(row.id) || null;
@@ -294,6 +318,9 @@ function buildTaskDetail(db, config, displayId) {
   const dueHistoryByTaskId = tasksRepo.listDueDateHistory(db, relevantIds);
   row.__dueDateHistory = dueHistoryByTaskId[row.id] || [];
   for (const c of childRows) c.__dueDateHistory = dueHistoryByTaskId[c.id] || [];
+  const tagsByTaskId = tagsRepo.listTagsForTasks(db, relevantIds);
+  row.__tags = tagsByTaskId[row.id] || [];
+  for (const c of childRows) c.__tags = tagsByTaskId[c.id] || [];
 
   const pinnedTaskIds = new Set(db.prepare(`SELECT task_id FROM pins WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
   const runningTaskIds = new Set(db.prepare(`SELECT task_id FROM running_tasks WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
@@ -319,6 +346,7 @@ function buildTaskDetail(db, config, displayId) {
     return childItem;
   });
   item.children = children;
+  attachChildTags(item, children);
   if (childRows.length > 0) {
     item.childrenTotal = childRows.length;
     item.childrenDone = childRows.filter(c => c.status === 'done').length;

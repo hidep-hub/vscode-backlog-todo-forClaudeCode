@@ -41,7 +41,7 @@ test('serves the core task workflow through the REST API', async () => {
     projects: [{ file: 'test', prefix: 'TS', name: 'Test', workspace: fixtureRoot }],
   };
   fs.mkdirSync(dataDir, { recursive: true });
-  for (const entry of ['server.js', 'github-client.js', 'package.json']) {
+  for (const entry of ['server.js', 'tags-api.js', 'github-client.js', 'package.json']) {
     fs.copyFileSync(path.join(sourceRoot, entry), path.join(fixtureRoot, entry));
   }
   fs.cpSync(path.join(sourceRoot, 'db'), path.join(fixtureRoot, 'db'), { recursive: true });

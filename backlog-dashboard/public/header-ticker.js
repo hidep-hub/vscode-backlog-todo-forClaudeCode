@@ -19,6 +19,8 @@
     running_stopped: 'Stop',
     assigned: 'Assign',
     due_date_changed: 'Due',
+    tag_added: 'Tag',
+    tag_removed: 'Untag',
     deleted: 'Delete',
   };
 
@@ -57,6 +59,9 @@
     if (ev.eventType === 'due_date_changed') {
       const to = ev.newValue || '(未設定)';
       return { action, detail: `→ ${to}` };
+    }
+    if (ev.eventType === 'tag_added' || ev.eventType === 'tag_removed') {
+      return { action, detail: ev.eventType === 'tag_added' ? ev.newValue || '' : ev.oldValue || '' };
     }
     return { action, detail: '' };
   }

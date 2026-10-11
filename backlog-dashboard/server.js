@@ -12,6 +12,7 @@ const { buildBoardFromDb, buildTaskDetail, buildSearchResults, buildWorkspaceCou
 const { buildActivity, buildRecentEvents } = require('./db/activity');
 const tasksRepo = require('./db/tasks-repo');
 const { createBackupManager } = require('./db/backup');
+const { createTagsApi } = require('./tags-api');
 const { version: API_VERSION } = require('./package.json');
 
 // --- Config ---
@@ -602,6 +603,12 @@ function getProjectPrefixMap() {
 
 const publicDir = path.join(__dirname, 'public');
 
+// タグAPI(BT-393)。タグ操作はboardのtags表示に影響するため、変更のたびにboardをbroadcastする。
+const handleTagsApi = createTagsApi({
+  getDb: () => getDb(BACKLOG_DIR),
+  readRequestBody,
+  onChange: () => broadcast(buildBoard()),
+});
 
 function serveStatic(req, res) {
   console.log(`[http] ${req.method} ${req.url}`);
@@ -654,6 +661,9 @@ function serveStatic(req, res) {
     });
     return;
   }
+
+  // API: タグ機能(BT-393)
+  if (handleTagsApi(req, res)) return;
 
   // API: GET /api/health
   if (req.url === '/api/health' && req.method === 'GET') {
