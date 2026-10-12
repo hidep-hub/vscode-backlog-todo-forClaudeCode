@@ -3852,6 +3852,8 @@ function renderPlanGantt() {
     // タイトルの右に出すタグ。EPICは自分のタグに子由来のタグ(薄)を続ける
     tagsHtml: (item) => tagLogic.buildCardTagsHtml(item.tags, item.childTags, 2),
     onSaveDates: planSaveGanttDates,
+    // BT-376: ヘッダの+から既存のタスク追加フォームを開く(日付は空のまま。ユーザーが計画時に入れる)
+    onAddTask: () => openAddTaskForm('todo', currentFilter || '', ''),
     onOpen: (item, parentEpic) => {
       if (parentEpic) {
         // 週次計画と同じ: 子タスクはEPICボード(ミニボード)を開き、その子をハイライト

@@ -450,7 +450,7 @@
       <div class="gantt-scroll">
         <div class="gantt-grid" style="width:${gridW}px;--gantt-label-w:${state.labelW}px;--gantt-row-h:${ROW_H}px;--gantt-head-h:${HEAD_H}px;--gantt-dw:${dw}px">
           <div class="gantt-head">
-            <div class="gantt-corner"><span>タスク</span><span class="gantt-corner-due">期日</span><i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i><i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>
+            <div class="gantt-corner"><span class="gantt-corner-name">タスク${ctx.onAddTask ? '<button type="button" class="gantt-add-btn" data-act="add-task" title="タスクを追加">+</button>' : ''}</span><span class="gantt-corner-due">期日</span><i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i><i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>
             <div class="gantt-head-days"><div class="gantt-months" style="width:${range.days * dw}px">${monthHtml}</div><div class="gantt-days" style="width:${range.days * dw}px">${dayHtml}</div></div>
           </div>
           <div class="gantt-bands" style="width:${range.days * dw}px">${bandHtml.join('')}${todayLine}</div>
@@ -524,6 +524,7 @@
     if (!actEl) return;
     const act = actEl.dataset.act;
     if (act === 'today') { scrollToDate(current.ctx.today); return; }
+    if (act === 'add-task') { if (current.ctx.onAddTask) current.ctx.onAddTask(); return; }
     // 範囲を広げたら、増えた側へスクロールして「増えた領域」がすぐ見えるようにする
     if (act === 'more-before') { state.extraBefore += 4; state.scrollTarget = 'left'; rerender(); return; }
     if (act === 'more-after') { state.extraAfter += 4; state.scrollTarget = 'right'; rerender(); return; }
