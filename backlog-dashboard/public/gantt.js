@@ -250,7 +250,7 @@
       <div class="gantt-toolbar">
         <button type="button" class="gantt-btn" data-act="expand-all" title="ワークスペース・EPIC・単発タスクをすべて展開">▾ 全部展開</button>
         <button type="button" class="gantt-btn" data-act="collapse-all" title="EPIC・単発タスクをすべて折りたたむ（ワークスペース見出しは残す）">▸ 全部折りたたむ</button>
-        <button type="button" class="gantt-btn" data-act="today" title="今日の位置へ移動">今日</button>
+        <button type="button" class="gantt-btn" data-act="today" title="先週〜再来週が見える位置へ移動（先週の月曜が左端）">今日</button>
         <button type="button" class="gantt-btn" data-act="more-before" title="過去へ4週ぶん広げる">◀ 4週</button>
         <button type="button" class="gantt-btn" data-act="more-after" title="未来へ4週ぶん広げる">4週 ▶</button>
         <span class="gantt-zoom" role="group" aria-label="表示幅">
@@ -469,11 +469,18 @@
       state.scrollTarget = null;
     } else if (state.needsInitialScroll) {
       state.needsInitialScroll = false;
-      scrollToDate(ctx.today);
+      scrollToHome();
     } else {
       scrollEl.scrollLeft = prevLeft;
       scrollEl.scrollTop = prevTop;
     }
+  }
+
+  // BT-406: 初期表示・「今日」ボタン・ズーム切替の位置。先週の月曜を左端にして、先週・今週・来週・再来週の4週が見えるようにする
+  function scrollToHome() {
+    if (!current) return;
+    const i = diffDays(current.range.start, addDays(mondayOf(current.ctx.today), -7));
+    current.scrollEl.scrollLeft = Math.max(0, i * current.dw);
   }
 
   function scrollToDate(ymd) {
@@ -567,7 +574,7 @@
     const actEl = e.target.closest('[data-act]');
     if (!actEl) return;
     const act = actEl.dataset.act;
-    if (act === 'today') { scrollToDate(current.ctx.today); return; }
+    if (act === 'today') { scrollToHome(); return; }
     if (act === 'add-task') { if (current.ctx.onAddTask) current.ctx.onAddTask(); return; }
     // 範囲を広げたら、増えた側へスクロールして「増えた領域」がすぐ見えるようにする
     if (act === 'more-before') { state.extraBefore += 4; state.scrollTarget = 'left'; rerender(); return; }
