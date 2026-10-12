@@ -887,8 +887,14 @@ githubImportBtn.addEventListener('click', openGithubImportModal);
       document.body.classList.add('dev-instance');
     }
     // バージョン表示 (BT-212): API/Dashboard/ルールファイルの世代照合に使う
+    // BT-405: 稼働中のコミット(起動時固定)を併記。未コミット変更があれば末尾に+、ホバーで日時・件名。
     if (data.apiVersion) {
-      document.getElementById('version-badge').textContent = `v${data.apiVersion}`;
+      const badgeEl = document.getElementById('version-badge');
+      const c = data.commit;
+      badgeEl.textContent = c ? `v${data.apiVersion} (${c.shortHash}${c.dirty ? '+' : ''})` : `v${data.apiVersion}`;
+      if (c) {
+        badgeEl.title = `${c.shortHash}${c.dirty ? '（未コミットの変更あり）' : ''}\n${formatCommitDate(c.date)}\n${c.subject}`;
+      }
     }
   } catch (e) {
     console.error('[dev-instance-badge] Failed to fetch health:', e.message);
@@ -940,9 +946,28 @@ function formatLatestCommitHtml(commit) {
 }
 
 /**
+ * 適用される更新コミット全件(BT-405)を「ハッシュ＋件名」のリストに整形する。
+ * 件名は折り返して全文表示し、リスト部分だけ縦スクロールにする(CSS側)。
+ * @param {Array<{shortHash: string, date: string, subject: string}>} commits
+ */
+function formatPendingCommitsHtml(commits) {
+  const items = commits.map((c) => `
+    <li title="${escapeHtml(formatCommitDate(c.date))}">
+      <span class="product-menu-commit-hash">${escapeHtml(c.shortHash)}</span>${escapeHtml(c.subject)}
+    </li>`).join('');
+  return `<ul class="product-menu-commit-list">${items}</ul>`;
+}
+
+function formatCommitDate(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? (iso || '') : d.toLocaleString('ja-JP');
+}
+
+/**
  * ロゴクリック時のメニュー本体を描画する(初期状態 = GitHubを開く/更新を確認する の2択)。
  */
 function renderProductMenuDefault(content) {
+  content.classList.remove('product-menu-wide');
   content.innerHTML = `
     <button class="modal-close" id="product-menu-close">&times;</button>
     <h3 class="add-form-title">Backlog Dashboard</h3>
@@ -971,6 +996,7 @@ function renderProductMenuDefault(content) {
  * 「更新を確認する」クリック後、確認中の表示を出しつつPOST /api/update-check/refreshを叩く。
  */
 async function renderProductMenuChecking(content) {
+  content.classList.remove('product-menu-wide');
   content.innerHTML = `
     <button class="modal-close" id="product-menu-close">&times;</button>
     <h3 class="add-form-title">Backlog Dashboard</h3>
@@ -1016,11 +1042,16 @@ function renderProductMenuResult(content, data) {
     return;
   }
 
+  // 一覧(マージ除外)があればそれを全件表示し、件数も一覧に揃える。
+  // マージコミットだけの差分などで一覧が空の場合は、従来どおり最新1件で表示する。
+  const pending = Array.isArray(data.commits) ? data.commits : [];
+  const hasList = pending.length > 0;
+  content.classList.toggle('product-menu-wide', hasList);
   content.innerHTML = `
     <button class="modal-close" id="product-menu-close">&times;</button>
     <h3 class="add-form-title">Backlog Dashboard</h3>
-    <p class="delete-confirm-text">更新があるよ(${data.aheadBy}件)</p>
-    ${formatLatestCommitHtml(data.latestCommit)}
+    <p class="delete-confirm-text">更新があるよ(${hasList ? pending.length : data.aheadBy}件)</p>
+    ${hasList ? formatPendingCommitsHtml(pending) : formatLatestCommitHtml(data.latestCommit)}
     <p class="delete-confirm-error" style="display:none;"></p>
     <div class="edit-form-actions">
       <button class="add-task-submit" id="product-menu-run-update">今すぐ更新する</button>

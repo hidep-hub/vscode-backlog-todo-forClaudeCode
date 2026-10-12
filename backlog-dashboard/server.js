@@ -63,13 +63,30 @@ function resolveRepoOriginUrl() {
 const REPO_ORIGIN_URL = resolveRepoOriginUrl();
 const REPO_ROOT = path.join(__dirname, '..');
 
+// --- 稼働中コミット情報 (BT-405) ---
+// 画面ロゴ下の「v2.3.0 (26a3aad)」表示用。サーバー起動時に1回だけ取得して固定する
+// (リクエストのたびに取ると、pullだけして再起動していない状態で実際に動いているコードと食い違うため)。
+// 追跡ファイルに未コミットの変更があればdirty=true。git管理外・取得失敗時はnull(画面側はハッシュを出さない)。
+function resolveRunningCommit() {
+  try {
+    const out = execFileSync('git', ['log', '-1', '--format=%h%x1f%cI%x1f%s'], { cwd: path.join(__dirname, '..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const [shortHash, date, subject] = out.trim().split('\u001f');
+    if (!shortHash) return null;
+    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: path.join(__dirname, '..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return { shortHash, date, subject, dirty: status.trim().length > 0 };
+  } catch {
+    return null;
+  }
+}
+const RUNNING_COMMIT = resolveRunningCommit();
+
 // --- Update check (BM-063) ---
 // GitHub上のorigin/main(リリース原本)に対し、ローカルがどれだけ遅れているかを
 // バックグラウンドで定期監視する。git fetchはネットワークI/Oを伴うため、
 // 既存のexecFileSync(同期)ではなく非同期のexecFileを使い、イベントループを
 // 長時間ブロックしないようにする。
 const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30分
-let updateCheckState = { updateAvailable: false, aheadBy: 0, checkedAt: null, latestCommit: null };
+let updateCheckState = { updateAvailable: false, aheadBy: 0, checkedAt: null, latestCommit: null, commits: [] };
 
 /**
  * origin/mainの最新コミット1件を「短縮ハッシュ|コミット日時|件名」の形式(区切り文字は
@@ -94,6 +111,35 @@ function getLatestOriginMainCommit() {
           return;
         }
         resolve({ shortHash, date, subject });
+      }
+    );
+  });
+}
+
+/**
+ * ローカルHEADに未適用のコミット(HEAD..origin/main)を新しい順に全件取得する(BT-405)。
+ * 何が適用されるかを漏れなく見せるため件数の上限は設けない。PRのマージコミットは
+ * 件名が「Merge pull request…」だけで中身が分からないため除外し、本体コミットのみ返す。
+ * @returns {Promise<Array<{shortHash: string, date: string, subject: string}>>}
+ */
+function getPendingCommits() {
+  return new Promise((resolve) => {
+    execFile(
+      'git',
+      ['log', 'HEAD..origin/main', '--no-merges', '--format=%h%x1f%cI%x1f%s'],
+      { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err) {
+          console.error('[update-check] git log (pending commits) failed:', err.message);
+          resolve([]);
+          return;
+        }
+        resolve(
+          stdout.split('\n').filter(Boolean).map((line) => {
+            const [shortHash, date, subject] = line.split('\u001f');
+            return { shortHash, date, subject };
+          })
+        );
       }
     );
   });
@@ -126,11 +172,13 @@ function refreshUpdateCheck() {
         }
         const aheadBy = parseInt(stdout.trim(), 10) || 0;
         const latestCommit = aheadBy > 0 ? await getLatestOriginMainCommit() : null;
+        const commits = aheadBy > 0 ? await getPendingCommits() : [];
         updateCheckState = {
           updateAvailable: aheadBy > 0,
           aheadBy,
           checkedAt: new Date().toISOString(),
           latestCommit,
+          commits,
         };
         resolve(updateCheckState);
       });
@@ -670,7 +718,8 @@ function serveStatic(req, res) {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     // devInstanceLabelはDB化(BT-169)の並行運用中、本番と見分けるための開発用バッジ表示に使う（BT-185）。
     // 本番のconfig.jsonにはこのキー自体が存在しないため、バッジは複製先(開発用)にのみ出る。
-    res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), apiVersion: API_VERSION, devInstanceLabel: config.devInstanceLabel || null }));
+    // commitは画面のロゴ下表示用(BT-405)。AI向けルールが参照するのはstatus/apiVersionのみ。
+    res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), apiVersion: API_VERSION, devInstanceLabel: config.devInstanceLabel || null, commit: RUNNING_COMMIT }));
     return;
   }
 

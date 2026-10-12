@@ -3341,6 +3341,36 @@ body {
   font-size: 0.82rem;
 }
 
+/* BT-405: 更新コミット一覧を出す時だけダイアログを横に広げる(件名を読みやすくするため) */
+.modal-content.product-menu-wide {
+  max-width: min(820px, 92vw);
+  width: 100%;
+}
+
+/* BT-405: 適用される更新コミットの全件一覧。件名は折り返して全文表示し、一覧部だけ縦スクロール */
+.product-menu-commit-list {
+  list-style: none;
+  margin: 8px 0 12px;
+  padding: 4px 10px;
+  max-height: 50vh;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.product-menu-commit-list li {
+  padding: 5px 0;
+  overflow-wrap: anywhere;
+}
+
+.product-menu-commit-list li + li {
+  border-top: 1px solid var(--border);
+}
+
 
 /* --- Today Flag (ピン) --- */
 :root,
