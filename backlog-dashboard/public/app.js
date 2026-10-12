@@ -1314,6 +1314,7 @@ function applyMainFilter(project) {
   if (currentBoardData) renderBoard(currentBoardData);
   refreshPlanBoardIfOpen(); // BM-036: Plan Board(週次計画/ガント)が開いていれば絞り込み結果を反映する
   if (typeof syncActivityProjectFilterFromMain === 'function') syncActivityProjectFilterFromMain();
+  if (typeof tickerShowsHeatmap === 'function' && tickerShowsHeatmap()) scheduleHeaderHeatmapRender(); // BT-382: ヘッダのヒートマップもワークスペースに連動
 }
 
 // BM-029: ワークスペース絞り込みドロップダウン（列固定表示: 名前 + DO/READY/TODO件数）。
@@ -1571,28 +1572,161 @@ selectModeBtn.addEventListener('click', () => {
 // ロゴ〜機能ボタン間の空きスペースに、直近の操作ログをコンソール風に縦積みで流す。
 // データはWebSocketのboard broadcastに相乗りしたdata.recentEvents(server.js buildBoard())。
 // トグルOFF中はrenderHeaderTicker自体を呼ばない設計(app.js側のWSハンドラでも
-// 条件分岐はせず常に呼ぶが、関数先頭でtickerActiveを見て即returnし、DOM更新コストをゼロにする)。
-let tickerActive = localStorage.getItem('tickerActive') !== 'false'; // 既定ON
+// 条件分岐はせず常に呼ぶが、関数先頭でtickerModeを見て即returnし、DOM更新コストをゼロにする)。
+// BT-382: 表示モードは 'log'(ログ常時) / 'heatmap'(既定。通常はヒートマップ、タスク変動があるとログへ一時切替) / 'off'。
+// 旧キーtickerActive='false'のユーザーはoffとして引き継ぐ。
+const TICKER_MODES = ['log', 'heatmap', 'off'];
+const TICKER_LOG_HOLD_MS = 15000; // 変動後、この時間イベントがなければヒートマップへ戻る
+let tickerMode = (() => {
+  const saved = localStorage.getItem('tickerMode');
+  if (TICKER_MODES.includes(saved)) return saved;
+  return localStorage.getItem('tickerActive') === 'false' ? 'off' : 'heatmap';
+})();
+let tickerLogHoldTimer = null; // ヒートマップ設定中にログへ一時切替している間だけ非null
 let headerTickerLastMaxId = -1; // 直前の描画で先頭だった最大id。これより大きいidだけ新規フェードインさせる
 const headerTickerEl = document.getElementById('header-ticker');
 const headerTickerListEl = document.getElementById('header-ticker-list');
+const headerHeatmapEl = document.getElementById('header-heatmap');
 const tickerToggleBtn = document.getElementById('ticker-toggle-btn');
+const tickerToggleIconEl = document.getElementById('ticker-toggle-icon');
+
+function tickerShowsHeatmap() {
+  return tickerMode === 'heatmap' && !tickerLogHoldTimer;
+}
 
 function applyTickerVisibility() {
-  if (!headerTickerEl) return;
-  headerTickerEl.classList.toggle('ticker-hidden', !tickerActive);
-  if (tickerToggleBtn) tickerToggleBtn.classList.toggle('filter-active', tickerActive);
+  const showHeatmap = tickerShowsHeatmap();
+  const showLog = tickerMode === 'log' || (tickerMode === 'heatmap' && !!tickerLogHoldTimer);
+  if (headerTickerEl) headerTickerEl.classList.toggle('ticker-hidden', !showLog);
+  if (headerHeatmapEl) headerHeatmapEl.classList.toggle('ticker-hidden', !showHeatmap);
+  if (tickerToggleBtn) tickerToggleBtn.classList.toggle('filter-active', tickerMode !== 'off');
+  if (tickerToggleIconEl) {
+    tickerToggleIconEl.classList.toggle('icon-terminal', tickerMode !== 'heatmap');
+    tickerToggleIconEl.classList.toggle('icon-calendar-month', tickerMode === 'heatmap');
+  }
+  if (showHeatmap) requestHeaderHeatmap();
 }
-applyTickerVisibility();
 
 if (tickerToggleBtn) {
   tickerToggleBtn.addEventListener('click', () => {
-    tickerActive = !tickerActive;
-    localStorage.setItem('tickerActive', tickerActive);
+    // ログ → ヒートマップ → OFF → ログ…の循環
+    clearTimeout(tickerLogHoldTimer);
+    tickerLogHoldTimer = null;
+    tickerMode = TICKER_MODES[(TICKER_MODES.indexOf(tickerMode) + 1) % TICKER_MODES.length];
+    localStorage.setItem('tickerMode', tickerMode);
     applyTickerVisibility();
-    // OFF→ONに切り替えた瞬間、直近データがキャッシュ済みなら即座に反映する
-    if (tickerActive && currentBoardData) renderHeaderTicker(currentBoardData.recentEvents);
+    // OFFからの復帰時、直近データがキャッシュ済みなら即座にログへ反映する
+    if (tickerMode !== 'off' && currentBoardData) renderHeaderTicker(currentBoardData.recentEvents);
   });
+}
+
+// --- ミニヒートマップ(BT-382) ---
+// 表示対象はワークスペースセレクタ(currentFilter)に連動し、未選択時は全体を合算する。
+// ボード操作を妨げないための構成: /api/activityの取得・パース・日別集計はWeb Worker、
+// メインスレッドは集計済みの小さな日別件数からSVGを組み立てるだけ(アイドル時に実行)。
+// データ更新はイベント受信ごとではなく「ヒートマップを表示する時にdirtyなら再取得」とし、
+// ログ表示中は一切読み込まない。
+const HEATMAP_CELL = 6, HEATMAP_GAP = 2, HEATMAP_STEP = HEATMAP_CELL + HEATMAP_GAP;
+const HEATMAP_MONTH_GAP = 4; // 月の境目で広げる隙間(px)
+const HEATMAP_OPACITY = [0.12, 0.3, 0.5, 0.75, 1];
+let headerHeatmapWorker = null;
+let headerHeatmapByProject = null; // 最後に受信した「プロジェクト→日別件数」。nullは未取得
+let headerHeatmapDirty = true;
+let headerHeatmapLoading = false;
+let headerHeatmapSeq = 0;
+let headerHeatmapRenderQueued = false;
+
+function requestHeaderHeatmap() {
+  if (typeof headerHeatmap === 'undefined' || typeof Worker === 'undefined') return;
+  if (headerHeatmapByProject) scheduleHeaderHeatmapRender(); // 手元のデータで即描画し、更新が必要なら裏で取り直す
+  if (!headerHeatmapDirty || headerHeatmapLoading) return;
+  try {
+    if (!headerHeatmapWorker) {
+      headerHeatmapWorker = new Worker('header-heatmap-worker.js');
+      headerHeatmapWorker.onmessage = (e) => {
+        const msg = e.data || {};
+        if (msg.seq !== headerHeatmapSeq) return;
+        headerHeatmapLoading = false;
+        if (msg.type === 'counts') {
+          headerHeatmapByProject = msg.byProject;
+          headerHeatmapDirty = false;
+          scheduleHeaderHeatmapRender();
+        }
+      };
+      headerHeatmapWorker.onerror = () => { headerHeatmapLoading = false; };
+    }
+    headerHeatmapLoading = true;
+    headerHeatmapSeq++;
+    headerHeatmapWorker.postMessage({ type: 'load', seq: headerHeatmapSeq });
+  } catch (e) {
+    headerHeatmapLoading = false;
+    console.error('[app] heatmap worker failed:', e);
+  }
+}
+
+function scheduleHeaderHeatmapRender() {
+  if (headerHeatmapRenderQueued) return;
+  headerHeatmapRenderQueued = true;
+  const run = () => { headerHeatmapRenderQueued = false; renderHeaderHeatmap(); };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 500 });
+  else setTimeout(run, 0);
+}
+
+function renderHeaderHeatmap() {
+  if (!headerHeatmapEl || !headerHeatmapByProject || !tickerShowsHeatmap()) return;
+  const wrap = headerHeatmapEl.parentElement;
+  const avail = (wrap ? wrap.clientWidth : 0) - 44; // 左のトグルボタン分+右padding
+  const weeks = Math.max(8, Math.min(53, Math.floor(avail / HEATMAP_STEP)));
+  const { cells } = headerHeatmap.buildHeatmapGrid(headerHeatmap.selectCounts(headerHeatmapByProject, currentFilter), weeks);
+  // 月の境目の列は隙間を広げ、その中央に細い区切り線を引く(何月かは各セルのツールチップで確認できる)
+  const boundaries = new Set(headerHeatmap.buildMonthBoundaries(cells));
+  const colX = [];
+  let x = 0;
+  for (let col = 0; col < weeks; col++) {
+    if (boundaries.has(col)) x += HEATMAP_MONTH_GAP;
+    colX.push(x);
+    x += HEATMAP_STEP;
+  }
+  const width = x - HEATMAP_GAP;
+  const height = 7 * HEATMAP_STEP - HEATMAP_GAP;
+  const dow = ['月', '火', '水', '木', '金', '土', '日'];
+  const lines = [...boundaries].map(col => {
+    const lx = colX[col] - (HEATMAP_GAP + HEATMAP_MONTH_GAP) / 2;
+    return `<line x1="${lx}" y1="0" x2="${lx}" y2="${height}" class="header-heatmap-month-line"/>`;
+  }).join('');
+  // 月の数字は奇数月だけ(隣り合う月が詰まって9と10などが読みにくくなるのを避ける)。短すぎる区間は出さない
+  const monthTexts = headerHeatmap.buildMonthSegments(cells)
+    .filter(seg => seg.month % 2 === 1 && seg.endCol - seg.startCol + 1 >= 3)
+    .map(seg => {
+      const cx = (colX[seg.startCol] + colX[seg.endCol] + HEATMAP_CELL) / 2;
+      return `<text x="${cx}" y="${height / 2}" text-anchor="middle" dominant-baseline="central" class="header-heatmap-month">${seg.month}</text>`;
+    }).join('');
+  const rects = cells.map(c => {
+    const title = `${c.date}（${dow[c.row]}） ${c.count}件`;
+    return `<rect x="${colX[c.col]}" y="${c.row * HEATMAP_STEP}" width="${HEATMAP_CELL}" height="${HEATMAP_CELL}" rx="1.5" fill="var(--brand-fg)" fill-opacity="${HEATMAP_OPACITY[c.level]}"><title>${title}</title></rect>`;
+  }).join('');
+  headerHeatmapEl.innerHTML = `<svg class="header-heatmap-svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${monthTexts}${lines}${rects}</svg>`;
+}
+
+let headerHeatmapResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(headerHeatmapResizeTimer);
+  headerHeatmapResizeTimer = setTimeout(() => { if (tickerShowsHeatmap()) scheduleHeaderHeatmapRender(); }, 200);
+});
+
+applyTickerVisibility(); // ヒートマップ用のlet変数を宣言し終えた後に初期反映する
+
+// タスク変動(新規イベント)を検知した時の処理。ヒートマップ設定中ならログへ一時切替し、
+// 最後の変動から一定時間が過ぎたらヒートマップへ戻す(変動が続く間はタイマーを延長する)。
+function onHeaderTickerActivity() {
+  headerHeatmapDirty = true;
+  if (tickerMode !== 'heatmap') return;
+  clearTimeout(tickerLogHoldTimer);
+  tickerLogHoldTimer = setTimeout(() => {
+    tickerLogHoldTimer = null;
+    applyTickerVisibility();
+  }, TICKER_LOG_HOLD_MS);
+  applyTickerVisibility();
 }
 
 function headerTickerLineHtml(line) {
@@ -1610,7 +1744,7 @@ function headerTickerLineHtml(line) {
 // 「コンソールにログが流れる」見た目に近づける(全行を毎回作り直すと既存行まで毎回フェードインし直して
 // ちらつくため、差分方式にした)。古い行はCSSのmaskで下端が自然にフェードアウトする。
 function renderHeaderTicker(events) {
-  if (!tickerActive || !headerTickerListEl) return; // OFF中はDOM更新コストをかけない
+  if (tickerMode === 'off' || !headerTickerListEl) return; // OFF中はDOM更新コストをかけない
   if (!Array.isArray(events) || typeof headerTicker === 'undefined') return;
 
   const lines = headerTicker.toTickerLines(events); // 新しい順(先頭が最新)
@@ -1626,6 +1760,7 @@ function renderHeaderTicker(events) {
     });
   } else {
     const newLines = lines.filter(line => line.id > headerTickerLastMaxId);
+    if (newLines.length > 0) onHeaderTickerActivity();
     // newLinesは新しい順。DOM先頭に古い方から順に挿してprependすると、
     // 最終的に一番新しい行がDOM最先頭(見た目の最上段)に来る。
     for (let i = newLines.length - 1; i >= 0; i--) {

@@ -21,7 +21,8 @@
         <span id="dev-instance-badge" class="dev-instance-badge" hidden></span>
       </div>
       <div class="header-ticker-wrap">
-        <button class="ticker-toggle-btn" id="ticker-toggle-btn" title="直近ログの表示切替"><span class="material-icon icon-terminal"></span></button>
+        <button class="ticker-toggle-btn" id="ticker-toggle-btn" title="ヘッダ表示の切替"><span class="material-icon icon-terminal" id="ticker-toggle-icon"></span></button>
+        <div class="header-heatmap ticker-hidden" id="header-heatmap" aria-hidden="true"></div>
         <div class="header-ticker" id="header-ticker" aria-live="off" aria-hidden="true">
           <div class="header-ticker-list" id="header-ticker-list"></div>
         </div>
@@ -176,6 +177,7 @@
 
   <script src="running-agent-order.js"></script>
   <script src="header-ticker.js"></script>
+  <script src="header-heatmap.js"></script>
   <script src="column-sort.js"></script>
   <script src="holidays.js"></script>
   <script src="gantt.js"></script>
