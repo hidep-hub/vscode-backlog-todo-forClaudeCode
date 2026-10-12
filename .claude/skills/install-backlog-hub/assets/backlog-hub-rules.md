@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.3.0（BT-212、BT-336、BT-372、BT-393。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.4.0（BT-212、BT-336、BT-372、BT-377、BT-393。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## ルール正本と配布方式
 
@@ -50,8 +50,9 @@ AGENTS.md.sample（Git管理の唯一の正本）
   - 今日やる: `POST /api/toggle-today {taskId, value?, actor?}` — レスポンスキーは `pinned`。EPICを指定すると子タスクへ一括適用し、旧形式で親自身に残ったpinも解除する。応答の`affectedTaskIds`は操作対象のタスクID配列
   - 実行中: `POST /api/toggle-running {taskId, value?, actor?}`
   - **AI実行者の記録（BT-281）**: AIエージェントが上記3 APIを操作する際は、自身の識別子を`actor`へ必ず渡す（Codexは`"codex"`、Claude Codeは`"claude-code"`、Kiroは`"kiro"`）。未指定時は後方互換として`"user"`になる。`toggle-running`のONで実行セッションを開始し、OFFまたは`done`で終了する。開始AI・停止AIは履歴へ永続記録される。
-  - 追加: `POST /api/add-task {title, project?, status?, origin?, parentId?, description?, assignee?, startDate?, dueDate?}`（BT-263で担当/開始日/期日にも対応。登録フォームで最初から入力できる）
+  - 追加: `POST /api/add-task {title, project?, status?, origin?, parentId?, description?, assignee?, startDate?, dueDate?, completedAt?}`（BT-263で担当/開始日/期日にも対応。登録フォームで最初から入力できる）
     - `status`省略時は`todo`
+    - **【BT-377, API 2.4.0】過去の完了済みタスクを追加する場合は`status:"done"`と`completedAt`（オフセット付きISO 8601、例`"2026-09-01T10:30:00+09:00"`）を渡す**。`completed_at`と履歴（`created`/`status_changed→done`）が入力日時を基準に記録される。`completedAt`は`status:"done"`の時のみ指定でき（それ以外は400）、未来日時・不正な形式は400。省略時は現在時刻
     - **【重要】`project`にはprefix（例`"BT"`）ではなくconfig.jsonの`projects[].file`値（例`"backlog-todo"`）を渡すこと（BT-129）**。prefixを渡すと該当プロジェクトが解決できず、デフォルト（`inbox`等）に採番されてしまう。追加後は必ず期待したプレフィクスでID発行されたか確認する
   - 更新: `POST /api/update-task {taskId, title?, description?, category?, assignee?, startDate?, dueDate?}` — 渡したフィールドのみ更新
   - 並べ替え: `POST /api/reorder {orderedIds: [taskId, ...]}`（2件以上）— 同じ親を持つ子タスク同士、またはトップレベルで同じ実効ステータス同士でないと400

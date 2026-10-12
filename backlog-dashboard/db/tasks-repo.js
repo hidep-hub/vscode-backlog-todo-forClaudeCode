@@ -114,7 +114,7 @@ function allocateSeq(db, workspace) {
  */
 function create(db, { workspace, title, status, category = null, description = null, assignee = null,
   startDate = null, dueDate = null, parentDisplayId = null, createdBy = 'user',
-  githubIssueNumber = null, githubIssueUrl = null }) {
+  githubIssueNumber = null, githubIssueUrl = null, completedAt = null }) {
   const parentRow = parentDisplayId ? getByDisplayId(db, parentDisplayId) : null;
   if (parentDisplayId && !parentRow) throw new Error(`親タスクが見つかりません: ${parentDisplayId}`);
   if (parentRow && parentRow.parent_id !== null) {
@@ -126,19 +126,27 @@ function create(db, { workspace, title, status, category = null, description = n
   const displayId = `${prefix}-${String(seqNo).padStart(3, '0')}`;
   const maxSort = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM tasks').get().m;
   const now = nowIso();
+  // BT-377: DONEで追加する過去タスクは、入力された完了日時(未指定なら現在)をcompleted_atと履歴の基準にする
+  const doneAt = status === 'done' ? (completedAt || now) : null;
 
   let result;
   db.exec('BEGIN');
   try {
     result = db.prepare(`INSERT INTO tasks
       (workspace, seq_no, display_id, parent_id, title, status, category, description, assignee,
-       start_date, due_date, github_issue_number, github_issue_url, sort_order,
+       start_date, due_date, github_issue_number, github_issue_url, sort_order, completed_at,
        created_at, created_by, updated_at, updated_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       effectiveWorkspace, seqNo, displayId, parentRow ? parentRow.id : null, title, status, category, description,
-      assignee, startDate, dueDate, githubIssueNumber, githubIssueUrl, maxSort + 1, now, createdBy, now, createdBy
+      assignee, startDate, dueDate, githubIssueNumber, githubIssueUrl, maxSort + 1, doneAt, now, createdBy, now, createdBy
     );
-    insertEvent(db, { taskId: result.lastInsertRowid, taskDisplayId: displayId, eventType: 'created', actor: createdBy });
+    insertEvent(db, { taskId: result.lastInsertRowid, taskDisplayId: displayId, eventType: 'created', actor: createdBy, occurredAt: doneAt });
+    if (doneAt) {
+      insertEvent(db, {
+        taskId: result.lastInsertRowid, taskDisplayId: displayId, eventType: 'status_changed',
+        oldValue: null, newValue: 'done', actor: createdBy, occurredAt: doneAt,
+      });
+    }
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');

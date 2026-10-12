@@ -6161,3 +6161,50 @@ body {
 
 .tag-filter-clear-sel:hover:not(:disabled) { background: var(--drop-highlight); }
 .tag-filter-clear-sel:disabled { color: var(--text-muted); opacity: 0.5; cursor: default; }
+
+/* BT-377: 登録・編集フォームの右カラムは項目が増えた(タグ・完了日時)ため、文字と余白を詰めて
+   モーダル内でスクロールバーが出ないようにする */
+.add-task-form-wide .detail-side,
+.edit-task-layout .detail-side {
+  min-width: 200px;
+}
+
+.add-task-form-wide .detail-side .settings-group,
+.edit-task-layout .detail-side .settings-group {
+  margin-bottom: 8px;
+}
+
+.add-task-form-wide .detail-side .settings-group label,
+.edit-task-layout .detail-side .settings-group label {
+  font-size: 0.68rem;
+  margin-bottom: 3px;
+}
+
+.add-task-form-wide .detail-side .settings-group select,
+.add-task-form-wide .detail-side .settings-group input,
+.edit-task-layout .detail-side .settings-group select,
+.edit-task-layout .detail-side .settings-group input {
+  padding: 4px 8px;
+  font-size: 0.78rem;
+}
+
+.add-task-form-wide .detail-side .due-quick-row,
+.edit-task-layout .detail-side .due-quick-row {
+  margin-top: 4px;
+}
+
+/* 完了日・時刻は1行に日付と時刻を並べる */
+.add-task-completed-row {
+  display: flex;
+  gap: 6px;
+}
+
+.add-task-completed-row .date-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.add-task-completed-row .time-field {
+  flex: 0 0 84px;
+  width: 84px;
+}
