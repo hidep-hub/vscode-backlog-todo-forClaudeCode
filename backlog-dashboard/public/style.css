@@ -1291,7 +1291,7 @@ body {
 .column {
   flex: 1;
   min-width: 220px;
-  max-width: 320px;
+  /* BT-379: 上限を設けず、広い画面では列幅を自動計算で均等に広げる */
   background: var(--surface);
   border-radius: var(--radius);
   display: flex;
@@ -2437,8 +2437,14 @@ body {
 
 /* --- Modal Wide (Epic mini-board) --- */
 .modal-content.modal-wide {
-  max-width: 860px;
+  /* BT-379: EPICミニボードは画面幅に合わせて広げる（旧: 860px固定） */
+  max-width: min(95vw, 1800px);
   width: 95%;
+}
+
+/* BT-379: modal-wideを共有するGitHub取り込みダイアログは従来幅のまま */
+.modal-content.modal-wide.github-import-modal {
+  max-width: 860px;
 }
 
 /* --- GitHub Issues取り込みダイアログ (BT-106) --- */
@@ -4888,7 +4894,7 @@ body {
   border-radius: 12px;
   padding: 20px;
   width: 95vw;
-  max-width: 1400px;
+  /* BT-379: 画面幅に合わせて広げる（旧: max-width 1400px） */
   height: 85vh;
   display: flex;
   flex-direction: column;
@@ -4933,7 +4939,6 @@ body {
 .plan-col {
   flex: 1;
   min-width: 220px;
-  max-width: 320px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
