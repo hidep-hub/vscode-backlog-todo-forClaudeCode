@@ -838,7 +838,8 @@ function serveStatic(req, res) {
       const child = spawn(
         'powershell.exe',
         ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', launchCommand],
-        { cwd: REPO_ROOT, detached: false, stdio: 'ignore' }
+        // windowsHide: 起動元PowerShellのコンソールウィンドウが一瞬表示されるのを防ぐ
+        { cwd: REPO_ROOT, detached: false, stdio: 'ignore', windowsHide: true }
       );
       child.on('error', (e) => {
         console.error('[restart] Launcher process error:', e.message);
