@@ -148,6 +148,21 @@ button.gantt-stat { cursor: pointer; }
   border-right: 1px solid var(--border);
 }
 
+.gantt-corner-name { display: inline-flex; align-items: center; gap: 6px; }
+.gantt-add-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 1;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.gantt-add-btn:hover { color: var(--text); background: var(--surface-hover, var(--border)); }
+
 .gantt-head-days { flex: none; position: relative; overflow: clip; } /* 日付の文字がタスク列の上へはみ出さないように */
 .gantt-months, .gantt-days { position: relative; height: 22px; }
 .gantt-month, .gantt-day { position: absolute; top: 0; height: 100%; box-sizing: border-box; }
