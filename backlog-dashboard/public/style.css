@@ -418,8 +418,46 @@ body {
   mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
 }
 
-.header-ticker.ticker-hidden {
+.header-ticker.ticker-hidden,
+.header-heatmap.ticker-hidden {
   display: none;
+}
+
+/* BT-382: ヘッダのミニヒートマップ。ログ枠(.header-ticker)と同じ箱を共有し、表示モードで入れ替える。
+   セルは6px+隙間2pxで7行=54pxとなり、枠の高さ(約68px)に収まる。 */
+.header-heatmap {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 4px 10px 4px 34px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.header-heatmap-svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* 奇数月だけ出す月の数字。セルの背後に薄く敷く透かしで、操作対象にしない */
+.header-heatmap-month {
+  fill: var(--brand-fg);
+  fill-opacity: 0.16;
+  font-size: 20px;
+  font-weight: 700;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 月の区切り線。セルより目立たないよう細く薄くする */
+.header-heatmap-month-line {
+  stroke: var(--brand-fg);
+  stroke-opacity: 0.3;
+  stroke-width: 1;
 }
 
 .header-ticker-list {
