@@ -1420,7 +1420,7 @@ function serveStatic(req, res) {
   // その場合workspaceは親のworkspaceに強制される(isChild廃止、BT-187)。
   // assignee/startDate/dueDateは任意(BT-263: 登録フォームで最初から入力できるようにするため追加))
   if (req.url === '/api/add-task' && req.method === 'POST') {
-    readRequestBody(req).then(({ title, project, status, origin, parentId, description, assignee, startDate, dueDate }) => {
+    readRequestBody(req).then(({ title, project, status, origin, parentId, description, assignee, startDate, dueDate, completedAt }) => {
       if (!title || !title.trim()) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'title is required' }));
@@ -1433,6 +1433,28 @@ function serveStatic(req, res) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: `Invalid status: "${newStatus}". Must be one of: ${validCodes.join(', ')}` }));
         return;
+      }
+      // BT-377: completedAtはstatus=doneの追加時のみ指定でき、オフセット付きISO 8601(例 2026-10-12T15:30:00+09:00)。
+      // 未来日時は拒否し、UTCのISO文字列に正規化してcompleted_atへ渡す
+      let completedAtIso = null;
+      if (completedAt !== undefined && completedAt !== null && completedAt !== '') {
+        const parsed = new Date(completedAt);
+        if (newStatus !== 'done') {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'completedAt is only allowed when status is "done"' }));
+          return;
+        }
+        if (typeof completedAt !== 'string' || Number.isNaN(parsed.getTime())) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'completedAt must be an ISO 8601 date-time string' }));
+          return;
+        }
+        if (parsed.getTime() > Date.now() + 60 * 1000) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'completedAt must not be in the future' }));
+          return;
+        }
+        completedAtIso = parsed.toISOString();
       }
       try {
         // BT-229: フロントのプロジェクト選択肢はboard.jsが返すitem.project(表示名=config.projects[].name)を
@@ -1451,6 +1473,7 @@ function serveStatic(req, res) {
           dueDate: dueDate || null,
           parentDisplayId: parentId || null,
           createdBy: origin || 'user',
+          completedAt: completedAtIso,
         });
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ ok: true, id: created.display_id }));

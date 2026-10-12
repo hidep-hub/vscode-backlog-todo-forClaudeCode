@@ -1991,7 +1991,7 @@ function renderBoard(data) {
           ${doneTodayToggleHtml}
           ${!isCompact ? columnSortSelectHtml(col.id) : ''}
           ${countAreaHtml}
-          ${!isCompact ? `<button class="add-task-btn" data-col-id="${col.id}" data-col-status="${col.match[0]}" title="タスク追加">+</button>` : ''}
+          <button class="add-task-btn" data-col-id="${col.id}" data-col-status="${col.match[0]}" title="${isCompact ? '完了済みタスクを追加' : 'タスク追加'}">+</button>
         </div>
       </div>
       <div class="column-body" data-col-id="${col.id}"></div>
@@ -4786,8 +4786,12 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
       item.startDate = startDateInput.value || null;
       item.dueDate = dueDateInput.value || null;
       item.statusCode = statusInput.value;
+      if (updatedId !== item.id) lastRenderedFullItemById.delete(item.id);
       item.id = updatedId;
       item.project = projectInput.value;
+      // BT-377: 保存後にWS再送で再描画されると、キャッシュ(mergeKeepingDescription)の古い説明が
+      // 引き継がれて変更が戻って見えるため、保存した内容でキャッシュも更新する
+      lastRenderedFullItemById.set(item.id, item);
       renderFn(item);
     } catch (e) {
       console.error('[edit] Network error:', e);
@@ -5863,6 +5867,8 @@ function enterTaskQuickTipEditMode(tip, item) {
       }
       item.title = newTitle;
       if (descInput) item.description = descInput.value;
+      // BT-377: 次回のWS再描画で古い説明に戻らないようキャッシュも更新(説明キーを持つ完全なitemだけ)
+      if (Object.prototype.hasOwnProperty.call(item, 'description')) lastRenderedFullItemById.set(item.id, item);
       backToViewMode();
     } catch (e) {
       console.error('[quick-tip-edit] Network error:', e);
@@ -6414,7 +6420,15 @@ function getOrCreateAddForm() {
               <option value="todo">TODO</option>
               <option value="ready">READY</option>
               <option value="do">DO</option>
+              <option value="done">DONE</option>
             </select>
+          </div>
+          <div class="settings-group" id="add-task-completed-group" style="display:none;">
+            <label>完了日・時刻</label>
+            <div class="add-task-completed-row">
+              ${renderDateFieldHtml('add-task-completed-date', '')}
+              <input type="time" id="add-task-completed-time" class="time-field">
+            </div>
           </div>
           <div class="settings-group">
             <label>タグ（任意）</label>
@@ -6455,6 +6469,7 @@ function getOrCreateAddForm() {
   addFormEl.querySelector('#add-task-submit').addEventListener('click', submitAddTask);
   // BT-395: タグはワークスペース単位のため、ワークスペースを変えたら選択済みタグをクリアする
   addFormEl.querySelector('#add-task-project').addEventListener('change', () => resetAddFormTags(addFormEl));
+  addFormEl.querySelector('#add-task-status').addEventListener('change', syncAddFormCompletedFields);
 
   // Enterキーで送信（タイトル未入力時はsubmitAddTask側で弾かれる）
   addFormEl.querySelector('#add-task-title').addEventListener('keydown', (e) => {
@@ -6476,8 +6491,25 @@ function readAddFormValues() {
     assignee: form.querySelector('#add-task-assignee').value.trim(),
     startDate: form.querySelector('#add-task-start-date').value,
     dueDate: form.querySelector('#add-task-due-date').value,
+    completedDate: form.querySelector('#add-task-completed-date').value,
+    completedTime: form.querySelector('#add-task-completed-time').value,
     tags: getAddFormTagIds().join(','),
   };
+}
+
+// BT-377: DONE選択時だけ完了日・時刻の入力欄を出し、空ならJSTの現在日時を初期値にする
+function syncAddFormCompletedFields() {
+  const form = getOrCreateAddForm();
+  const isDone = form.querySelector('#add-task-status').value === 'done';
+  form.querySelector('#add-task-completed-group').style.display = isDone ? '' : 'none';
+  if (!isDone) return;
+  const dateEl = form.querySelector('#add-task-completed-date');
+  const timeEl = form.querySelector('#add-task-completed-time');
+  // ブラウザのタイムゾーンに依存しないよう、UTCの現在時刻に+9hしてJSTの日時文字列を作る
+  const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString();
+  if (!dateEl.value) dateEl.value = jstNow.slice(0, 10);
+  if (!timeEl.value) timeEl.value = jstNow.slice(11, 16);
+  updateAddSubmitState();
 }
 
 function updateAddSubmitState() {
@@ -6534,6 +6566,9 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId, defaults) {
   form.querySelector('#add-task-assignee').value = '';
   form.querySelector('#add-task-start-date').value = '';
   form.querySelector('#add-task-due-date').value = '';
+  form.querySelector('#add-task-completed-date').value = '';
+  form.querySelector('#add-task-completed-time').value = '';
+  syncAddFormCompletedFields(); // BT-377: DONE列の＋から開いた場合は完了日時を現在で埋める
   resetAddFormTags(form);
 
   // 前回開いた時のエラー表示を引きずらないようリセット
@@ -6582,6 +6617,20 @@ async function submitAddTask() {
     if (startDate) body.startDate = startDate;
     if (dueDate) body.dueDate = dueDate;
     if (parentId) body.parentId = parentId;
+    if (status === 'done') {
+      // BT-377: 完了日・時刻はJSTとして入力されるため、+09:00付きISO文字列でAPIへ渡す
+      const completedDate = form.querySelector('#add-task-completed-date').value;
+      const completedTime = form.querySelector('#add-task-completed-time').value || '00:00';
+      if (completedDate) {
+        const completedAt = `${completedDate}T${completedTime}:00+09:00`;
+        if (new Date(completedAt).getTime() > Date.now()) {
+          errorEl.textContent = '完了日時は現在より未来にできないよ';
+          errorEl.style.display = 'block';
+          return;
+        }
+        body.completedAt = completedAt;
+      }
+    }
 
     const resp = await fetch('/api/add-task', {
       method: 'POST',
