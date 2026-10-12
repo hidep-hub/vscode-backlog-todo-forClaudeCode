@@ -974,6 +974,7 @@ function renderProductMenuDefault(content) {
     <div class="edit-form-actions" style="flex-direction: column;">
       <button class="add-child-btn btn-add" id="product-menu-open-github">GitHubリポジトリを開く</button>
       <button class="add-child-btn btn-add" id="product-menu-check-update">更新を確認する</button>
+      <button class="add-child-btn btn-add" id="product-menu-restart">サーバーを再起動する</button>
     </div>
   `;
   content.querySelector('#product-menu-close').addEventListener('click', closeProductMenu);
@@ -990,6 +991,91 @@ function renderProductMenuDefault(content) {
   content.querySelector('#product-menu-check-update').addEventListener('click', () => {
     renderProductMenuChecking(content);
   });
+  content.querySelector('#product-menu-restart').addEventListener('click', () => {
+    renderProductMenuRestartConfirm(content);
+  });
+}
+
+/**
+ * 「サーバーを再起動する」クリック後の確認ダイアログ (BT-386)。誤クリックで接続が一時的に切れるのを防ぐ。
+ */
+function renderProductMenuRestartConfirm(content) {
+  content.classList.remove('product-menu-wide');
+  content.innerHTML = `
+    <button class="modal-close" id="product-menu-close">&times;</button>
+    <h3 class="add-form-title">Backlog Dashboard</h3>
+    <p class="delete-confirm-text">サーバーを再起動します。数十秒ほど操作できなくなります。復旧後、画面は自動で再読み込みされます。よろしいですか？</p>
+    <p class="delete-confirm-error" style="display:none;"></p>
+    <div class="edit-form-actions">
+      <button class="add-task-submit" id="product-menu-run-restart">再起動する</button>
+      <button class="add-child-btn" id="product-menu-cancel-restart">キャンセル</button>
+    </div>
+  `;
+  content.querySelector('#product-menu-close').addEventListener('click', closeProductMenu);
+  content.querySelector('#product-menu-cancel-restart').addEventListener('click', closeProductMenu);
+  content.querySelector('#product-menu-run-restart').addEventListener('click', () => {
+    runRestartFromProductMenu(content);
+  });
+}
+
+const RESTART_WAIT_TIMEOUT_MS = 90 * 1000;
+const RESTART_POLL_INTERVAL_MS = 1500;
+
+/**
+ * 再起動を依頼し、サーバーが戻るまで待ってから画面を読み込み直す (BT-386)。
+ * 依頼直後はまだ旧プロセスが応答しうるため、health応答のuptimeが依頼前より小さくなった
+ * (=新しいプロセスに入れ替わった)ことで復帰を判定する。
+ * 再起動スクリプトの完了は待てない(サーバー自身が止まるため)ので、health復帰ポーリングで代替する。
+ */
+async function runRestartFromProductMenu(content) {
+  const errorEl = content.querySelector('.delete-confirm-error');
+  let beforeUptime = Infinity;
+  try {
+    const h = await (await fetch('/api/health')).json();
+    if (typeof h.uptime === 'number') beforeUptime = h.uptime;
+  } catch (e) {
+    // health取得に失敗しても再起動依頼自体は続行する(uptime比較なしで復帰を判定する)
+  }
+
+  try {
+    const res = await fetch('/api/restart', { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      errorEl.textContent = body.error === 'restart_in_progress'
+        ? 'すでに再起動を依頼済みです。しばらくお待ちください'
+        : '再起動の依頼に失敗しました';
+      errorEl.style.display = '';
+      return;
+    }
+  } catch (e) {
+    errorEl.textContent = '再起動の依頼に失敗しました。ネットワーク接続を確認してください';
+    errorEl.style.display = '';
+    return;
+  }
+
+  content.innerHTML = `
+    <h3 class="add-form-title">Backlog Dashboard</h3>
+    <p class="delete-confirm-text" id="product-menu-restart-status">再起動中です。サーバーが復旧するまでお待ちください...</p>
+  `;
+  const statusEl = content.querySelector('#product-menu-restart-status');
+  const deadline = Date.now() + RESTART_WAIT_TIMEOUT_MS;
+  const timer = setInterval(async () => {
+    try {
+      const res = await fetch('/api/health', { cache: 'no-store' });
+      const h = await res.json();
+      if (h.status === 'ok' && (typeof h.uptime !== 'number' || h.uptime < beforeUptime)) {
+        clearInterval(timer);
+        location.reload();
+        return;
+      }
+    } catch (e) {
+      // 停止〜起動の間は接続失敗になるのが想定内。待ち続ける。
+    }
+    if (Date.now() > deadline) {
+      clearInterval(timer);
+      statusEl.innerHTML = '再起動の完了を確認できませんでした。しばらくしてから画面を再読み込みしてください。復旧しない場合はサーバーのログを確認してください。';
+    }
+  }, RESTART_POLL_INTERVAL_MS);
 }
 
 /**

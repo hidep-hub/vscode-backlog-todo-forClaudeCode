@@ -63,6 +63,10 @@ function resolveRepoOriginUrl() {
 const REPO_ORIGIN_URL = resolveRepoOriginUrl();
 const REPO_ROOT = path.join(__dirname, '..');
 
+// --- UIからの再起動 (BT-386) ---
+let restartInProgress = false;
+const RESTART_GUARD_MS = 60 * 1000;
+
 // --- 稼働中コミット情報 (BT-405) ---
 // 画面ロゴ下の「v2.3.0 (26a3aad)」表示用。サーバー起動時に1回だけ取得して固定する
 // (リクエストのたびに取ると、pullだけして再起動していない状態で実際に動いているコードと食い違うため)。
@@ -809,6 +813,43 @@ function serveStatic(req, res) {
       res.end(JSON.stringify({ ok: true, started: true }));
     } catch (e) {
       console.error('[run-update] Failed to spawn update-and-sync.ps1:', e.message);
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // API: POST /api/restart (BT-386: ロゴメニューの「サーバーを再起動する」用。
+  // scripts/restart-startup-task.ps1 を、このサーバー自身が止まっても巻き込まれない独立プロセスとして
+  // 起動する。起動方法は/api/run-updateと同じ(Start-Process経由。detached:trueだと本番のタスク
+  // スケジューラ起動下で子プロセスが何も実行しない問題の対策は、そちらのコメント参照)。
+  // スクリプト側が「ポートの持ち主が正常なnode server.jsか」を確認してから停止・再起動する。
+  // 連打で再起動スクリプトが並走しないよう、一定時間は2回目以降を409で拒否する
+  // (正常ならこのプロセス自体が停止して状態ごと消えるため、解除用タイマーは異常時の保険)。
+  if (req.url === '/api/restart' && req.method === 'POST') {
+    if (restartInProgress) {
+      res.writeHead(409, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'restart_in_progress' }));
+      return;
+    }
+    const scriptPath = path.join(__dirname, 'scripts', 'restart-startup-task.ps1');
+    try {
+      const launchCommand = `Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${scriptPath}' -WindowStyle Hidden`;
+      const child = spawn(
+        'powershell.exe',
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', launchCommand],
+        { cwd: REPO_ROOT, detached: false, stdio: 'ignore' }
+      );
+      child.on('error', (e) => {
+        console.error('[restart] Launcher process error:', e.message);
+      });
+      restartInProgress = true;
+      setTimeout(() => { restartInProgress = false; }, RESTART_GUARD_MS).unref();
+      console.log('[restart] Restart requested from UI');
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: true, started: true }));
+    } catch (e) {
+      console.error('[restart] Failed to spawn restart-startup-task.ps1:', e.message);
       res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: e.message }));
     }
