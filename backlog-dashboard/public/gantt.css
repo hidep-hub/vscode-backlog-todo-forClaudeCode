@@ -421,18 +421,40 @@ button.gantt-stat { cursor: pointer; }
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 7px;
+  /* BT-383: つかみやすさ改善。帯の外側へ6pxはみ出させて当たり判定を広げる(内側は最大8px。短い帯でも中央の移動領域が残るよう40%で制限) */
+  width: calc(min(8px, 40%) + 6px);
   cursor: ew-resize;
-  z-index: 2;
+  z-index: 4;
 }
 
-.gantt-handle-l { left: 0; border-radius: 4px 0 0 4px; }
-.gantt-handle-r { right: 0; border-radius: 0 4px 4px 0; }
+.gantt-handle-l { left: -6px; border-radius: 4px 0 0 4px; }
+.gantt-handle-r { right: -6px; border-radius: 0 4px 4px 0; }
 .gantt-bar:not(.is-done):hover .gantt-handle { background: rgba(255, 255, 255, 0.28); }
+/* BT-383: 端のつかみ位置がわかるよう、ハンドル自体にホバーすると濃く＋内側に縦線を出す */
+.gantt-bar:not(.is-done) .gantt-handle:hover { background: rgba(255, 255, 255, 0.55); }
+.gantt-bar:not(.is-done) .gantt-handle:hover::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  width: 2px;
+  border-radius: 1px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.gantt-handle-l:hover::after { left: 9px; }
+.gantt-handle-r:hover::after { right: 9px; }
 
+/* BT-383: 遅延バッジのジャンプ先の行を一時的にハイライト */
+.gantt-row.is-jump .gantt-label,
+.gantt-row.is-jump .gantt-track { animation: gantt-jump 2.6s ease-out; }
+@keyframes gantt-jump {
+  0%, 40% { background-color: color-mix(in srgb, #e5484d 28%, var(--surface)); }
+}
+
+/* BT-383: ×は右ハンドルと重なって右端を掴みにくくしていたため、帯の左外(左ハンドルのすぐ外)へ出す */
 .gantt-bar-clear {
   position: absolute;
-  right: 8px;
+  left: -20px;
   top: 50%;
   transform: translateY(-50%);
   display: none;
@@ -572,7 +594,8 @@ body.gantt-dragging, body.gantt-dragging * { cursor: grabbing !important; user-s
 }
 
 /* ---- 期日欄 / タスク列の幅変更 ---- */
-.gantt-corner-due { width: 92px; flex: none; }
+/* BT-383: 期日の見出しを期日欄の中央に置き、左の境界線(幅変更のつかみ)に文字が掛からないようにする */
+.gantt-corner-due { width: 92px; flex: none; text-align: center; }
 
 .gantt-resizer {
   position: absolute;

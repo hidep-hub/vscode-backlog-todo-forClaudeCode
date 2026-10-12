@@ -156,7 +156,7 @@
         const j = judge(item, today);
         if (j === 'overdue') {
           stats.overdue++;
-          if (!stats.oldestOverdue || item.dueDate < stats.oldestOverdue) stats.oldestOverdue = item.dueDate;
+          if (!stats.oldestOverdue || item.dueDate < stats.oldestOverdue) { stats.oldestOverdue = item.dueDate; stats.oldestOverdueItem = item; }
         } else if (j === 'late-start') stats.lateStart++;
       }
       if (show) rows.push({ type: 'task', item, parent, isLast });
@@ -482,9 +482,53 @@
     current.scrollEl.scrollLeft = Math.max(0, i * current.dw - 80);
   }
 
+  // BT-383: 遅延バッジ。一番古い遅延タスクの行が折りたたみ中なら展開し、縦横にスクロールして行を一時ハイライトする
+  function jumpToOverdue() {
+    const item = current.stats.oldestOverdueItem;
+    if (!item) return;
+    const info = current.lookup.get(item.id);
+    const parent = info && info.parent;
+    const project = parent ? parent.project : item.project;
+    const ws = current.ctx.groupByWorkspace ? project : '';
+    let expanded = state.collapsedWs.delete(ws);
+    if (parent) expanded = state.collapsed.delete(parent.id) || expanded;
+    else expanded = state.collapsed.delete(`single:${ws}`) || expanded;
+    if (expanded) rerender();
+    const label = current.scrollEl.querySelector(`.gantt-label-task[data-task-id="${CSS.escape(item.id)}"]`);
+    const row = label && label.parentElement;
+    scrollToDate(item.dueDate);
+    if (!row) return;
+    const sRect = current.scrollEl.getBoundingClientRect();
+    const rRect = row.getBoundingClientRect();
+    const visibleH = current.scrollEl.clientHeight - HEAD_H;
+    current.scrollEl.scrollTop += (rRect.top - sRect.top) - HEAD_H - (visibleH - ROW_H) / 2;
+    row.classList.remove('is-jump');
+    void row.offsetWidth; // アニメーションを再始動
+    row.classList.add('is-jump');
+    setTimeout(() => row.classList.remove('is-jump'), 2600);
+  }
+
+  // BT-383: 列境界のダブルクリックで、表示中のタスクで一番長いタイトルに合わせて列幅を自動調整する(スプレッドシートの列幅の自動調整と同じ)。
+  // 上限はLABEL_W_MAX、下限はLABEL_W_MIN。タイトルを一時的にflex:noneにして本来の幅を測る
+  function autoFitLabelWidth() {
+    const titles = [...current.scrollEl.querySelectorAll('.gantt-label-task .gantt-title')];
+    if (!titles.length) return;
+    const base = titles.map((t) => ({ t, label: t.closest('.gantt-label'), w0: t.clientWidth }));
+    titles.forEach((t) => { t.style.flex = 'none'; });
+    let need = 0;
+    for (const b of base) need = Math.max(need, b.label.clientWidth - b.w0 + b.t.offsetWidth);
+    titles.forEach((t) => { t.style.flex = ''; });
+    state.labelW = Math.max(LABEL_W_MIN, Math.min(LABEL_W_MAX, Math.ceil(need) + 2));
+    try { localStorage.setItem('ganttLabelW', String(state.labelW)); } catch { /* 無視 */ }
+    rerender();
+  }
+
   // ---- イベント ----
   function bind(container, scrollEl) {
     container.onclick = onClick;
+    container.ondblclick = (e) => {
+      if (e.target.closest('.gantt-resizer')) autoFitLabelWidth();
+    };
     container.onchange = onChange;
     scrollEl.onpointerdown = onPointerDown;
     scrollEl.onpointermove = onTrackHover;
@@ -553,7 +597,7 @@
       applyBulkSelection(act, actEl);
       return;
     }
-    if (act === 'jump-overdue') { if (current.stats.oldestOverdue) scrollToDate(current.stats.oldestOverdue); return; }
+    if (act === 'jump-overdue') { jumpToOverdue(); return; }
     if (act === 'toggle-ws') {
       const ws = actEl.dataset.ws;
       if (state.collapsedWs.has(ws)) state.collapsedWs.delete(ws); else state.collapsedWs.add(ws);
