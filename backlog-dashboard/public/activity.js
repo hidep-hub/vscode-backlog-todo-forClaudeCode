@@ -53,6 +53,70 @@ function toggleActivityGroup(groupKey) {
   saveActivityCollapsed();
 }
 
+// BT-381: タスク/EPIC単位の開閉状態。キーは「<日付グループキー>:<taskId>」(同じタスクが日付ごとに別グループになるため)。
+// 値が無いものは既定(今日のイベントがあれば開く／無ければ閉じる)に従い、ユーザーが操作したものだけ保存する。
+let activityTaskOpenState = {};
+try {
+  activityTaskOpenState = JSON.parse(localStorage.getItem('activityTaskOpenState') || '{}') || {};
+} catch { activityTaskOpenState = {}; }
+// 開閉レベルのボタンで一括指定された既定値(true=開く/false=閉じる)。null=今日のイベント有無で決める既定。
+// 個別に操作したキーはactivityTaskOpenStateが優先する。
+let activityTaskDefaultOpen = null;
+let activityRenderedGroupKeys = [];  // 直近の描画で出した日付グループキー
+let activityRenderedTaskKeys = [];   // 直近の描画で出したタスク/EPICのキー
+
+function activityTodayStr() {
+  return activityFormatYmd(new Date());
+}
+function activityTaskKey(dateKey, taskId) {
+  return `${dateKey}:${taskId}`;
+}
+function isActivityTaskOpen(key, events) {
+  if (Object.prototype.hasOwnProperty.call(activityTaskOpenState, key)) return !!activityTaskOpenState[key];
+  if (activityTaskDefaultOpen !== null) return activityTaskDefaultOpen;
+  const today = activityTodayStr();
+  return events.some(ev => ev.date === today);
+}
+function setActivityTaskOpen(key, open) {
+  activityTaskOpenState[key] = open;
+  try { localStorage.setItem('activityTaskOpenState', JSON.stringify(activityTaskOpenState)); } catch { /* 保存できなくても動作は続ける */ }
+}
+
+const ACTIVITY_STATUS_LABEL = { todo: 'TODO', ready: 'READY', do: 'DO', done: 'DONE' };
+
+// 最終(現在)ステータス。ボード上のタスクがあればその現在値、無ければ(削除済み等)イベント列から補う。
+// eventsは新しい順(GET /api/activityがoccurred_at降順で返す)。
+function activityLastStatus(taskId, events) {
+  const item = resolveActivityItem(taskId);
+  const code = item && (item.statusCode || item.status);
+  if (code && ACTIVITY_STATUS_LABEL[code]) return { code, label: ACTIVITY_STATUS_LABEL[code] };
+  if (events.some(ev => ev.eventType === 'deleted')) return { code: 'deleted', label: '削除' };
+  const changed = events.find(ev => ev.eventType === 'status_changed' && ACTIVITY_STATUS_LABEL[ev.newValue]);
+  if (changed) return { code: changed.newValue, label: ACTIVITY_STATUS_LABEL[changed.newValue] };
+  return null;
+}
+
+// 最終時刻。今日なら時刻のみ、今日以外は日付(曜日付き)も付ける。
+function activityLastTimeText(events) {
+  const latest = events.reduce((max, ev) => (ev.ts > max ? ev.ts : max), '');
+  if (!latest) return '';
+  const d = new Date(latest);
+  if (Number.isNaN(d.getTime())) return '';
+  const time = formatActivityTime(latest);
+  if (activityLocalDateStr(latest) === activityTodayStr()) return time;
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return `${sameYear ? '' : `${d.getFullYear()}/`}${d.getMonth() + 1}/${d.getDate()}（${ACTIVITY_DOW[d.getDay()]}） ${time}`;
+}
+
+function activityLastSummaryHtml(taskId, events) {
+  const status = activityLastStatus(taskId, events);
+  const time = activityLastTimeText(events);
+  const statusHtml = status
+    ? `<span class="activity-last-status activity-last-status-${escapeHtml(status.code)}" title="最終ステータス">${escapeHtml(status.label)}</span>` : '';
+  const timeHtml = time ? `<span class="activity-last-time" title="最終更新">${escapeHtml(time)}</span>` : '';
+  return statusHtml + timeHtml;
+}
+
 const ACTIVITY_TYPE_DEFS = [
   { key: 'all', label: 'すべて' },
   { key: 'completed', label: '完了' },
@@ -229,14 +293,18 @@ function getOrCreateActivityModal() {
           <div class="activity-granularity" id="activity-granularity"></div>
           <div class="activity-viewmode" id="activity-viewmode"></div>
           <div class="activity-chart-tabs" id="activity-chart-tabs" hidden></div>
-          <button type="button" class="activity-collapse-all-btn" data-collapse-action="collapse" title="表示中のグループをすべて折りたたむ">すべて畳む</button>
-          <button type="button" class="activity-collapse-all-btn" data-collapse-action="expand" title="表示中のグループをすべて展開する">すべて開く</button>
+          <div class="activity-level" id="activity-level" title="開閉の深さをワンクリックで切り替え">
+            <button type="button" class="activity-gran-btn" data-level="date" title="日付ヘッダだけにする">日付</button>
+            <button type="button" class="activity-gran-btn" data-level="task" title="タスク/EPICの一覧まで見せる">タスク</button>
+            <button type="button" class="activity-gran-btn" data-level="all" title="イベント明細まですべて開く">すべて</button>
+          </div>
           <button type="button" class="activity-reload-btn" id="activity-reload-btn" title="最新の状態を読み込む">${activityIconHtml('autoAwesome')} 更新</button>
         </div>
         <button type="button" class="activity-modal-close" id="activity-modal-close" title="閉じる">&times;</button>
       </div>
       <div class="activity-filters">
         <div class="activity-tabs" id="activity-tabs" role="tablist"></div>
+        <select class="activity-ws-select" id="activity-ws-select" title="ワークスペースで絞り込み"></select>
         <input type="search" class="activity-search-input" id="activity-search" placeholder="タイトル・IDで検索">
       </div>
       <div class="activity-body" id="activity-body">
@@ -273,6 +341,12 @@ function getOrCreateActivityModal() {
     renderActivityControls();
     renderActivityBody();
   });
+  // BT-380: 履歴内のWSセレクタはメイン画面のフィルタとは同期しない(履歴内だけで完結する)
+  activityModalEl.querySelector('#activity-ws-select').addEventListener('change', (e) => {
+    activityProjectFilter = e.target.value;
+    renderActivityControls();
+    renderActivityBody();
+  });
   activityModalEl.querySelector('#activity-search').addEventListener('input', (e) => {
     activitySearchQuery = e.target.value.trim();
     renderActivityControls();
@@ -289,6 +363,7 @@ function openActivityView() {
   activityDateFrom = '';
   activityDateTo = '';
   activitySearchQuery = '';
+  activityTaskDefaultOpen = null; // 開閉レベルの一括指定は開き直したら既定(今日のみ展開)に戻す
   modal.querySelector('#activity-date-from').value = '';
   modal.querySelector('#activity-date-to').value = '';
   modal.querySelector('#activity-search').value = '';
@@ -298,13 +373,6 @@ function openActivityView() {
 
 function closeActivityView() {
   if (activityModalEl) activityModalEl.classList.remove('modal-visible');
-}
-
-function syncActivityProjectFilterFromMain() {
-  if (!activityModalEl || !activityModalEl.classList.contains('modal-visible')) return;
-  activityProjectFilter = currentFilter || '';
-  renderActivityControls();
-  renderActivityBody();
 }
 
 async function loadActivity(isReload) {
@@ -415,9 +483,7 @@ function renderActivityControls() {
   });
 
   // 一括開閉ボタンはタイムライン専用
-  modal.querySelectorAll('.activity-collapse-all-btn').forEach(btn => {
-    btn.style.display = (activityViewMode === 'timeline') ? '' : 'none';
-  });
+  modal.querySelector('#activity-level').style.display = (activityViewMode === 'timeline') ? '' : 'none';
 
   // 種別タブ(件数バッジ付き。type以外のフィルタを反映した件数にする)
   const tabsEl = modal.querySelector('#activity-tabs');
@@ -435,30 +501,22 @@ function renderActivityControls() {
     });
   });
 
-  // WSチップ(project以外のフィルタを反映した件数、もう一度押すと解除)
-  const chipsEl = modal.querySelector('#activity-ws-chips');
-  if (chipsEl) {
+  // WSセレクタ(project以外のフィルタを反映した件数つき。先頭は「すべて」)
+  const selectEl = modal.querySelector('#activity-ws-select');
   const exceptProject = activityEventsExceptProject();
   const byProject = {};
   for (const ev of exceptProject) {
     if (!ev.project) continue;
     byProject[ev.project] = (byProject[ev.project] || 0) + 1;
   }
-  const projects = Object.keys(byProject).sort((a, b) => byProject[b] - byProject[a]);
-  chipsEl.innerHTML = projects.map(p => {
-    const isActive = activityProjectFilter === p;
-    return `<button type="button" class="activity-ws-chip${isActive ? ' active' : ''}" data-project="${escapeHtml(p)}" title="${escapeHtml(p)}のイベントだけ表示">${escapeHtml(p)}<span class="activity-chip-count">${byProject[p]}</span></button>`;
-  }).join('');
-  chipsEl.querySelectorAll('.activity-ws-chip').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const p = btn.dataset.project;
-      activityProjectFilter = (activityProjectFilter === p) ? '' : p;
-      renderActivityControls();
-      renderActivityBody();
-    });
-  });
-
-  }
+  const workspaceMap = (typeof currentBoardData !== 'undefined' && currentBoardData && currentBoardData.workspaceMap) || {};
+  const names = new Set([...Object.keys(workspaceMap), ...Object.keys(byProject)]);
+  if (activityProjectFilter) names.add(activityProjectFilter);
+  const options = [{ value: '', label: `すべてのワークスペース (${exceptProject.length})` }]
+    .concat([...names].sort((a, b) => a.localeCompare(b, 'ja')).map(p => ({ value: p, label: `${p} (${byProject[p] || 0})` })));
+  selectEl.innerHTML = options.map(o =>
+    `<option value="${escapeHtml(o.value)}"${o.value === activityProjectFilter ? ' selected' : ''}>${escapeHtml(o.label)}</option>`
+  ).join('');
 
   if (activityUpdatedAt) {
     const d = new Date(activityUpdatedAt);
@@ -590,11 +648,34 @@ function openActivityParentEpic(parentId, childId) {
   if (child) openCardDetail(child);
 }
 
-function buildActivityEpicEl(unit) {
+// タスク/EPICの開閉トグル。行クリック(詳細を開く)とは独立させ、再描画せずその場で開閉する(スクロール位置を保つ)。
+function attachActivityTaskToggle(block, wrap, key) {
+  const btn = wrap.querySelector('.activity-group-toggle');
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = block.classList.contains('task-collapsed');
+    block.classList.toggle('task-collapsed', !open);
+    btn.textContent = open ? '▾' : '▸';
+    btn.title = open ? '畳む' : '開く';
+    setActivityTaskOpen(key, open);
+    refreshActivityLevelBtns();
+  });
+}
+
+function activityTaskToggleHtml(open) {
+  return `<button type="button" class="activity-group-toggle" title="${open ? '畳む' : '開く'}">${open ? '▾' : '▸'}</button>`;
+}
+
+function buildActivityEpicEl(unit, dateKey) {
   const wrap = document.createElement('div');
   wrap.className = 'activity-row activity-row-epic';
   const titleText = unit.parentTitle || unit.parentId;
+  const allEvents = unit.events.concat(...unit.children.map(c => c.events));
+  const key = activityTaskKey(dateKey, unit.parentId);
+  const open = isActivityTaskOpen(key, allEvents);
+  activityRenderedTaskKeys.push(key);
   wrap.innerHTML = `
+    ${activityTaskToggleHtml(open)}
     <span class="activity-dot activity-dot-epic" aria-hidden="true">${activityIconHtml('stacks')}</span>
     <div class="activity-row-main">
       <div class="activity-row-line1">
@@ -603,6 +684,7 @@ function buildActivityEpicEl(unit) {
         <span class="activity-id">${escapeHtml(unit.parentId)}</span>
         <span class="activity-title">${escapeHtml(titleText)}</span>
         <span class="activity-epic-count">${unit.children.length}件の子タスク</span>
+        ${activityLastSummaryHtml(unit.parentId, allEvents)}
       </div>
     </div>
     <span class="activity-time"></span>
@@ -624,24 +706,29 @@ function buildActivityEpicEl(unit) {
     childrenWrap.appendChild(buildActivityRowEl(ev, { isChildRow: true, hideProject: true, hideTaskIdentity: true, allowTaskClick: false }));
   }
   for (const child of unit.children) {
-    childrenWrap.appendChild(buildActivityTaskGroupEl(child, { isChild: true }));
+    childrenWrap.appendChild(buildActivityTaskGroupEl(child, dateKey, { isChild: true }));
   }
 
   const block = document.createElement('div');
-  block.className = 'activity-epic-block';
+  block.className = 'activity-epic-block' + (open ? '' : ' task-collapsed');
   block.appendChild(wrap);
   block.appendChild(childrenWrap);
+  attachActivityTaskToggle(block, wrap, key);
   return block;
 }
 
 // 一括開閉ボタン。「すべて畳む」「すべて開く」を独立した2ボタンにして、押せない時はdisabledで示す。
-function buildActivityTaskGroupEl(unit, opts = {}) {
+function buildActivityTaskGroupEl(unit, dateKey, opts = {}) {
   const wrap = document.createElement('div');
   const groupLabel = unit.isEpic ? 'EPIC' : 'タスク';
   const groupIcon = unit.isEpic ? 'stacks' : 'assignment';
   const groupClass = unit.isEpic ? 'epic' : 'task';
+  const key = activityTaskKey(dateKey, unit.taskId);
+  const open = isActivityTaskOpen(key, unit.events);
+  activityRenderedTaskKeys.push(key);
   wrap.className = `activity-row activity-row-${groupClass}` + (opts.isChild ? ' activity-child-task' : '');
   wrap.innerHTML = `
+    ${activityTaskToggleHtml(open)}
     <span class="activity-dot activity-dot-${groupClass}" aria-hidden="true">${activityIconHtml(groupIcon)}</span>
     <div class="activity-row-main">
       <div class="activity-row-line1">
@@ -650,6 +737,7 @@ function buildActivityTaskGroupEl(unit, opts = {}) {
         <span class="activity-id">${escapeHtml(unit.taskId)}</span>
         <span class="activity-title">${escapeHtml(unit.title || '')}</span>
         <span class="activity-epic-count">${unit.events.length}イベント</span>
+        ${activityLastSummaryHtml(unit.taskId, unit.events)}
       </div>
     </div>
     <span class="activity-time"></span>
@@ -665,16 +753,17 @@ function buildActivityTaskGroupEl(unit, opts = {}) {
     childrenWrap.appendChild(buildActivityRowEl(ev, { isChildRow: true, hideProject: true, hideTaskIdentity: true, allowTaskClick: false }));
   }
   const block = document.createElement('div');
-  block.className = 'activity-task-block';
+  block.className = 'activity-task-block' + (open ? '' : ' task-collapsed');
   block.appendChild(wrap);
   block.appendChild(childrenWrap);
+  attachActivityTaskToggle(block, wrap, key);
   return block;
 }
 
-function appendActivityRenderUnits(container, events) {
+function appendActivityRenderUnits(container, events, dateKey) {
   for (const unit of buildActivityRenderUnits(events)) {
-    if (unit.kind === 'epic') container.appendChild(buildActivityEpicEl(unit));
-    else if (unit.kind === 'task') container.appendChild(buildActivityTaskGroupEl(unit));
+    if (unit.kind === 'epic') container.appendChild(buildActivityEpicEl(unit, dateKey));
+    else if (unit.kind === 'task') container.appendChild(buildActivityTaskGroupEl(unit, dateKey));
     else container.appendChild(buildActivityRowEl(unit.event));
   }
 }
@@ -699,36 +788,53 @@ function buildActivityWorkspaceGroupEl(project, events, dateKey) {
   if (!collapsed) {
     const body = document.createElement('div');
     body.className = 'activity-workspace-group-body';
-    appendActivityRenderUnits(body, events);
+    appendActivityRenderUnits(body, events, dateKey);
     wrap.appendChild(body);
   }
   return wrap;
 }
 
-function setupActivityCollapseAllBtn(groupKeys) {
+// 開閉レベル(日付/タスク/すべて)のワンクリック切り替え。階層は 日付 → ワークスペース → タスク/EPIC → イベント。
+//   date: 日付グループだけ畳む(日付ヘッダのみ)
+//   task: 日付・ワークスペースは開き、タスク/EPICを畳む(タスク一覧まで見える)
+//   all : すべて開く(イベント明細まで)
+// 現在のレベルは描画済みDOMから判定する。個別に開閉して当てはまらない時はどれも点灯しない。
+function currentActivityLevel() {
+  const groupKeys = activityRenderedGroupKeys;
+  if (groupKeys.length === 0) return null;
+  const collapsedGroups = groupKeys.filter(k => isActivityGroupCollapsed(k)).length;
+  if (collapsedGroups === groupKeys.length) return 'date';
+  if (collapsedGroups > 0) return null;
+  if (activityModalEl.querySelector('.activity-workspace-group.group-collapsed')) return null;
+  const blocks = [...activityModalEl.querySelectorAll('.activity-task-block, .activity-epic-block')];
+  const closed = blocks.filter(b => b.classList.contains('task-collapsed')).length;
+  if (closed === 0) return 'all';
+  if (closed === blocks.length) return 'task';
+  return null;
+}
+
+function applyActivityLevel(level) {
+  if (level === 'date') {
+    for (const k of activityRenderedGroupKeys) activityCollapsedGroups.add(activityCollapseKey(k));
+  } else {
+    // 日付・ワークスペースの折りたたみを、現在の粒度ぶんすべて解除する
+    const prefix = `${activityGranularity}:`;
+    for (const k of [...activityCollapsedGroups]) if (k.startsWith(prefix)) activityCollapsedGroups.delete(k);
+    activityTaskDefaultOpen = level === 'all';
+    activityTaskOpenState = {};
+    try { localStorage.setItem('activityTaskOpenState', '{}'); } catch { /* 保存できなくても動作は続ける */ }
+  }
+  saveActivityCollapsed();
+  renderActivityBody();
+}
+
+function refreshActivityLevelBtns() {
   if (!activityModalEl) return;
-  const collapsedCount = groupKeys.filter(k => isActivityGroupCollapsed(k)).length;
-
-  const apply = (collapse) => {
-    for (const k of groupKeys) {
-      const ck = activityCollapseKey(k);
-      if (collapse) activityCollapsedGroups.add(ck);
-      else activityCollapsedGroups.delete(ck);
-    }
-    saveActivityCollapsed();
-    renderActivityBody();
-  };
-
-  const collapseBtn = activityModalEl.querySelector('[data-collapse-action="collapse"]');
-  const expandBtn = activityModalEl.querySelector('[data-collapse-action="expand"]');
-  if (collapseBtn) {
-    collapseBtn.disabled = groupKeys.length === 0 || collapsedCount === groupKeys.length;
-    collapseBtn.onclick = () => apply(true);
-  }
-  if (expandBtn) {
-    expandBtn.disabled = collapsedCount === 0;
-    expandBtn.onclick = () => apply(false);
-  }
+  const current = currentActivityLevel();
+  activityModalEl.querySelectorAll('#activity-level [data-level]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.level === current);
+    btn.onclick = () => applyActivityLevel(btn.dataset.level);
+  });
 }
 
 // --- 本体の描画 ---
@@ -739,7 +845,12 @@ function renderActivityBody() {
   const chartBody = modal.querySelector('#activity-chart-body');
 
   const events = filterActivityEvents();
-  modal.querySelector('#activity-count-label').textContent = `表示 ${events.length}件 / 全 ${activityNormalized.length}件`;
+  // BT-380: 母数は選択中のワークスペースの件数(未選択なら全体)
+  const scopeTotal = activityProjectFilter
+    ? activityNormalized.filter(ev => ev.project === activityProjectFilter).length
+    : activityNormalized.length;
+  const scopeLabel = activityProjectFilter ? `${activityProjectFilter} ` : '全 ';
+  modal.querySelector('#activity-count-label').textContent = `表示 ${events.length}件 / ${scopeLabel}${scopeTotal}件`;
 
   if (activityViewMode === 'chart') {
     body.hidden = true;
@@ -750,6 +861,8 @@ function renderActivityBody() {
   body.hidden = false;
   chartBody.hidden = true;
   body.innerHTML = '';
+  activityRenderedGroupKeys = [];
+  activityRenderedTaskKeys = [];
 
   if (events.length === 0) {
     body.innerHTML = `<div class="activity-empty">この条件に当てはまる履歴はまだないよ</div>`;
@@ -795,7 +908,7 @@ function renderActivityBody() {
       const groupBody = document.createElement('div');
       groupBody.className = 'activity-group-body';
       if (activityProjectFilter) {
-        appendActivityRenderUnits(groupBody, groupEvents);
+        appendActivityRenderUnits(groupBody, groupEvents, key);
       } else {
         const byProject = new Map();
         for (const ev of groupEvents) {
@@ -813,8 +926,9 @@ function renderActivityBody() {
     timeline.appendChild(groupEl);
   });
 
-  setupActivityCollapseAllBtn([...groups.keys()]);
+  activityRenderedGroupKeys = [...groups.keys()];
   body.appendChild(timeline);
+  refreshActivityLevelBtns();
   body.scrollTop = 0;
 }
 

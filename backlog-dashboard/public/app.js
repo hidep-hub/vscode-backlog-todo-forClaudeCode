@@ -1363,7 +1363,6 @@ function applyMainFilter(project) {
   setSessionFilter(currentFilter); // ユーザー操作を記憶
   if (currentBoardData) renderBoard(currentBoardData);
   refreshPlanBoardIfOpen(); // BM-036: Plan Board(週次計画/ガント)が開いていれば絞り込み結果を反映する
-  if (typeof syncActivityProjectFilterFromMain === 'function') syncActivityProjectFilterFromMain();
   if (typeof tickerShowsHeatmap === 'function' && tickerShowsHeatmap()) scheduleHeaderHeatmapRender(); // BT-382: ヘッダのヒートマップもワークスペースに連動
 }
 
