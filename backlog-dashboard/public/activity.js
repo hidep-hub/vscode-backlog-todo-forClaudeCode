@@ -26,7 +26,13 @@ let activityTypeFilter = 'all';   // all | completed | deleted | other
 let activityProjectFilter = '';   // '' = 全ワークスペース
 let activityDateFrom = '';        // 'YYYY-MM-DD' or ''
 let activityDateTo = '';
-let activitySearchQuery = '';
+let activitySearchQuery = '';     // BT-408: キーワード。入力後に少し待ってDB側(GET /api/activity?q=)で絞り込む
+let activityTagFilter = '';       // BT-408: タグID('' = 指定なし)。DB側(GET /api/activity?tagId=)で絞り込む
+let activityTags = [];            // GET /api/tagsの一覧(タグセレクタの選択肢)
+let activityAppliedQuery = '';    // 画面に表示中の結果に適用済みのキーワード(ハイライト・ヒット理由の基準)
+let activitySearching = false;    // 入力〜検索完了までtrue(検索欄・タグセレクタをオレンジにする)
+let activityLoadSeq = 0;          // 連続入力時に古い応答で上書きしないための通し番号
+let activitySearchTimer = null;
 let activityGranularity = localStorage.getItem('activityGranularity') || 'day'; // day | week | month
 let activityViewMode = localStorage.getItem('activityViewMode') || 'timeline';  // timeline | chart
 let activityChartType = localStorage.getItem('activityChartType') || 'heatmap'; // heatmap | throughput | composition
@@ -80,6 +86,63 @@ function isActivityTaskOpen(key, events) {
 function setActivityTaskOpen(key, open) {
   activityTaskOpenState[key] = open;
   try { localStorage.setItem('activityTaskOpenState', JSON.stringify(activityTaskOpenState)); } catch { /* 保存できなくても動作は続ける */ }
+}
+
+// --- 検索ヒットの表示(BT-408) ---
+// 適用済みキーワードに一致する部分を<mark>で囲む(大文字小文字は区別しない)。
+function activityHighlightHtml(text) {
+  const raw = String(text ?? '');
+  const needle = activityAppliedQuery.toLowerCase();
+  const lower = raw.toLowerCase();
+  if (!needle || lower.length !== raw.length) return escapeHtml(raw);
+  let out = '';
+  let pos = 0;
+  let idx;
+  while ((idx = lower.indexOf(needle, pos)) !== -1) {
+    out += `${escapeHtml(raw.slice(pos, idx))}<mark class="activity-hit">${escapeHtml(raw.slice(idx, idx + needle.length))}</mark>`;
+    pos = idx + needle.length;
+  }
+  return out + escapeHtml(raw.slice(pos));
+}
+
+// タイトル・IDのヒットは<mark>で分かるが、画面に出ない場所(説明文・親EPIC・履歴の値)でヒットした時は
+// 理由が見えないため、チップと説明文の抜粋で示す。
+function activityHitInfo(events) {
+  if (!activityAppliedQuery) return { chipsHtml: '', snippetHtml: '' };
+  const kinds = new Set(events.flatMap(ev => ev.matchedIn || []));
+  const chips = [];
+  if (kinds.has('description')) chips.push('説明');
+  if (kinds.has('parent')) chips.push('EPIC経由');
+  if (kinds.has('value')) chips.push('履歴の内容');
+  const snippet = (events.find(ev => ev.descriptionSnippet) || {}).descriptionSnippet;
+  return {
+    chipsHtml: chips.map(c => `<span class="activity-hit-chip" title="検索キーワードにヒットした場所">${c}</span>`).join(''),
+    snippetHtml: snippet ? `<div class="activity-hit-snippet">${activityHighlightHtml(snippet)}</div>` : '',
+  };
+}
+
+// 検索中はオレンジ枠、完了したら外す。フッターには結果の条件と件数を出し続ける。
+function setActivitySearching(on) {
+  activitySearching = on;
+  if (!activityModalEl) return;
+  for (const sel of ['#activity-search', '#activity-tag-select']) {
+    const el = activityModalEl.querySelector(sel);
+    if (el) el.classList.toggle('is-searching', on);
+  }
+  updateActivitySearchStatus();
+}
+
+function updateActivitySearchStatus() {
+  if (!activityModalEl) return;
+  const el = activityModalEl.querySelector('#activity-search-status');
+  if (!el) return;
+  const tag = activityTags.find(t => String(t.id) === activityTagFilter);
+  const conds = [];
+  if (activityAppliedQuery) conds.push(`「${activityAppliedQuery}」`);
+  if (tag) conds.push(`タグ「${tag.name}」`);
+  el.classList.toggle('is-searching', activitySearching);
+  if (activitySearching) el.textContent = '検索中…';
+  else el.textContent = conds.length ? `${conds.join('・')}で ${activityNormalized.length}件ヒット` : '';
 }
 
 const ACTIVITY_STATUS_LABEL = { todo: 'TODO', ready: 'READY', do: 'DO', done: 'DONE' };
@@ -261,6 +324,8 @@ function normalizeActivityEvent(raw) {
     oldValue: raw.oldValue,
     newValue: raw.newValue,
     actor: raw.actor || 'user',
+    matchedIn: raw.matchedIn || [],
+    descriptionSnippet: raw.descriptionSnippet || null,
     date: activityLocalDateStr(raw.occurredAt),
     ts: raw.occurredAt,
   };
@@ -305,13 +370,15 @@ function getOrCreateActivityModal() {
       <div class="activity-filters">
         <div class="activity-tabs" id="activity-tabs" role="tablist"></div>
         <select class="activity-ws-select" id="activity-ws-select" title="ワークスペースで絞り込み"></select>
-        <input type="search" class="activity-search-input" id="activity-search" placeholder="タイトル・IDで検索">
+        <select class="activity-tag-select" id="activity-tag-select" title="タグで絞り込み"></select>
+        <input type="search" class="activity-search-input" id="activity-search" placeholder="タイトル・ID・説明・内容で検索">
       </div>
       <div class="activity-body" id="activity-body">
         <div class="activity-loading">読み込み中...</div>
       </div>
       <div class="activity-chart-body" id="activity-chart-body" hidden></div>
       <div class="activity-footer">
+        <span class="activity-search-status" id="activity-search-status"></span>
         <span class="activity-count-label" id="activity-count-label"></span>
         <span class="activity-updated-label" id="activity-updated-label"></span>
       </div>
@@ -323,7 +390,10 @@ function getOrCreateActivityModal() {
     if (e.target === activityModalEl) closeActivityView();
   });
   activityModalEl.querySelector('#activity-modal-close').addEventListener('click', closeActivityView);
-  activityModalEl.querySelector('#activity-reload-btn').addEventListener('click', () => loadActivity(true));
+  activityModalEl.querySelector('#activity-reload-btn').addEventListener('click', () => {
+    loadActivityTags();
+    loadActivity(true);
+  });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && activityModalEl.classList.contains('modal-visible')) {
       const detail = document.querySelector('.modal-overlay.modal-visible');
@@ -344,13 +414,26 @@ function getOrCreateActivityModal() {
   // BT-380: 履歴内のWSセレクタはメイン画面のフィルタとは同期しない(履歴内だけで完結する)
   activityModalEl.querySelector('#activity-ws-select').addEventListener('change', (e) => {
     activityProjectFilter = e.target.value;
+    // 選択中のタグが新しいワークスペースのものでなければタグ指定を外す(DB側の絞り込みが変わるので再取得)
+    if (activityTagFilter && !visibleActivityTags().some(t => String(t.id) === activityTagFilter)) {
+      activityTagFilter = '';
+      renderActivityControls();
+      loadActivity(true);
+      return;
+    }
     renderActivityControls();
     renderActivityBody();
   });
+  // BT-408: タグ・キーワードはDB側で絞り込む(説明文など、クライアントが持たない情報も対象にするため)
+  activityModalEl.querySelector('#activity-tag-select').addEventListener('change', (e) => {
+    activityTagFilter = e.target.value;
+    loadActivity(true);
+  });
   activityModalEl.querySelector('#activity-search').addEventListener('input', (e) => {
     activitySearchQuery = e.target.value.trim();
-    renderActivityControls();
-    renderActivityBody();
+    clearTimeout(activitySearchTimer);
+    setActivitySearching(true); // 入力した瞬間からオレンジにして、検索が走っていることを示す
+    activitySearchTimer = setTimeout(() => loadActivity(true), 300);
   });
 
   return activityModalEl;
@@ -363,16 +446,40 @@ function openActivityView() {
   activityDateFrom = '';
   activityDateTo = '';
   activitySearchQuery = '';
+  activityTagFilter = '';
+  clearTimeout(activitySearchTimer);
+  activityAppliedQuery = '';
+  setActivitySearching(false);
   activityTaskDefaultOpen = null; // 開閉レベルの一括指定は開き直したら既定(今日のみ展開)に戻す
   modal.querySelector('#activity-date-from').value = '';
   modal.querySelector('#activity-date-to').value = '';
   modal.querySelector('#activity-search').value = '';
   modal.classList.add('modal-visible');
+  loadActivityTags();
   loadActivity(false);
 }
 
 function closeActivityView() {
   if (activityModalEl) activityModalEl.classList.remove('modal-visible');
+}
+
+// タグセレクタの選択肢。失敗してもタグ絞り込みが使えないだけなので、履歴本体の表示は止めない。
+async function loadActivityTags() {
+  try {
+    const res = await fetch('/api/tags');
+    const data = await res.json();
+    if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+    activityTags = Array.isArray(data.tags) ? data.tags : [];
+    renderActivityControls();
+    updateActivitySearchStatus(); // 結果の条件表示にタグ名を使うため、タグ一覧の到着後にも更新する
+  } catch (e) {
+    console.error('[activity] Failed to load tags:', e);
+  }
+}
+
+// 選択中のワークスペースがあれば、そのワークスペースのタグだけを選択肢にする
+function visibleActivityTags() {
+  return activityProjectFilter ? activityTags.filter(t => t.workspace === activityProjectFilter) : activityTags;
 }
 
 async function loadActivity(isReload) {
@@ -381,41 +488,44 @@ async function loadActivity(isReload) {
   if (!isReload || activityRawEvents.length === 0) {
     body.innerHTML = '<div class="activity-loading">読み込み中...</div>';
   }
+  const seq = ++activityLoadSeq;
+  setActivitySearching(true);
+  const params = new URLSearchParams();
+  if (activitySearchQuery) params.set('q', activitySearchQuery);
+  if (activityTagFilter) params.set('tagId', activityTagFilter);
+  const qs = params.toString();
   try {
-    const res = await fetch('/api/activity');
+    const res = await fetch(`/api/activity${qs ? `?${qs}` : ''}`);
     const data = await res.json();
+    if (seq !== activityLoadSeq) return; // 後から出した検索の応答を優先する
     if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
     activityRawEvents = data;
+    activityAppliedQuery = activitySearchQuery;
     activityNormalized = data.map(normalizeActivityEvent);
     activityUpdatedAt = new Date().toISOString();
     renderActivityControls();
     renderActivityBody();
+    setActivitySearching(false);
   } catch (e) {
+    if (seq !== activityLoadSeq) return;
+    setActivitySearching(false);
     console.error('[activity] Failed to load:', e);
     body.innerHTML = `<div class="activity-error">${activityIconHtml('warning')} 履歴の取得に失敗したよ(${escapeHtml(String(e.message || e))})</div>`;
   }
 }
 
 // --- 絞り込み ---
-// type以外の条件(project/search/date)だけを適用した配列。タブ・チップのバッジ件数を、
+// type以外の条件(project/date)だけを適用した配列。キーワード・タグはDB側で絞り込み済み(BT-408)。タブ・チップのバッジ件数を、
 // 「今のタブ/チップを切り替えたら実際何件になるか」が分かるように出すための土台。
 function activityEventsExceptType() {
   let result = activityNormalized;
   if (activityProjectFilter) result = result.filter(ev => ev.project === activityProjectFilter);
-  if (activitySearchQuery) {
-    const q = activitySearchQuery.toLowerCase();
-    result = result.filter(ev => (ev.id && ev.id.toLowerCase().includes(q)) || (ev.title && ev.title.toLowerCase().includes(q)));
-  }
   if (activityDateFrom) result = result.filter(ev => ev.date >= activityDateFrom);
   if (activityDateTo) result = result.filter(ev => ev.date <= activityDateTo);
   return result;
 }
 function activityEventsExceptProject() {
   let result = activityTypeFilter === 'all' ? activityNormalized : activityNormalized.filter(ev => ev.type === activityTypeFilter);
-  if (activitySearchQuery) {
-    const q = activitySearchQuery.toLowerCase();
-    result = result.filter(ev => (ev.id && ev.id.toLowerCase().includes(q)) || (ev.title && ev.title.toLowerCase().includes(q)));
-  }
   if (activityDateFrom) result = result.filter(ev => ev.date >= activityDateFrom);
   if (activityDateTo) result = result.filter(ev => ev.date <= activityDateTo);
   return result;
@@ -500,6 +610,15 @@ function renderActivityControls() {
       renderActivityBody();
     });
   });
+
+  // タグセレクタ(BT-408)。ワークスペース未選択時は「ワークスペース / タグ名」で見分ける
+  const tagSelectEl = modal.querySelector('#activity-tag-select');
+  const tagOptions = [{ value: '', label: 'すべてのタグ' }]
+    .concat(visibleActivityTags().map(t => ({ value: String(t.id), label: activityProjectFilter ? t.name : `${t.workspace} / ${t.name}` })));
+  tagSelectEl.innerHTML = tagOptions.map(o =>
+    `<option value="${escapeHtml(o.value)}"${o.value === activityTagFilter ? ' selected' : ''}>${escapeHtml(o.label)}</option>`
+  ).join('');
+  tagSelectEl.classList.toggle('active', !!activityTagFilter);
 
   // WSセレクタ(project以外のフィルタを反映した件数つき。先頭は「すべて」)
   const selectEl = modal.querySelector('#activity-ws-select');
@@ -590,7 +709,7 @@ function buildActivityRowEl(ev, opts = {}) {
   row.className = `activity-row activity-row-${meta.cls}` + (opts.isChildRow ? ' activity-child-row' : '');
 
   const timeText = formatActivityTime(ev.ts);
-  const idHtml = opts.hideTaskIdentity ? '' : `<span class="activity-id">${escapeHtml(ev.id || '-')}</span>`;
+  const idHtml = opts.hideTaskIdentity ? '' : `<span class="activity-id">${activityHighlightHtml(ev.id || '-')}</span>`;
   const wsHtml = (!opts.hideProject && ev.project) ? `<span class="activity-ws">${escapeHtml(ev.project)}</span>` : '';
   const typeHtml = `<span class="activity-type-label">${escapeHtml(meta.label)}</span>`;
   const agentHtml = activityAgentHtml(ev.actor);
@@ -599,15 +718,22 @@ function buildActivityRowEl(ev, opts = {}) {
     ? `<span class="activity-parent" data-parent-id="${escapeHtml(ev.parentId)}" data-child-id="${escapeHtml(ev.id || '')}" title="${escapeHtml(ev.parentTitle || ev.parentId)}">${activityIconHtml('stacks')}${escapeHtml(ev.parentId)}</span>`
     : '';
 
-  const changeHtml = (ev.eventType === 'status_changed' && ev.oldValue && ev.newValue)
-    ? `<span class="activity-tag">${escapeHtml(ev.oldValue)} → ${escapeHtml(ev.newValue)}</span>` : '';
+  // 履歴の値(旧→新、タグ名)。キーワードが値にヒットした時に理由が見えるよう、種別ごとに出す
+  let changeHtml = '';
+  if (ev.eventType === 'status_changed' && ev.oldValue && ev.newValue) {
+    changeHtml = `<span class="activity-tag">${activityHighlightHtml(ev.oldValue)} → ${activityHighlightHtml(ev.newValue)}</span>`;
+  } else if (ev.eventType === 'due_date_changed' && (ev.oldValue || ev.newValue)) {
+    changeHtml = `<span class="activity-tag">${activityHighlightHtml(ev.oldValue || '-')} → ${activityHighlightHtml(ev.newValue || '-')}</span>`;
+  } else if ((ev.eventType === 'tag_added' || ev.eventType === 'tag_removed') && (ev.newValue || ev.oldValue)) {
+    changeHtml = `<span class="activity-tag">${activityHighlightHtml(ev.newValue || ev.oldValue)}</span>`;
+  }
 
   row.innerHTML = `
     <span class="activity-dot activity-dot-${meta.cls}" aria-hidden="true">${activityIconHtml(meta.icon)}</span>
     <div class="activity-row-main">
       <div class="activity-row-line1">
         ${typeHtml}${agentHtml}${wsHtml}${idHtml}
-        ${opts.hideTaskIdentity ? '' : `<span class="activity-title">${escapeHtml(ev.title || '')}</span>`}
+        ${opts.hideTaskIdentity ? '' : `<span class="activity-title">${activityHighlightHtml(ev.title || '')}</span>`}
       </div>
       <div class="activity-row-line2">${parentHtml}${changeHtml}</div>
     </div>
@@ -673,6 +799,7 @@ function buildActivityEpicEl(unit, dateKey) {
   const allEvents = unit.events.concat(...unit.children.map(c => c.events));
   const key = activityTaskKey(dateKey, unit.parentId);
   const open = isActivityTaskOpen(key, allEvents);
+  const epicHit = activityHitInfo(unit.events); // EPIC自身のイベントのヒット理由(子タスクは各行で示す)
   activityRenderedTaskKeys.push(key);
   wrap.innerHTML = `
     ${activityTaskToggleHtml(open)}
@@ -681,11 +808,13 @@ function buildActivityEpicEl(unit, dateKey) {
       <div class="activity-row-line1">
         <span class="activity-type-label">EPIC</span>
         ${unit.project ? `<span class="activity-ws">${escapeHtml(unit.project)}</span>` : ''}
-        <span class="activity-id">${escapeHtml(unit.parentId)}</span>
-        <span class="activity-title">${escapeHtml(titleText)}</span>
+        <span class="activity-id">${activityHighlightHtml(unit.parentId)}</span>
+        <span class="activity-title">${activityHighlightHtml(titleText)}</span>
         <span class="activity-epic-count">${unit.children.length}件の子タスク</span>
         ${activityLastSummaryHtml(unit.parentId, allEvents)}
+        ${epicHit.chipsHtml}
       </div>
+      ${epicHit.snippetHtml}
     </div>
     <span class="activity-time"></span>
   `;
@@ -725,6 +854,7 @@ function buildActivityTaskGroupEl(unit, dateKey, opts = {}) {
   const groupClass = unit.isEpic ? 'epic' : 'task';
   const key = activityTaskKey(dateKey, unit.taskId);
   const open = isActivityTaskOpen(key, unit.events);
+  const taskHit = activityHitInfo(unit.events);
   activityRenderedTaskKeys.push(key);
   wrap.className = `activity-row activity-row-${groupClass}` + (opts.isChild ? ' activity-child-task' : '');
   wrap.innerHTML = `
@@ -734,11 +864,13 @@ function buildActivityTaskGroupEl(unit, dateKey, opts = {}) {
       <div class="activity-row-line1">
         <span class="activity-type-label">${groupLabel}</span>
         ${unit.project ? `<span class="activity-ws">${escapeHtml(unit.project)}</span>` : ''}
-        <span class="activity-id">${escapeHtml(unit.taskId)}</span>
-        <span class="activity-title">${escapeHtml(unit.title || '')}</span>
+        <span class="activity-id">${activityHighlightHtml(unit.taskId)}</span>
+        <span class="activity-title">${activityHighlightHtml(unit.title || '')}</span>
         <span class="activity-epic-count">${unit.events.length}イベント</span>
         ${activityLastSummaryHtml(unit.taskId, unit.events)}
+        ${taskHit.chipsHtml}
       </div>
+      ${taskHit.snippetHtml}
     </div>
     <span class="activity-time"></span>
   `;

@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.4.0（BT-212、BT-336、BT-372、BT-377、BT-393。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.5.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## ルール正本と配布方式
 
@@ -44,7 +44,7 @@ AGENTS.md.sample（Git管理の唯一の正本）
   - 実行後は文字化けしていないか目視確認する習慣をつける（「テストデータだから」で流さない）
 - **主要API（BT-179でDB版に刷新。`isChild`パラメータは全API廃止、`taskId`（例`BT-181`）単独で親・子どちらも指定できる）**:
   - 単体取得: `GET /api/task/:id`（BT-222）— `/api/board`の全件走査を経由せず1件だけ取得できる。返却形状は`/api/board`のitemと同じ（BT-336で期日の変更履歴`dueDateHistory`＝`[{from,to,at,actor}]`古い順を追加。親を指定すると`children`/`childrenTotal`/`childrenDone`も含む）。存在しないtaskIdは404
-  - 履歴取得: `GET /api/activity`（BT-243、履歴機能EPIC BT-199配下）— `task_events`を`tasks`/`event_types`と結合し、`taskId`/`taskTitle`/`eventType`/`eventLabel`/`oldValue`/`newValue`/`actor`/`occurredAt`/`parentId`/`parentTitle`を持つイベント配列を`occurred_at`降順で返す。検索・期間絞り込みクエリは未対応（BT-246で追加予定）で、常に全件を返す
+  - 履歴取得: `GET /api/activity`（BT-243、履歴機能EPIC BT-199配下）— `task_events`を`tasks`/`event_types`と結合し、`taskId`/`taskTitle`/`eventType`/`eventLabel`/`oldValue`/`newValue`/`actor`/`occurredAt`/`parentId`/`parentTitle`を持つイベント配列を`occurred_at`降順で返す。**【BT-408, API 2.5.0】DB側の絞り込みクエリ`q`・`tagId`に対応**（どちらも省略すれば従来どおり全件）。`q`はタスクのタイトル/表示ID/説明文、親EPICのタイトル/表示ID、イベントの値（旧→新。ステータス遷移やタグ名）への大文字小文字を区別しない部分一致で、EPICで探すと配下の子タスクのイベントも対象になる。`tagId`はそのタグが付いたタスクのイベントだけを返す（論理削除済みタスクの履歴も対象）。`q`を指定した時だけ、各イベントに`matchedIn`（`title`/`id`/`description`/`parent`/`value`のうちヒットした場所）と、説明文でヒットした場合の`descriptionSnippet`（ヒット箇所の前後約30文字の抜粋）が付く。`q`と`tagId`はAND条件で、`tagId`が整数でなければ400。期間の絞り込みは未対応でクライアント側で行う
   - **【BT-201, BT-240で親のstatus条件を撤廃】`GET /api/board`のDONE列には、完了した子タスクが親の完了/未完了に関わらず`parentId`/`parentTitle`付きの単独itemとしても混在する**（親側の`children`配列にも同じ子は残るため、両方から拾うとカウント二重になる点に注意。`parentId`があるitemは「親側で既にカウント済みの完了子タスクの個別表示」なので、集計時はスキップするか除外して扱うこと）
   - 状態変更: `POST /api/update-status {taskId, newStatus, actor?}` — `newStatus`はcode値 `todo`/`ready`/`do`/`done` のいずれか（**日本語ラベルではない**）
   - 今日やる: `POST /api/toggle-today {taskId, value?, actor?}` — レスポンスキーは `pinned`。EPICを指定すると子タスクへ一括適用し、旧形式で親自身に残ったpinも解除する。応答の`affectedTaskIds`は操作対象のタスクID配列
