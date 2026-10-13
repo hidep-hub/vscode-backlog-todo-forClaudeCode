@@ -1274,27 +1274,77 @@ updateResultToastCloseEl?.addEventListener('click', hideUpdateResultToast);
  */
 function startAwaitingUpdateResult() {
   awaitingUpdateResultSince = Date.now();
+  // BT-407: サーバーのstate=runningを待たず、押した瞬間から進行表示を出す(二重押し防止も兼ねる)
+  setUpdateRunningLock(true, UPDATE_STEP_MESSAGES.start);
+}
+
+// BT-407: update-and-sync.ps1が書き出す工程メッセージを、ユーザー向けの説明に言い換える。
+const UPDATE_STEP_MESSAGES = {
+  start: '更新を開始しています。最新の資材をダウンロードする準備中です...',
+  checking: '更新の前提条件を確認しています...',
+  pull: '最新の資材をダウンロードしています(git pull)...',
+  sync: 'エージェント運用ルールを同期しています...',
+  restart: 'サーバーを再起動しています。数十秒ほどお待ちください...',
+  finished: '更新が完了しました。画面を再読み込みします...',
+};
+
+function describeUpdateStep(data) {
+  const msg = data.message || '';
+  if (data.state === 'checking') return UPDATE_STEP_MESSAGES.checking;
+  if (msg.includes('git pull')) return UPDATE_STEP_MESSAGES.pull;
+  if (msg.includes('ルール同期')) return UPDATE_STEP_MESSAGES.sync;
+  if (msg.includes('再起動')) return UPDATE_STEP_MESSAGES.restart;
+  return msg || '更新を適用しています。しばらくお待ちください...';
+}
+
+/**
+ * BT-407: 更新完了後の後処理。更新チェックを再実行してバッジを最新化し、新しい資材を反映するため画面を再読み込みする。
+ */
+let updateReloading = false; // 完了後のリロード待ち。この間はポーリングでロックを解除しない
+async function finishUpdateAndReload() {
+  updateReloading = true;
+  setUpdateRunningLock(true, UPDATE_STEP_MESSAGES.finished);
+  try {
+    const res = await fetch('/api/update-check/refresh', { method: 'POST' });
+    updateUpdateBadge(await res.json());
+  } catch (e) {
+    console.error('[update] post-update update-check failed:', e.message);
+  }
+  // 完了メッセージを一瞬読めるよう少し待ってからリロードする
+  setTimeout(() => location.reload(), 1200);
 }
 
 async function pollUpdateStatus() {
   try {
     const res = await fetch('/api/update-status');
     const data = await res.json();
-    setUpdateRunningLock(data.state === 'running', data.message || '更新を適用してるよ。しばらくお待ちください...');
+    if (updateReloading) return;
 
     if (awaitingUpdateResultSince !== null) {
       const updatedAtMs = Date.parse(data.updatedAt);
       // 時計のズレを考慮して1秒の許容を持たせる。ボタン押下より前のタイムスタンプは
       // 「前回までの古い結果」なので無視し、待ち続ける。
-      const isFreshResult = Number.isFinite(updatedAtMs) && updatedAtMs >= awaitingUpdateResultSince - 1000;
-      if (isFreshResult && (data.state === 'done' || data.state === 'failed')) {
-        showUpdateResultToast(data.state, data.message);
+      const isFresh = Number.isFinite(updatedAtMs) && updatedAtMs >= awaitingUpdateResultSince - 1000;
+      if (isFresh && data.state === 'done') {
         awaitingUpdateResultSince = null;
+        showUpdateResultToast('done', data.message);
+        finishUpdateAndReload();
+      } else if (isFresh && data.state === 'failed') {
+        awaitingUpdateResultSince = null;
+        setUpdateRunningLock(false);
+        showUpdateResultToast('failed', data.message);
       } else if (Date.now() - awaitingUpdateResultSince > AWAITING_UPDATE_RESULT_TIMEOUT_MS) {
-        // 3分待っても結果が確認できない場合は諦める(サーバー側のstale判定と揃える)。
+        // 3分待っても結果が確認できない場合は諦めてロックを解除する(サーバー側のstale判定と揃える)。
         awaitingUpdateResultSince = null;
+        setUpdateRunningLock(false);
+      } else if (isFresh && (data.state === 'running' || data.state === 'checking')) {
+        setUpdateRunningLock(true, describeUpdateStep(data));
       }
+      // 結果待ちの間は、古い状態ファイルの内容でロックを解除しない
+      return;
     }
+
+    setUpdateRunningLock(data.state === 'running', describeUpdateStep(data));
   } catch (e) {
     // サーバー再起動中は接続断でここに来る。直前の表示(ロック中ならロックのまま)を維持するため何もしない。
     // awaitingUpdateResultSinceはそのまま保持し、再接続後に新しい結果を検知する。
