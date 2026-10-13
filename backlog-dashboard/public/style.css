@@ -3001,6 +3001,29 @@ body {
   opacity: 0.85;
 }
 
+/* BM-092: ウェルカムメッセージ設定モーダルの保存ボタン・ステータス表示。
+   既存の#settings-github-save/#settings-github-footerと同じ見た目に揃える。 */
+#heatmap-intro-settings-status {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+#heatmap-intro-settings-save {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+#heatmap-intro-settings-save:hover {
+  opacity: 0.85;
+}
+
 .settings-close {
   position: absolute;
   top: 12px;

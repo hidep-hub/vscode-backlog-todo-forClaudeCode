@@ -177,6 +177,50 @@
     </div>
   </div>
 
+  <!-- Header Heatmap Welcome Message Settings (BM-092) -->
+  <div class="settings-overlay" id="heatmap-intro-settings-overlay">
+    <div class="settings-panel">
+      <button class="settings-close" id="heatmap-intro-settings-close">&times;</button>
+      <h3>ウェルカムメッセージ設定</h3>
+      <div class="settings-columns">
+        <div class="settings-column">
+          <div class="settings-group">
+            <label for="settings-ticker-default-mode">起動時のヘッダー表示</label>
+            <select id="settings-ticker-default-mode">
+              <option value="heatmap">ヒートマップ</option>
+              <option value="log">ログ</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label for="heatmap-intro-text">ウェルカムメッセージ</label>
+            <input type="text" id="heatmap-intro-text" maxlength="80" placeholder="BACKLOG DASHBOARD by HIDEP-HUB" autocomplete="off">
+          </div>
+          <div class="settings-group">
+            <label for="heatmap-intro-speed">流れる速さ</label>
+            <select id="heatmap-intro-speed">
+              <option value="140">ゆっくり</option>
+              <option value="90">ふつう</option>
+              <option value="50">速い</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label for="heatmap-intro-lit-level">文字の濃さ</label>
+            <select id="heatmap-intro-lit-level">
+              <option value="1">うすい</option>
+              <option value="2">やや薄い</option>
+              <option value="3">ふつう</option>
+              <option value="4">濃い</option>
+            </select>
+          </div>
+          <div class="settings-github-footer">
+            <span id="heatmap-intro-settings-status"></span>
+            <button id="heatmap-intro-settings-save">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="running-agent-order.js"></script>
   <script src="header-ticker.js"></script>
   <script src="header-heatmap.js"></script>

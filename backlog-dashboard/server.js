@@ -387,6 +387,47 @@ function updateWorkspaceSummary(projectName, summary) {
   return { success: true, project: project.name, summary: project.summary };
 }
 
+// ============================================================
+// ヘッダーヒートマップ ウェルカムメッセージ設定 (BM-092)
+// ============================================================
+// 文言・速度・点灯色の濃淡レベルは「見る人全員が同じものを見る」アプリ共通設定のため、
+// (個人のブラウザ設定であるtickerModeとは異なり)config.jsonに新規キーとして保存する。
+// config.jsonはfs.watchでホットリロードされる(217-245行目付近)ため、保存後は自動で
+// 全クライアントに新しい値が配信される(WebSocketのboard broadcastとは別経路。
+// クライアントは次回ページ表示時にGET /api/header-heatmap-intro-settingsで取得する)。
+const HEADER_HEATMAP_INTRO_DEFAULTS = {
+  text: 'BACKLOG DASHBOARD by HIDEP-HUB',
+  frameMs: 90,
+  litLevel: 3,
+};
+
+function getHeaderHeatmapIntroSettings() {
+  const saved = config.headerHeatmapIntro || {};
+  return { ...HEADER_HEATMAP_INTRO_DEFAULTS, ...saved };
+}
+
+function updateHeaderHeatmapIntroSettings({ text, frameMs, litLevel }) {
+  if (typeof text !== 'string' || !text.trim()) {
+    return { success: false, error: 'text is required' };
+  }
+  if (text.length > 80) {
+    return { success: false, error: 'text must be 80 characters or fewer' };
+  }
+  const frameMsNum = Number(frameMs);
+  if (!Number.isFinite(frameMsNum) || frameMsNum < 20 || frameMsNum > 1000) {
+    return { success: false, error: 'frameMs must be a number between 20 and 1000' };
+  }
+  const litLevelNum = Number(litLevel);
+  if (!Number.isInteger(litLevelNum) || litLevelNum < 0 || litLevelNum > 4) {
+    return { success: false, error: 'litLevel must be an integer between 0 and 4' };
+  }
+  const next = { text: text.trim(), frameMs: frameMsNum, litLevel: litLevelNum };
+  fs.copyFileSync(CONFIG_PATH, `${CONFIG_PATH}.bak`);
+  config.headerHeatmapIntro = next;
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  return { success: true, settings: next };
+}
+
 function readRequestBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -1058,6 +1099,31 @@ function serveStatic(req, res) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ ok: true, taskId, running, actor: actionActor }));
       broadcast(buildBoard());
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: GET /api/header-heatmap-intro-settings (BM-092)
+  if (req.url === '/api/header-heatmap-intro-settings' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(getHeaderHeatmapIntroSettings()));
+    return;
+  }
+
+  // API: POST /api/header-heatmap-intro-settings (BM-092)
+  if (req.url === '/api/header-heatmap-intro-settings' && req.method === 'POST') {
+    readRequestBody(req).then(({ text, frameMs, litLevel }) => {
+      const result = updateHeaderHeatmapIntroSettings({ text, frameMs, litLevel });
+      if (result.success) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, settings: result.settings }));
+      } else {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: result.error }));
+      }
     }).catch(e => {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'Invalid JSON body' }));
