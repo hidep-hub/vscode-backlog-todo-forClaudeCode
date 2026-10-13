@@ -63,6 +63,9 @@
 .gantt-zoom .gantt-btn:first-child { border-radius: 6px 0 0 6px; }
 .gantt-zoom .gantt-btn:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
 .gantt-check { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.gantt-range { font-size: 0.74rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.gantt-range-now { font-weight: 700; color: var(--text); }
+.gantt-range.is-scrolling .gantt-range-now { font-weight: 400; color: inherit; }
 .gantt-stats { display: inline-flex; align-items: center; gap: 6px; }
 .gantt-selection-actions { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; }
 .gantt-selection-count { font-size: 0.74rem; color: var(--accent); white-space: nowrap; }
