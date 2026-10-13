@@ -61,15 +61,20 @@ test('describeTagErrorはサーバーのエラーを画面向けに変換する'
   assert.equal(tagLogic.describeTagError(null).kind, 'error');
 });
 
-test('タグボタンは1段目のバックアップボタンの右にあり、スクリプトとアイコンが揃っている', () => {
-  const backup = html.indexOf('id="backup-btn"');
-  const tag = html.indexOf('id="tag-btn"');
-  assert.ok(backup > 0 && tag > backup, 'バックアップボタンより後ろに置く');
-  assert.ok(tag < html.indexOf('header-workspace-row'), '1段目に置く');
+test('タグ絞り込みボタンは1段目のピン(今日やる)の隣にあり、スクリプトとアイコンが揃っている (BM-085)', () => {
+  // BM-085: 専用のタグ管理ボタン(#tag-btn)は廃止し、タグ管理は絞り込みポップオーバー経由の一本化にした
+  assert.doesNotMatch(html, /id="tag-btn"/, '専用のタグ管理ボタンは廃止済み');
+  const group = html.indexOf('id="pin-tag-group"');
+  const today = html.indexOf('id="today-filter-btn"');
+  const tagFilter = html.indexOf('id="tag-filter-btn"');
+  assert.ok(group > 0 && today > group && tagFilter > today, 'ピンとタグ絞り込みを1つの枠(pin-tag-group)にまとめ、ピン→タグの順に置く');
+  assert.ok(tagFilter < html.indexOf('header-workspace-row'), '1段目に置く');
   assert.ok(html.indexOf('<script src="tag-logic.js">') < html.indexOf('<script src="tags.js">'), 'ロジックを先に読み込む');
   assert.ok(html.indexOf('<script src="app.js">') < html.indexOf('<script src="tags.js">'), 'app.jsのヘルパーに依存するので後に読み込む');
   assert.ok(fs.existsSync(path.join(publicDir, 'icons', 'local_offer.svg')));
   assert.match(css, /\.material-icon\.icon-tag\s*\{[^}]*icons\/local_offer\.svg/);
+  assert.ok(fs.existsSync(path.join(publicDir, 'icons', 'settings.svg')));
+  assert.match(css, /\.material-icon\.icon-settings\s*\{[^}]*icons\/settings\.svg/);
 });
 
 test('タグモーダルは最前面判定(Escape制御)の対象に含まれ、旧サーバー向けの案内を持つ', () => {
@@ -215,7 +220,7 @@ test('describeTagFilterは条件をorなら「または」andなら「かつ」�
   assert.equal(tagLogic.describeTagFilter({ mode: 'and', tags }), 'タグ: 重要 かつ 調査');
 });
 
-test('タグ絞り込みはボード・週次計画・ガントに配線され、ヘッダーにボタンと絞り込みバーがある', () => {
+test('タグ絞り込みはボード・週次計画・ガントに配線され、選択中の一覧表示はポップオーバーに一本化されている (BM-085)', () => {
   const has = (src, text) => assert.ok(src.includes(text), `含まれる: ${text}`);
   has(app, "tagLogic.parseTagFilter(");
   has(app, 'tagLogic.matchesTagFilterForBoardItem(item, tagKeys, tagFilter.mode)');
@@ -224,21 +229,23 @@ test('タグ絞り込みはボード・週次計画・ガントに配線され�
   has(app, 'tagLogic.describeTagFilter(tagFilter)');
   assert.equal((app.match(/tagFilter\.tags\.length > 0/g) || []).length >= 3, true, '各絞り込み判定にタグ条件が入る');
   has(html, 'id="tag-filter-btn"');
-  has(html, 'id="tag-filter-bar"');
-  // 1段目のボタン群は幅が限界(増やすとヘッダーが横にはみ出す)のため、バッジ行の右端に置く
-  assert.ok(html.indexOf('id="tag-filter-btn"') > html.indexOf('class="header-badges-row"'), 'バッジ行に置く');
-  assert.ok(html.indexOf('id="tag-filter-btn"') > html.indexOf('id="project-badges"'), 'プロジェクトバッジの右');
+  // BM-085: ヘッダー上の「選択中タグのチップバー」は幅不足で崩れるため廃止。
+  // 選択中かどうかはボタンのfilter-active色と件数バッジだけで示し、一覧・解除はポップオーバーに一本化
+  assert.doesNotMatch(html, /id="tag-filter-bar"/, 'チップバーのDOMごと廃止');
+  assert.doesNotMatch(tagsJs, /tag-filter-bar/, 'JS側の参照も残らない');
+  assert.doesNotMatch(css, /\.tag-filter-bar\b/, 'CSS側の定義も残らない');
   has(tagsJs, 'function applyTagFilter()');
   has(tagsJs, 'renderPlanBoard');
   has(tagsJs, "localStorage.setItem('tagFilter'");
   has(css, '.tag-filter-btn.filter-active');
+  has(css, '.tag-filter-count');
 });
 
 test('週次計画・ガント画面の中にも、ヘッダーと状態を共有するタグ絞り込みボタンがある (BT-397)', () => {
   const has = (src, text) => assert.ok(src.includes(text), `含まれる: ${text}`);
   has(app, 'id="plan-tag-filter-btn"');
   has(app, "overlay.querySelector('#plan-tag-filter-btn').addEventListener('click', (e) => toggleTagFilterPopover(e.currentTarget));");
-  has(html, 'class="activity-btn tag-filter-btn tag-filter-trigger"');
+  assert.match(html, /class="[^"]*\btag-filter-btn\b[^"]*\btag-filter-trigger\b[^"]*"\s+id="tag-filter-btn"/, 'ヘッダー側のトリガーボタンにも共通クラスが付く');
   has(tagsJs, 'function toggleTagFilterPopover(anchor)');
   has(tagsJs, "document.querySelectorAll('.tag-filter-trigger')");
   has(tagsJs, "e.target.closest('.tag-filter-trigger')");

@@ -32,11 +32,18 @@
           <input class="header-search-input" id="header-search-input" type="search" placeholder="検索キーワード" aria-label="検索キーワード">
         <button class="search-btn" id="search-btn" title="検索: タイトル・ID・担当（本文検索はチェックボックスでON、/ または Ctrl+K）"><span class="material-icon icon-search"></span></button>
         <button class="plan-btn" id="plan-btn" title="週次計画（期日を週バケットに振り分けて計画する）"><span class="material-icon icon-calendar-month"></span></button>
-        <button class="today-filter-btn" id="today-filter-btn" title="今日やるフィルター"><span class="material-icon icon-keep"></span></button>
+        <!-- BM-085: タグ管理はこの絞り込みポップオーバー内の「タグ管理を開く…」から呼べるため、
+             専用のタグ管理ボタンは廃止。ピンと並べたらセグメントボタン風に見えて良いとのことで、
+             枠線を共有する1つのグループとしてまとめた。選択中タグの一覧はポップオーバー側に一本化し、
+             ヘッダー上の表示はボタンのfilter-active色＋件数バッジのみにする(チップバーは幅不足で崩れるため廃止) -->
+        <div class="pin-tag-group" id="pin-tag-group">
+          <button class="today-filter-btn pin-tag-seg" id="today-filter-btn" title="今日やるフィルター"><span class="material-icon icon-keep"></span></button>
+          <span class="pin-tag-divider" aria-hidden="true"></span>
+          <button class="activity-btn tag-filter-btn tag-filter-trigger pin-tag-seg" id="tag-filter-btn" title="タグで絞り込み（ボード・週次計画・ガント共通）" aria-haspopup="dialog"><span class="material-icon icon-tag"></span><span class="tag-filter-count" hidden></span></button>
+        </div>
         <button class="select-mode-btn" id="select-mode-btn" title="複数選択して親タスクにまとめる"><span class="material-icon icon-check"></span></button>
         <button class="activity-btn" id="activity-btn" title="履歴"><span class="material-icon icon-history"></span></button>
         <button class="activity-btn backup-btn" id="backup-btn" title="バックアップ（DB・環境ファイルの保全）"><span class="material-icon icon-backup"></span></button>
-        <button class="activity-btn tag-btn" id="tag-btn" title="タグ管理（作成・改名・統合・削除）"><span class="material-icon icon-tag"></span></button>
         </div>
         <div class="header-action-row header-workspace-row">
         <div class="ws-filter-wrap" id="ws-filter-wrap">
@@ -67,11 +74,6 @@
         <div class="badge-mode-menu" id="badge-mode-menu" role="menu" hidden></div>
       </div>
       <span id="project-badges" class="project-badges"></span>
-      <!-- BT-396: タグ絞り込み。1段目のボタン群は幅が限界のため、バッジ行の右端に置く -->
-      <div class="tag-filter-wrap">
-        <div class="tag-filter-bar" id="tag-filter-bar" hidden></div>
-        <button class="activity-btn tag-filter-btn tag-filter-trigger" id="tag-filter-btn" title="タグで絞り込み（ボード・週次計画・ガント共通）" aria-haspopup="dialog"><span class="material-icon icon-tag"></span><span class="tag-filter-count" hidden></span></button>
-      </div>
     </div>
   </header>
   <div class="running-strip" id="running-strip">
