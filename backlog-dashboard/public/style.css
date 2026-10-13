@@ -4067,6 +4067,7 @@ body {
 }
 
 .activity-granularity,
+.activity-level,
 .activity-viewmode,
 .activity-chart-tabs {
   display: flex;
@@ -4103,27 +4104,6 @@ body {
 .activity-gran-btn.active {
   background: var(--accent);
   color: #fff;
-}
-
-.activity-collapse-all-btn {
-  padding: 5px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--card);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 0.8rem;
-  white-space: nowrap;
-}
-
-.activity-collapse-all-btn:hover:not(:disabled) {
-  background: var(--card-hover);
-  color: var(--text);
-}
-
-.activity-collapse-all-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 .activity-reload-btn {
@@ -4211,40 +4191,52 @@ body {
   color: #fff;
 }
 
-.activity-ws-chips {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 6px 0;
-}
-
-.activity-ws-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+.activity-ws-select {
+  max-width: 260px;
+  padding: 5px 8px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--card);
-  color: var(--text-muted);
-  padding: 3px 10px;
-  font-size: 0.78rem;
-  cursor: pointer;
-}
-
-.activity-ws-chip:hover {
-  background: var(--card-hover);
+  border-radius: 6px;
+  background: var(--surface);
   color: var(--text);
+  font-size: 0.82rem;
 }
 
-.activity-ws-chip.active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--drop-highlight);
+/* BT-381: タスク/EPICの開閉と最終ステータス・最終時刻 */
+.task-collapsed > .activity-children {
+  display: none;
 }
 
-.activity-chip-count {
+.activity-row > .activity-group-toggle {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.activity-last-status {
+  flex-shrink: 0;
   font-size: 0.7rem;
-  opacity: 0.8;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: var(--tag-category-bg);
+  color: var(--tag-category-fg);
+}
+
+.activity-last-status-done {
+  background: var(--badge-done-bg);
+  color: var(--badge-done-fg);
+}
+
+.activity-last-status-deleted {
+  background: transparent;
+  color: #e57373;
+  border: 1px solid #e57373;
+}
+
+.activity-last-time {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .activity-search-input {
@@ -4642,6 +4634,11 @@ body {
 .activity-child-row .activity-dot svg {
   width: 11px;
   height: 11px;
+}
+
+/* EPIC配下のタスク行: アイコン(32px)の中心を .activity-children の点線(行の左端から22px外側)に合わせる */
+.activity-child-task .activity-dot {
+  left: -39px;
 }
 
 .activity-child-row .activity-row-line1 {
