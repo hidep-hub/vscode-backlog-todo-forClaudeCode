@@ -4191,7 +4191,8 @@ body {
   color: #fff;
 }
 
-.activity-ws-select {
+.activity-ws-select,
+.activity-tag-select {
   max-width: 260px;
   padding: 5px 8px;
   border: 1px solid var(--border);
@@ -4199,6 +4200,54 @@ body {
   background: var(--surface);
   color: var(--text);
   font-size: 0.82rem;
+}
+
+/* BT-408: 検索中(入力〜結果の描画まで)はオレンジ枠、完了で元に戻る */
+.activity-search-input.is-searching,
+.activity-tag-select.is-searching {
+  border-color: #f2994a;
+  box-shadow: 0 0 0 2px rgba(242, 153, 74, 0.35);
+}
+
+.activity-search-status {
+  flex: 1;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.activity-search-status.is-searching {
+  color: #f2994a;
+}
+
+/* 検索ヒットの表示: キーワードのハイライト、ヒット場所のチップ、説明文の抜粋 */
+mark.activity-hit {
+  background: rgba(242, 153, 74, 0.35);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.activity-hit-chip {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: #f2994a;
+  border: 1px solid #f2994a;
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+.activity-hit-snippet {
+  margin-top: 2px;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-tag-select.active {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* BT-381: タスク/EPICの開閉と最終ステータス・最終時刻 */

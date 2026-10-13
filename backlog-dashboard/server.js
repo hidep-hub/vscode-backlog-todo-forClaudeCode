@@ -954,10 +954,22 @@ function serveStatic(req, res) {
   }
 
   // API: GET /api/activity (BT-243: task_eventsをtasksと結合し、親子関係・タイトルを補完した
-  // イベント配列を返す。検索・期間絞り込みはBT-246の担当のため、ここでは全件をoccurred_at降順で返す)
-  if (req.url === '/api/activity' && req.method === 'GET') {
+  // イベント配列をoccurred_at降順で返す。BT-408: クエリ q(キーワード)・tagId(タグ)で絞り込める。
+  // どちらも省略すれば従来どおり全件。期間の絞り込みはクライアント側で行う)
+  if (req.url.split('?')[0] === '/api/activity' && req.method === 'GET') {
+    const params = new URL(req.url, 'http://localhost').searchParams;
+    const filters = { q: params.get('q') || '' };
+    if (params.has('tagId')) {
+      const tagId = Number(params.get('tagId'));
+      if (!Number.isInteger(tagId)) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'tagId must be an integer' }));
+        return;
+      }
+      filters.tagId = tagId;
+    }
     const db = getDb(BACKLOG_DIR);
-    const activity = buildActivity(db, config);
+    const activity = buildActivity(db, config, filters);
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(activity));
     return;

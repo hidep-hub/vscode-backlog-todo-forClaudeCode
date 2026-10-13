@@ -604,5 +604,5 @@ module.exports = {
   setPin, setRunning, isPinned, isRunning, updateFields, updateCommitHash, setArtifacts, softDelete,
   attachToParent, detachFromParent, reorder, moveWorkspace, getEffectiveStatus,
   setGithubLink, getChildren, findByGithubIssueNumber, listGithubLinkedNumbers, insertEvent, normalizeActor,
-  listDueDateHistory, searchByTitleIdAssignee, searchByBody,
+  listDueDateHistory, searchByTitleIdAssignee, searchByBody, escapeLikePattern,
 };
