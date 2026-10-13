@@ -3661,6 +3661,37 @@ body {
   border-color: var(--today-accent);
 }
 
+/* BM-085: ピン(今日やるフィルター)とタグ絞り込みを1つの枠で囲んだセグメントボタン風グループ。
+   「くっついて見える」のを逆に活かし、専用ボタンっぽい見た目に仕立てる。
+   overflow:hiddenは使わない(タグ絞り込みの件数バッジが枠外にはみ出す配置のため、
+   hiddenだと見えなくなる。角丸は内側の各ボタンの外側角だけに付けて実現する)。 */
+.pin-tag-group {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.pin-tag-group .pin-tag-seg {
+  border: none;
+  border-radius: 0;
+}
+
+.pin-tag-group .pin-tag-seg:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.pin-tag-group .pin-tag-seg:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.pin-tag-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
 
 /* BM-058: 初回WebSocket接続〜board受信までの間、画面中央にダイアログ型で出す読み込み中表示。
    position:fixedでボード本体(#board)とは独立しているため、表示/非表示でヘッダー等のレイアウトが
@@ -6019,12 +6050,21 @@ body {
 }
 
 .tag-picker-manage {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: none;
   background: transparent;
   color: var(--accent);
   font-size: 0.78rem;
   cursor: pointer;
   padding: 0;
+}
+
+/* BM-085: 文字だけでは視認性が低いため歯車アイコンを追加 */
+.tag-picker-manage .material-icon {
+  width: 0.9em;
+  height: 0.9em;
 }
 
 .tag-picker-manage:hover { text-decoration: underline; }
@@ -6086,11 +6126,6 @@ body {
   border-color: var(--today-accent);
 }
 
-/* バーのチップは×付きのため、カード用の上限より広く取って名前が切れにくくする */
-.tag-filter-bar .tag-chip-sm {
-  max-width: 16em;
-}
-
 .tag-filter-count {
   position: absolute;
   top: -5px;
@@ -6104,49 +6139,6 @@ body {
   font-size: 0.6rem;
   line-height: 14px;
   text-align: center;
-}
-
-/* バッジ行の右端。project-badgesの右に寄せる */
-.tag-filter-wrap {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.tag-filter-bar {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  min-width: 0;
-}
-
-.tag-filter-bar[hidden] { display: none; }
-
-.tag-filter-bar-label {
-  color: var(--brand-fg, var(--text-muted));
-  font-size: 0.7rem;
-  opacity: 0.85;
-}
-
-.tag-filter-mode-btn,
-.tag-filter-clear-btn {
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--brand-fg, var(--text));
-  font-size: 0.66rem;
-  line-height: 1.5;
-  cursor: pointer;
-}
-
-.tag-filter-mode-btn:hover,
-.tag-filter-clear-btn:hover {
-  background: var(--drop-highlight);
 }
 
 .tag-filter-pop {

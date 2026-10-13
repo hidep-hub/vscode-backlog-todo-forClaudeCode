@@ -365,7 +365,8 @@ async function submitTagCreate(confirmSimilar) {
   }
 }
 
-document.getElementById('tag-btn').addEventListener('click', () => openTagModal());
+// BM-085: ヘッダー1段目の専用タグ管理ボタン(#tag-btn)は廃止。
+// タグ管理はタグ絞り込みポップオーバー(#tag-filter-btn)内の「タグ管理を開く…」から呼ぶ。
 
 // ============================================================
 // タグの付け外し(BT-395): ポップオーバーのピッカー、詳細モーダルのタグ欄、登録フォームのタグ選択
@@ -386,11 +387,13 @@ function closeTagPicker() {
   tagPickerCtx = null;
 }
 
+// BM-085: ボタンの右端に揃えて開く(ヘッダー右寄りのボタンでも、画面外に大きく離れた位置に
+// 出てしまわないようにする。画面が狭くてそれでも収まらない時だけ左に詰める)。
 function positionTagPicker(el, anchor) {
   const rect = anchor.getBoundingClientRect();
   const width = el.offsetWidth;
   const height = el.offsetHeight;
-  const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+  const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
   const below = rect.bottom + 4;
   const top = below + height > window.innerHeight - 8 ? Math.max(8, rect.top - height - 4) : below;
   el.style.left = `${left}px`;
@@ -411,7 +414,7 @@ async function openTagPicker(ctx) {
   el.innerHTML = `
     <input type="search" class="tag-picker-search tag-input" placeholder="タグを絞り込み" aria-label="タグを絞り込み" autocomplete="off">
     <div class="tag-picker-list" role="group" aria-label="タグ一覧"><div class="tag-picker-empty">読み込み中...</div></div>
-    <div class="tag-picker-footer"><button type="button" class="tag-picker-manage">タグ管理を開く…</button></div>`;
+    <div class="tag-picker-footer"><button type="button" class="tag-picker-manage"><span class="material-icon icon-settings"></span>タグ管理を開く…</button></div>`;
   document.body.appendChild(el);
   tagPickerEl = el;
   tagPickerCtx = { ...ctx, tags: [] };
@@ -575,7 +578,8 @@ function saveTagFilter() {
   try { localStorage.setItem('tagFilter', JSON.stringify(tagFilter)); } catch (e) { /* 保存できなくても動作は続ける */ }
 }
 
-/** 状態の変更後に呼ぶ: 保存し、ボタン・バーを更新して、開いている画面(ボード/週次計画/ガント)を再描画する。 */
+/** 状態の変更後に呼ぶ: 保存し、ボタンと開いているポップオーバーの表示を更新して、
+ *  開いている画面(ボード/週次計画/ガント)を再描画する。 */
 function applyTagFilter() {
   saveTagFilter();
   renderTagFilterControls();
@@ -601,9 +605,10 @@ function clearTagFilter() {
 }
 
 function renderTagFilterControls() {
-  const bar = document.getElementById('tag-filter-bar');
   const active = tagFilter.tags.length > 0;
-  // ボタンはヘッダーと週次計画/ガントの画面内に1つずつ(どちらも .tag-filter-trigger)。状態表示は同じにする
+  // ボタンはヘッダーと週次計画/ガントの画面内に1つずつ(どちらも .tag-filter-trigger)。状態表示は同じにする。
+  // BM-085: 選択中タグの一覧・解除・モード切替はポップオーバー側に一本化し、
+  // ヘッダー上はボタンのfilter-active色と件数バッジだけで状態を示す(別途チップバーは出さない)
   document.querySelectorAll('.tag-filter-trigger').forEach((btn) => {
     btn.classList.toggle('filter-active', active);
     btn.title = active
@@ -615,13 +620,13 @@ function renderTagFilterControls() {
       count.textContent = String(tagFilter.tags.length);
     }
   });
-  bar.hidden = !active;
-  if (!active) { bar.innerHTML = ''; return; }
-  const modeLabel = tagFilter.mode === 'and' ? 'すべて' : 'どれか';
-  bar.innerHTML = `<span class="tag-filter-bar-label">タグ</span>`
-    + tagFilter.tags.map(t => tagLogic.buildTagChipHtml({ id: t.key, name: t.name, color: t.color }, { small: true, removable: true })).join('')
-    + `<button type="button" class="tag-filter-mode-btn" title="複数のタグの条件を切り替える（どれか / すべて）">${modeLabel}</button>`
-    + '<button type="button" class="tag-filter-clear-btn" title="タグの絞り込みを解除">解除</button>';
+  // ポップオーバーが開いている間に別経路(カード側操作等)で絞り込みが変わった場合も表示を追従させる
+  if (tagFilterPopEl) {
+    const syncModeEl = tagFilterPopEl.querySelector(`input[name="tag-filter-mode"][value="${tagFilter.mode}"]`);
+    if (syncModeEl) syncModeEl.checked = true;
+    const clearBtn = tagFilterPopEl.querySelector('.tag-filter-clear-sel');
+    if (clearBtn) clearBtn.disabled = tagFilter.tags.length === 0;
+  }
 }
 
 let tagFilterPopAnchor = null;
@@ -655,7 +660,7 @@ async function openTagFilterPopover(anchor) {
     <input type="search" class="tag-picker-search tag-input" placeholder="タグを絞り込み" aria-label="タグを絞り込み" autocomplete="off">
     <div class="tag-picker-list" role="group" aria-label="タグ一覧"><div class="tag-picker-empty">読み込み中...</div></div>
     <div class="tag-picker-footer tag-filter-footer">
-      <button type="button" class="tag-picker-manage" data-act="manage">タグ管理を開く…</button>
+      <button type="button" class="tag-picker-manage" data-act="manage"><span class="material-icon icon-settings"></span>タグ管理を開く…</button>
     </div>`;
   document.body.appendChild(el);
   tagFilterPopEl = el;
@@ -721,18 +726,6 @@ async function openTagFilterPopover(anchor) {
 }
 
 document.getElementById('tag-filter-btn').addEventListener('click', (e) => toggleTagFilterPopover(e.currentTarget));
-
-// 絞り込み中バーの操作: 個別の×、条件(どれか/すべて)の切り替え、解除
-document.getElementById('tag-filter-bar').addEventListener('click', (e) => {
-  const remove = e.target.closest('.tag-chip-remove');
-  if (remove) {
-    tagFilter = { ...tagFilter, tags: tagFilter.tags.filter(t => t.key !== remove.dataset.tagId) };
-    applyTagFilter();
-    return;
-  }
-  if (e.target.closest('.tag-filter-mode-btn')) { setTagFilterMode(tagFilter.mode === 'and' ? 'or' : 'and'); return; }
-  if (e.target.closest('.tag-filter-clear-btn')) clearTagFilter();
-});
 
 // Escで先に閉じる/外側クリックで閉じる(タグ選択ポップオーバーと同じ作法)
 document.addEventListener('keydown', (e) => {
