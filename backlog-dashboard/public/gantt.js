@@ -257,6 +257,7 @@
           <button type="button" class="gantt-btn${state.zoom === 'day' ? ' is-on' : ''}" data-act="zoom" data-zoom="day">日</button>
           <button type="button" class="gantt-btn${state.zoom === 'week' ? ' is-on' : ''}" data-act="zoom" data-zoom="week">週</button>
         </span>
+        <span class="gantt-range" title="左: いま見えている期間 / 括弧内: 描画されているカレンダー全体（「◀ 4週」「4週 ▶」で広げられる）"></span>
         <label class="gantt-check"><input type="checkbox" data-act="show-done"${state.showDone ? ' checked' : ''}> 完了を表示</label>
         <button type="button" class="gantt-btn${state.selecting ? ' is-on' : ''}" data-act="toggle-select" title="複数の未完了タスクを選択して一括操作">選択</button>
         ${state.selecting ? `<span class="gantt-selection-actions"><span class="gantt-selection-count">${state.selectedIds.size}件選択中</span><button type="button" class="gantt-btn" data-act="bulk-pin"${state.selectedIds.size ? '' : ' disabled'}>📌 ピン留め</button><button type="button" class="gantt-btn" data-act="bulk-unpin"${state.selectedIds.size ? '' : ' disabled'}>📌 ピン解除</button><button type="button" class="gantt-btn" data-act="bulk-due"${state.selectedIds.size ? '' : ' disabled'}>期日を設定</button></span>` : ''}
@@ -462,6 +463,7 @@
     const scrollEl = container.querySelector('.gantt-scroll');
     current = { container, ctx, scrollEl, lookup, range, dw, stats, keys };
     bind(container, scrollEl);
+    scrollEl.addEventListener('scroll', onGanttScroll,{ passive: true });
 
     if (state.scrollTarget) {
       scrollEl.scrollLeft = state.scrollTarget === 'left' ? 0 : scrollEl.scrollWidth;
@@ -474,6 +476,33 @@
       scrollEl.scrollLeft = prevLeft;
       scrollEl.scrollTop = prevTop;
     }
+    updateRangeLabel();
+  }
+
+  // BT-378: ツールバーに「いま見えている期間」と「描画全体の期間」を出す。スクロール時はテキストだけ書き換える
+  function updateRangeLabel() {
+    if (!current) return;
+    const el = current.container.querySelector('.gantt-range');
+    if (!el) return;
+    const { range, dw, scrollEl } = current;
+    // トラック領域の左端はscrollLeft、幅はclientWidthからsticky固定のタスク列を引いた分
+    const first = Math.max(0, Math.floor(scrollEl.scrollLeft / dw));
+    const last = Math.min(range.days - 1, Math.ceil((scrollEl.scrollLeft + scrollEl.clientWidth - state.labelW) / dw) - 1);
+    const ymd = (s) => { const [y, m, d] = s.split('-'); return `${y}/${Number(m)}/${Number(d)}`; };
+    const vs = addDays(range.start, first);
+    const ve = addDays(range.start, Math.max(first, last));
+    el.innerHTML = `<strong class="gantt-range-now">表示中 ${ymd(vs)}〜${ymd(ve)}</strong>（全体 ${ymd(range.start)}〜${ymd(range.end)}）`;
+  }
+
+  // スクロール中は「表示中」のボールドを外し(確定していない感じ)、止まって150ms後にボールドへ戻す
+  let rangeSettleTimer = null;
+  function onGanttScroll() {
+    updateRangeLabel();
+    const el = current && current.container.querySelector('.gantt-range');
+    if (!el) return;
+    el.classList.add('is-scrolling');
+    clearTimeout(rangeSettleTimer);
+    rangeSettleTimer = setTimeout(() => el.classList.remove('is-scrolling'), 150);
   }
 
   // BT-406: 初期表示・「今日」ボタン・ズーム切替の位置。先週の月曜を左端にして、先週・今週・来週・再来週の4週が見えるようにする
