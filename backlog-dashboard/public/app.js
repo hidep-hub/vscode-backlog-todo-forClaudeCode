@@ -1678,18 +1678,27 @@ function scheduleHeaderHeatmapRender() {
 // BM-091: ヘッダーミニヒートマップの起動時ウェルカムメッセージ(電光掲示板風)。
 // header-heatmap本体と同じ考え方でWeb Workerに計算を切り出し、メインスレッドは
 // Workerから届いた点灯セル一覧をSVGとして組み立てるだけにする(本体のボード操作に影響させない)。
-// 文言・速度・点灯色は定数化してあるので、後から調整しやすい(可変化する管理画面はBM-092で対応)。
-const HEADER_HEATMAP_INTRO_TEXT = 'BACKLOG DASHBOARD by HIDEP-HUB';
-const HEADER_HEATMAP_INTRO_FRAME_MS = 90; // 1列スクロールするごとの間隔(ms)。小さいほど速い
-// 点灯セルの色は新しい色を増やすのではなく、ヒートマップ本体が既に持つ濃淡レベル(HEATMAP_OPACITY,
-// 0〜4の5段階)の中から選ぶ。初期値はlevel4(最大濃度)だと主張が強すぎたフィードバックを受けてlevel3に
-// 落としている。消灯セルは「活動なしセル」と同じ見た目にするためlevel0のまま固定。
-const HEADER_HEATMAP_INTRO_LIT_LEVEL = 3;
+// 文言・速度・点灯色の濃淡レベルは、見る人全員が同じものを見るアプリ共通設定として
+// サーバー(config.json)に保存する(BM-092)。ページ読み込み時にGET /api/header-heatmap-intro-settings
+// で取得し、取得できるまで/失敗した場合はこのデフォルト値で再生する。
+const HEADER_HEATMAP_INTRO_DEFAULTS = { text: 'BACKLOG DASHBOARD by HIDEP-HUB', frameMs: 90, litLevel: 3 };
+let headerHeatmapIntroSettings = { ...HEADER_HEATMAP_INTRO_DEFAULTS };
 let headerHeatmapIntroWorker = null;
 let headerHeatmapIntroSeq = 0;
 let headerHeatmapIntroCells = null; // 再生中: 現フレームの点灯セル配列。null/非再生中は通常のヒートマップを描く
 let headerHeatmapIntroWeeks = 0; // 再生開始時に確定した週数(列数)。再生中はリサイズが起きても描画崩れを避けるためこの値を使う
 let headerHeatmapIntroPlayed = false; // このページ表示で既に起動済みか(1ページ表示につき1回だけ再生する)
+
+async function loadHeaderHeatmapIntroSettings() {
+  try {
+    const res = await fetch('/api/header-heatmap-intro-settings');
+    if (!res.ok) return;
+    const data = await res.json();
+    headerHeatmapIntroSettings = { ...HEADER_HEATMAP_INTRO_DEFAULTS, ...data };
+  } catch (e) {
+    console.error('[app] failed to load header heatmap intro settings:', e);
+  }
+}
 
 function headerHeatmapIntroEnabled() {
   if (typeof Worker === 'undefined' || typeof headerHeatmapFont === 'undefined') return false;
@@ -1705,10 +1714,13 @@ function headerHeatmapCurrentWeeks() {
 
 // ページ表示中にヒートマップが初めて表示状態になったタイミングで1回だけ呼ぶ。
 // tickerModeがheatmap以外に切り替わってから戻ってきても、2回目以降は再生しない。
-function maybePlayHeaderHeatmapIntro() {
+// サーバーの設定(文言・速度・濃淡レベル)を使うため、再生前に必ず最新値を取得する
+// (ログ/offモードのまま一度も表示されないページ表示では、このfetch自体が発生しない)。
+async function maybePlayHeaderHeatmapIntro() {
   if (headerHeatmapIntroPlayed) return;
   headerHeatmapIntroPlayed = true;
   if (!headerHeatmapIntroEnabled()) return;
+  await loadHeaderHeatmapIntroSettings();
   const weeks = headerHeatmapCurrentWeeks();
   if (weeks <= 0) return;
   headerHeatmapIntroWeeks = weeks;
@@ -1723,6 +1735,8 @@ function maybePlayHeaderHeatmapIntro() {
           renderHeaderHeatmap();
         } else if (msg.type === 'done') {
           headerHeatmapIntroCells = null;
+          headerHeatmapIntroRectEls = null;
+          headerHeatmapIntroRectWeeks = -1;
           renderHeaderHeatmap(); // 通常のヒートマップへハンドオフ
         }
       };
@@ -1732,9 +1746,9 @@ function maybePlayHeaderHeatmapIntro() {
     headerHeatmapIntroWorker.postMessage({
       type: 'start',
       seq: headerHeatmapIntroSeq,
-      text: HEADER_HEATMAP_INTRO_TEXT,
+      text: headerHeatmapIntroSettings.text,
       weeks,
-      intervalMs: HEADER_HEATMAP_INTRO_FRAME_MS,
+      intervalMs: headerHeatmapIntroSettings.frameMs,
     });
   } catch (e) {
     headerHeatmapIntroCells = null;
@@ -1742,14 +1756,48 @@ function maybePlayHeaderHeatmapIntro() {
   }
 }
 
+// ヒートマップの列ごとのx座標(月の境目で隙間を広げる)を計算する。本体表示とイントロ再生の
+// 両方で使い、右端(今日の列/最新フレームの列)の位置を完全に一致させる(BM-092レビューで
+// 「イントロの文字出現位置が本体ヒートマップの右端とズレている」との指摘を受けて共通化した)。
+function computeHeatmapColumnLayout(weeks, cells) {
+  const boundaries = new Set(headerHeatmap.buildMonthBoundaries(cells));
+  const colX = [];
+  let x = 0;
+  for (let col = 0; col < weeks; col++) {
+    if (boundaries.has(col)) x += HEATMAP_MONTH_GAP;
+    colX.push(x);
+    x += HEATMAP_STEP;
+  }
+  return { colX, width: x - HEATMAP_GAP, boundaries };
+}
+
+// BM-092レビュー対応: イントロ再生中にクリックが効かない/ダブルクリックでしか反応しない報告への対応。
+// 原因は、フレームごとにheaderHeatmapEl.innerHTMLでDOM要素を丸ごと作り直していたこと。
+// mousedown〜mouseupの間にクリック対象の要素がDOMから消えて作り直されると、ブラウザが
+// クリックを成立させない(クリックの判定は押した要素と離した要素が同一であることが前提)。
+// 対策: SVGの<rect>要素は再生開始時に1回だけ作り、以降のフレームでは既存要素の
+// fill-opacity属性だけを書き換える(DOM要素自体は再生中ずっと同一のまま保つ)。
+let headerHeatmapIntroRectEls = null; // 再生中のrect要素配列(DOM参照、フレームごとにopacityだけ更新)
+let headerHeatmapIntroRectWeeks = -1; // headerHeatmapIntroRectEls構築時のweeks(変化したら再構築)
+
 function renderHeaderHeatmapIntroFrame(weeks) {
-  const width = weeks * HEATMAP_STEP - HEATMAP_GAP;
-  const height = 7 * HEATMAP_STEP - HEATMAP_GAP;
-  const rects = headerHeatmapIntroCells.map(c => {
-    const opacity = c.on ? HEATMAP_OPACITY[HEADER_HEATMAP_INTRO_LIT_LEVEL] : HEATMAP_OPACITY[0];
-    return `<rect x="${c.col * HEATMAP_STEP}" y="${c.row * HEATMAP_STEP}" width="${HEATMAP_CELL}" height="${HEATMAP_CELL}" rx="1.5" fill="var(--brand-fg)" fill-opacity="${opacity}"/>`;
-  }).join('');
-  headerHeatmapEl.innerHTML = `<svg class="header-heatmap-svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${rects}</svg>`;
+  if (!headerHeatmapIntroRectEls || headerHeatmapIntroRectWeeks !== weeks) {
+    // イントロの列は実際の活動件数と無関係(文字スクロール用の抽象列)だが、月の境目の位置だけは
+    // 本体と同じ日付レンジ({}=件数ダミーで取得)で揃えることで、右端(最新列)が本体表示と一致する。
+    const { cells } = headerHeatmap.buildHeatmapGrid({}, weeks);
+    const { colX, width } = computeHeatmapColumnLayout(weeks, cells);
+    const height = 7 * HEATMAP_STEP - HEATMAP_GAP;
+    const rects = headerHeatmapIntroCells.map(c =>
+      `<rect x="${colX[c.col]}" y="${c.row * HEATMAP_STEP}" width="${HEATMAP_CELL}" height="${HEATMAP_CELL}" rx="1.5" fill="var(--brand-fg)" fill-opacity="0"/>`
+    ).join('');
+    headerHeatmapEl.innerHTML = `<svg class="header-heatmap-svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${rects}</svg>`;
+    headerHeatmapIntroRectEls = Array.from(headerHeatmapEl.querySelectorAll('rect'));
+    headerHeatmapIntroRectWeeks = weeks;
+  }
+  headerHeatmapIntroCells.forEach((c, i) => {
+    const opacity = c.on ? HEATMAP_OPACITY[headerHeatmapIntroSettings.litLevel] : HEATMAP_OPACITY[0];
+    headerHeatmapIntroRectEls[i].setAttribute('fill-opacity', opacity);
+  });
 }
 
 function renderHeaderHeatmap() {
@@ -1764,15 +1812,7 @@ function renderHeaderHeatmap() {
   const weeks = Math.max(8, Math.min(53, Math.floor(avail / HEATMAP_STEP)));
   const { cells } = headerHeatmap.buildHeatmapGrid(headerHeatmap.selectCounts(headerHeatmapByProject, currentFilter), weeks);
   // 月の境目の列は隙間を広げ、その中央に細い区切り線を引く(何月かは各セルのツールチップで確認できる)
-  const boundaries = new Set(headerHeatmap.buildMonthBoundaries(cells));
-  const colX = [];
-  let x = 0;
-  for (let col = 0; col < weeks; col++) {
-    if (boundaries.has(col)) x += HEATMAP_MONTH_GAP;
-    colX.push(x);
-    x += HEATMAP_STEP;
-  }
-  const width = x - HEATMAP_GAP;
+  const { colX, width, boundaries } = computeHeatmapColumnLayout(weeks, cells);
   const height = 7 * HEATMAP_STEP - HEATMAP_GAP;
   const dow = ['月', '火', '水', '木', '金', '土', '日'];
   const lines = [...boundaries].map(col => {
@@ -1797,6 +1837,74 @@ let headerHeatmapResizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(headerHeatmapResizeTimer);
   headerHeatmapResizeTimer = setTimeout(() => { if (tickerShowsHeatmap()) scheduleHeaderHeatmapRender(); }, 200);
+});
+
+// --- ウェルカムメッセージ設定モーダル (BM-092) ---
+// ヒートマップ(#header-heatmap)をクリックすると開く。既存のSettings Panelと同じ
+// .settings-overlay/.settings-visible/closeOnEscapeの型に合わせているため、
+// isTopmostDialog()のセレクタ(.settings-overlay.settings-visible)は変更不要。
+const heatmapIntroSettingsOverlay = document.getElementById('heatmap-intro-settings-overlay');
+const heatmapIntroSettingsClose = document.getElementById('heatmap-intro-settings-close');
+const heatmapIntroSettingsSave = document.getElementById('heatmap-intro-settings-save');
+const heatmapIntroSettingsStatus = document.getElementById('heatmap-intro-settings-status');
+const settingsTickerDefaultModeEl = document.getElementById('settings-ticker-default-mode');
+const heatmapIntroTextEl = document.getElementById('heatmap-intro-text');
+const heatmapIntroSpeedEl = document.getElementById('heatmap-intro-speed');
+const heatmapIntroLitLevelEl = document.getElementById('heatmap-intro-lit-level');
+
+function closeHeatmapIntroSettings() {
+  heatmapIntroSettingsOverlay.classList.remove('settings-visible');
+}
+
+async function openHeatmapIntroSettings() {
+  heatmapIntroSettingsOverlay.classList.add('settings-visible');
+  heatmapIntroSettingsStatus.textContent = '';
+  // 起動時のヘッダー表示は個人のブラウザ設定(tickerMode)なので、サーバー取得と無関係にその場の値を反映する。
+  // 保存済みの値がoffの場合は(モーダル上の選択肢がログ/マップの2つしかないため)heatmapを初期選択にしておく。
+  settingsTickerDefaultModeEl.value = tickerMode === 'log' ? 'log' : 'heatmap';
+  await loadHeaderHeatmapIntroSettings();
+  heatmapIntroTextEl.value = headerHeatmapIntroSettings.text;
+  heatmapIntroSpeedEl.value = String(headerHeatmapIntroSettings.frameMs);
+  heatmapIntroLitLevelEl.value = String(headerHeatmapIntroSettings.litLevel);
+}
+
+if (headerHeatmapEl) {
+  headerHeatmapEl.style.cursor = 'pointer';
+  headerHeatmapEl.title = 'クリックしてウェルカムメッセージ設定を開く';
+  headerHeatmapEl.addEventListener('click', () => openHeatmapIntroSettings());
+}
+
+heatmapIntroSettingsClose.addEventListener('click', () => closeHeatmapIntroSettings());
+heatmapIntroSettingsOverlay.addEventListener('click', (e) => {
+  if (e.target === heatmapIntroSettingsOverlay) closeHeatmapIntroSettings();
+});
+closeOnEscape(heatmapIntroSettingsOverlay, 'settings-visible', closeHeatmapIntroSettings);
+
+heatmapIntroSettingsSave.addEventListener('click', async () => {
+  // 起動時のヘッダー表示(個人のブラウザ設定)は即時にlocalStorageへ反映する(既存のtickerToggleBtnと同じキー)
+  tickerMode = settingsTickerDefaultModeEl.value === 'log' ? 'log' : 'heatmap';
+  localStorage.setItem('tickerMode', tickerMode);
+  applyTickerVisibility();
+
+  // 文言・速度・濃淡レベル(アプリ共通設定)はサーバーへ保存する
+  heatmapIntroSettingsStatus.textContent = '保存中...';
+  try {
+    const res = await fetch('/api/header-heatmap-intro-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: heatmapIntroTextEl.value.trim(),
+        frameMs: Number(heatmapIntroSpeedEl.value),
+        litLevel: Number(heatmapIntroLitLevelEl.value),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '保存に失敗しました');
+    headerHeatmapIntroSettings = { ...HEADER_HEATMAP_INTRO_DEFAULTS, ...data.settings };
+    closeHeatmapIntroSettings();
+  } catch (e) {
+    heatmapIntroSettingsStatus.textContent = `エラー: ${e.message}`;
+  }
 });
 
 applyTickerVisibility(); // ヒートマップ用のlet変数を宣言し終えた後に初期反映する
