@@ -1604,7 +1604,10 @@ function applyTickerVisibility() {
     tickerToggleIconEl.classList.toggle('icon-terminal', tickerMode !== 'heatmap');
     tickerToggleIconEl.classList.toggle('icon-calendar-month', tickerMode === 'heatmap');
   }
-  if (showHeatmap) requestHeaderHeatmap();
+  if (showHeatmap) {
+    maybePlayHeaderHeatmapIntro(); // ページ読み込みで最初に表示される時だけ、ここでウェルカムメッセージを起動する
+    requestHeaderHeatmap(); // データ取得は常に進める(描画自体はintro再生中はrenderHeaderHeatmap側でガードされる)
+  }
 }
 
 if (tickerToggleBtn) {
@@ -1672,8 +1675,90 @@ function scheduleHeaderHeatmapRender() {
   else setTimeout(run, 0);
 }
 
+// BM-091: ヘッダーミニヒートマップの起動時ウェルカムメッセージ(電光掲示板風)。
+// header-heatmap本体と同じ考え方でWeb Workerに計算を切り出し、メインスレッドは
+// Workerから届いた点灯セル一覧をSVGとして組み立てるだけにする(本体のボード操作に影響させない)。
+// 文言・速度・点灯色は定数化してあるので、後から調整しやすい(可変化する管理画面はBM-092で対応)。
+const HEADER_HEATMAP_INTRO_TEXT = 'BACKLOG DASHBOARD by HIDEP-HUB';
+const HEADER_HEATMAP_INTRO_FRAME_MS = 90; // 1列スクロールするごとの間隔(ms)。小さいほど速い
+// 点灯セルの色は新しい色を増やすのではなく、ヒートマップ本体が既に持つ濃淡レベル(HEATMAP_OPACITY,
+// 0〜4の5段階)の中から選ぶ。初期値はlevel4(最大濃度)だと主張が強すぎたフィードバックを受けてlevel3に
+// 落としている。消灯セルは「活動なしセル」と同じ見た目にするためlevel0のまま固定。
+const HEADER_HEATMAP_INTRO_LIT_LEVEL = 3;
+let headerHeatmapIntroWorker = null;
+let headerHeatmapIntroSeq = 0;
+let headerHeatmapIntroCells = null; // 再生中: 現フレームの点灯セル配列。null/非再生中は通常のヒートマップを描く
+let headerHeatmapIntroWeeks = 0; // 再生開始時に確定した週数(列数)。再生中はリサイズが起きても描画崩れを避けるためこの値を使う
+let headerHeatmapIntroPlayed = false; // このページ表示で既に起動済みか(1ページ表示につき1回だけ再生する)
+
+function headerHeatmapIntroEnabled() {
+  if (typeof Worker === 'undefined' || typeof headerHeatmapFont === 'undefined') return false;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+  return true;
+}
+
+function headerHeatmapCurrentWeeks() {
+  const wrap = headerHeatmapEl ? headerHeatmapEl.parentElement : null;
+  const avail = (wrap ? wrap.clientWidth : 0) - 44; // 左のトグルボタン分+右padding
+  return Math.max(8, Math.min(53, Math.floor(avail / HEATMAP_STEP)));
+}
+
+// ページ表示中にヒートマップが初めて表示状態になったタイミングで1回だけ呼ぶ。
+// tickerModeがheatmap以外に切り替わってから戻ってきても、2回目以降は再生しない。
+function maybePlayHeaderHeatmapIntro() {
+  if (headerHeatmapIntroPlayed) return;
+  headerHeatmapIntroPlayed = true;
+  if (!headerHeatmapIntroEnabled()) return;
+  const weeks = headerHeatmapCurrentWeeks();
+  if (weeks <= 0) return;
+  headerHeatmapIntroWeeks = weeks;
+  try {
+    if (!headerHeatmapIntroWorker) {
+      headerHeatmapIntroWorker = new Worker('header-heatmap-intro-worker.js');
+      headerHeatmapIntroWorker.onmessage = (e) => {
+        const msg = e.data || {};
+        if (msg.seq !== headerHeatmapIntroSeq) return;
+        if (msg.type === 'frame') {
+          headerHeatmapIntroCells = msg.cells;
+          renderHeaderHeatmap();
+        } else if (msg.type === 'done') {
+          headerHeatmapIntroCells = null;
+          renderHeaderHeatmap(); // 通常のヒートマップへハンドオフ
+        }
+      };
+      headerHeatmapIntroWorker.onerror = () => { headerHeatmapIntroCells = null; };
+    }
+    headerHeatmapIntroSeq++;
+    headerHeatmapIntroWorker.postMessage({
+      type: 'start',
+      seq: headerHeatmapIntroSeq,
+      text: HEADER_HEATMAP_INTRO_TEXT,
+      weeks,
+      intervalMs: HEADER_HEATMAP_INTRO_FRAME_MS,
+    });
+  } catch (e) {
+    headerHeatmapIntroCells = null;
+    console.error('[app] heatmap intro worker failed:', e);
+  }
+}
+
+function renderHeaderHeatmapIntroFrame(weeks) {
+  const width = weeks * HEATMAP_STEP - HEATMAP_GAP;
+  const height = 7 * HEATMAP_STEP - HEATMAP_GAP;
+  const rects = headerHeatmapIntroCells.map(c => {
+    const opacity = c.on ? HEATMAP_OPACITY[HEADER_HEATMAP_INTRO_LIT_LEVEL] : HEATMAP_OPACITY[0];
+    return `<rect x="${c.col * HEATMAP_STEP}" y="${c.row * HEATMAP_STEP}" width="${HEATMAP_CELL}" height="${HEATMAP_CELL}" rx="1.5" fill="var(--brand-fg)" fill-opacity="${opacity}"/>`;
+  }).join('');
+  headerHeatmapEl.innerHTML = `<svg class="header-heatmap-svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${rects}</svg>`;
+}
+
 function renderHeaderHeatmap() {
-  if (!headerHeatmapEl || !headerHeatmapByProject || !tickerShowsHeatmap()) return;
+  if (!headerHeatmapEl || !tickerShowsHeatmap()) return;
+  if (headerHeatmapIntroCells) {
+    renderHeaderHeatmapIntroFrame(headerHeatmapIntroWeeks);
+    return;
+  }
+  if (!headerHeatmapByProject) return;
   const wrap = headerHeatmapEl.parentElement;
   const avail = (wrap ? wrap.clientWidth : 0) - 44; // 左のトグルボタン分+右padding
   const weeks = Math.max(8, Math.min(53, Math.floor(avail / HEATMAP_STEP)));
