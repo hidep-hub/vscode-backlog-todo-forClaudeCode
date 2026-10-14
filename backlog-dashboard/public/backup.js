@@ -183,6 +183,12 @@ function getOrCreateBackupModal() {
         <span class="backup-dir-label" id="backup-dir-label"></span>
         <button type="button" class="backup-modal-close" id="backup-modal-close" title="閉じる">&times;</button>
       </div>
+      <div class="backup-export-bar">
+        <span class="backup-export-title"><span class="material-icon icon-download"></span> CSVエクスポート</span>
+        <select class="backup-export-select" id="backup-export-select" aria-label="CSVに出力するワークスペース"></select>
+        <button type="button" class="backup-create-btn" id="backup-export-btn" title="選択したワークスペースのタスク一覧をCSVでダウンロードする">CSVをダウンロード</button>
+        <span class="backup-export-note">外部のガントチャート等へ転送する用のタスク一覧です（履歴は含みません。完全な保全は「新規バックアップ」を使います）。</span>
+      </div>
       <div class="backup-modal-body" id="backup-modal-body"><div class="backup-empty">読み込み中...</div></div>
       <div class="backup-modal-footer">
         バックアップには github-credentials.json（PAT）を含みます。フォルダを外部へコピーする際はご注意ください。
@@ -197,6 +203,7 @@ function getOrCreateBackupModal() {
   });
   backupModalEl.querySelector('#backup-modal-close').addEventListener('click', closeBackupModal);
   backupModalEl.querySelector('#backup-create-btn').addEventListener('click', runBackup);
+  backupModalEl.querySelector('#backup-export-btn').addEventListener('click', downloadTaskCsv);
   backupModalEl.querySelector('#backup-modal-body').addEventListener('click', (e) => {
     const btn = e.target.closest('.backup-delete-btn');
     if (btn && !btn.disabled) deleteBackup(btn.dataset.file);
@@ -219,6 +226,7 @@ function getOrCreateBackupModal() {
 function openBackupModal() {
   const modal = getOrCreateBackupModal();
   modal.classList.add('modal-visible');
+  refreshCsvExportTargets();
   loadBackups();
 }
 
@@ -278,6 +286,37 @@ async function deleteBackup(file) {
     alert(`削除できませんでした: ${res.body.error || res.status}`);
   }
   loadBackups();
+}
+
+// --- CSVエクスポート(BT-413、API: BT-412) ---
+// ブラウザの通常のダウンロードに任せる(サーバー側にファイルは書かない)。出力対象は
+// 画面で選択中のワークスペースを初期値にし、「全ワークスペース」も選べる。
+
+/** GET /api/export-csv のURLを組み立てる。workspaceFileが空なら全ワークスペース。 */
+function buildCsvExportUrl(workspaceFile) {
+  return workspaceFile ? `/api/export-csv?workspace=${encodeURIComponent(workspaceFile)}` : '/api/export-csv';
+}
+
+/** 出力対象のセレクトを、ボードの projectFileMap(プロジェクト名→file値)から作り直す。 */
+function refreshCsvExportTargets() {
+  const select = backupModalEl.querySelector('#backup-export-select');
+  const fileMap = (typeof currentBoardData !== 'undefined' && currentBoardData && currentBoardData.projectFileMap) || {};
+  const names = Object.keys(fileMap).sort((a, b) => a.localeCompare(b, 'ja', { sensitivity: 'base' }));
+  select.innerHTML = '';
+  select.appendChild(new Option('全ワークスペース', ''));
+  for (const name of names) select.appendChild(new Option(name, fileMap[name]));
+  const currentFile = (typeof currentFilter !== 'undefined' && currentFilter && fileMap[currentFilter]) || '';
+  select.value = currentFile;
+}
+
+function downloadTaskCsv() {
+  const select = backupModalEl.querySelector('#backup-export-select');
+  const link = document.createElement('a');
+  link.href = buildCsvExportUrl(select.value);
+  link.hidden = true;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 document.getElementById('backup-btn').addEventListener('click', openBackupModal);

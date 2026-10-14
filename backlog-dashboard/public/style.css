@@ -21,6 +21,7 @@
   mask-position: center;
   flex-shrink: 0;
 }
+.material-icon.icon-download      { -webkit-mask-image: url('icons/download.svg'); mask-image: url('icons/download.svg'); }
 .material-icon.icon-backup        { -webkit-mask-image: url('icons/backup.svg'); mask-image: url('icons/backup.svg'); }
 .material-icon.icon-search        { -webkit-mask-image: url('icons/search.svg'); mask-image: url('icons/search.svg'); }
 .material-icon.icon-link          { -webkit-mask-image: url('icons/link.svg'); mask-image: url('icons/link.svg'); }
@@ -5776,6 +5777,43 @@ mark.activity-hit {
 
 .backup-modal-close:hover {
   color: var(--text);
+}
+
+/* CSVエクスポート欄 (BT-413)。バックアップとは目的が違うため、ヘッダーとは罫線で区切る */
+.backup-export-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.backup-export-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.backup-export-select {
+  min-width: 160px;
+  max-width: 260px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.backup-export-note {
+  flex: 1 1 100%;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  line-height: 1.5;
 }
 
 .backup-modal-body {
