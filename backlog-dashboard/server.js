@@ -14,6 +14,7 @@ const tasksRepo = require('./db/tasks-repo');
 const { createBackupManager } = require('./db/backup');
 const { createTagsApi } = require('./tags-api');
 const { createItsSettingsApi } = require('./its-settings-api');
+const { createItsImportApi } = require('./its-import-api');
 const { version: API_VERSION } = require('./package.json');
 
 // --- Config ---
@@ -718,6 +719,16 @@ const handleItsSettingsApi = createItsSettingsApi({
   },
 });
 
+// 外部ITS(現時点ではRedmineのみ)の取り込みAPI(BM-072)。
+const handleItsImportApi = createItsImportApi({
+  config,
+  credentialsPath: ITS_CREDENTIALS_PATH,
+  getDb: () => getDb(BACKLOG_DIR),
+  tasksRepo,
+  readRequestBody,
+  onChange: () => broadcast(buildBoard()),
+});
+
 function serveStatic(req, res) {
   console.log(`[http] ${req.method} ${req.url}`);
 
@@ -775,6 +786,9 @@ function serveStatic(req, res) {
 
   // API: 外部ITS(Redmine/GitLab)連携の設定(BM-071)
   if (handleItsSettingsApi(req, res)) return;
+
+  // API: 外部ITS(現時点ではRedmineのみ)の取り込み(BM-072)
+  if (handleItsImportApi(req, res)) return;
 
   // API: GET /api/health
   if (req.url === '/api/health' && req.method === 'GET') {
