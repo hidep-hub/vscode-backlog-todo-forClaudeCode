@@ -112,6 +112,24 @@ const DDL = [
     PRIMARY KEY (task_id, tag_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag_id)`,
+  // BM-071: 外部ITS(Redmine/GitLab)連携の基盤。GitHubは既存のtasks.github_issue_*列のまま触らず、
+  // Redmine/GitLabはこの新テーブルをsource列で共用する(1タスクにつきsourceごとに1件まで)。
+  // 重複判定(同じチケットを二重取り込みしないか)はコード側(source/host/project_ref/issue_keyの
+  // 組で判定)で行うため、専用のインデックスを用意する。
+  `CREATE TABLE IF NOT EXISTS task_external_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    source TEXT NOT NULL,
+    host TEXT NOT NULL,
+    project_ref TEXT NOT NULL,
+    issue_key TEXT NOT NULL,
+    issue_url TEXT NOT NULL,
+    linked_at TEXT NOT NULL,
+    linked_by TEXT NOT NULL,
+    UNIQUE(task_id, source)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_task_external_links_issue
+    ON task_external_links(source, host, project_ref, issue_key)`,
 ];
 
 // BM-081: タイトル・本文(description)のサーバー側全文検索用FTS5仮想テーブル。

@@ -1274,7 +1274,7 @@ body {
 }
 
 .github-import-btn::after {
-  content: 'GitHub';
+  content: '外部取り込み';
   margin-left: 4px;
 }
 
@@ -2485,6 +2485,36 @@ body {
   max-width: 860px;
 }
 
+/* --- 外部取り込みダイアログのタブ (BM-073) --- */
+/* .activity-tab(BM-xxx)と同じ見た目パターンを流用する */
+.import-source-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 8px 0 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.import-source-tab {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.import-source-tab:hover {
+  color: var(--text);
+}
+
+.import-source-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
 /* --- GitHub Issues取り込みダイアログ (BT-106) --- */
 .github-import-modal {
   max-height: 85vh;
@@ -2660,6 +2690,37 @@ body {
   background: var(--tag-project-bg);
 }
 
+/* --- Redmineチケット取り込みタブ (BM-073) --- */
+.redmine-mark-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
+.card-tag.redmine-issue-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.redmine-import-load-more {
+  align-self: center;
+  margin-top: 8px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.redmine-import-load-more:hover {
+  background: var(--card);
+  color: var(--text);
+}
+
 /* --- Mini Kanban Board (inside modal) --- */
 .mini-board {
   display: flex;
@@ -2828,6 +2889,13 @@ body {
   cursor: not-allowed;
 }
 
+/* BM-073: GitHub欄の下にRedmine欄を足す。見出し間に区切りの空きを作る */
+.settings-group-redmine {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
 /* --- Settings Panel 2カラム化 (BM-015) --- */
 .settings-columns {
   display: flex;
@@ -2963,7 +3031,8 @@ body {
   color: var(--text-muted);
 }
 
-#settings-github-save {
+#settings-github-save,
+#settings-redmine-save {
   padding: 6px 16px;
   border-radius: 6px;
   border: none;
@@ -2972,11 +3041,24 @@ body {
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
   transition: opacity 0.15s;
 }
 
-#settings-github-save:hover {
+#settings-github-save:hover,
+#settings-redmine-save:hover {
   opacity: 0.85;
+}
+
+/* BM-073: Redmine欄のステータス表示。エラー時は赤文字にする(error修飾クラス) */
+#settings-redmine-status {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+#settings-github-status.is-error,
+#settings-redmine-status.is-error {
+  color: var(--btn-danger-fg);
 }
 
 .settings-theme-footer {

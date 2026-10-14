@@ -1,5 +1,7 @@
 'use strict';
 
+const externalLinksRepo = require('./external-links-repo');
+
 // タスクCRUDの基本操作(BT-186)。個々のAPI固有ロジック(GitHub連携、reorderの
 // スコープ確定、ワークスペース移管の再採番等)は後続タスク(BT-189〜193)で追加する。
 // 親子の深さ制限(2階層まで)はDB制約ではなくここ(attachToParent)で検証する
@@ -114,7 +116,7 @@ function allocateSeq(db, workspace) {
  */
 function create(db, { workspace, title, status, category = null, description = null, assignee = null,
   startDate = null, dueDate = null, parentDisplayId = null, createdBy = 'user',
-  githubIssueNumber = null, githubIssueUrl = null, completedAt = null }) {
+  githubIssueNumber = null, githubIssueUrl = null, completedAt = null, externalLink = null }) {
   const parentRow = parentDisplayId ? getByDisplayId(db, parentDisplayId) : null;
   if (parentDisplayId && !parentRow) throw new Error(`親タスクが見つかりません: ${parentDisplayId}`);
   if (parentRow && parentRow.parent_id !== null) {
@@ -145,6 +147,20 @@ function create(db, { workspace, title, status, category = null, description = n
       insertEvent(db, {
         taskId: result.lastInsertRowid, taskDisplayId: displayId, eventType: 'status_changed',
         oldValue: null, newValue: 'done', actor: createdBy, occurredAt: doneAt,
+      });
+    }
+    // BM-071: Redmine/GitLab取り込み時、タスク作成と同じトランザクションでリンクも登録する
+    // (create()が自前でBEGIN/COMMITを持つため、呼び出し元で別トランザクションを張れない)。
+    if (externalLink) {
+      externalLinksRepo.insertLink(db, {
+        taskId: result.lastInsertRowid,
+        source: externalLink.source,
+        host: externalLink.host,
+        projectRef: externalLink.projectRef,
+        issueKey: externalLink.issueKey,
+        issueUrl: externalLink.issueUrl,
+        linkedBy: createdBy,
+        linkedAt: now,
       });
     }
     db.exec('COMMIT');

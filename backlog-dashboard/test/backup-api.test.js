@@ -42,7 +42,7 @@ test('backup APIs: 作成・一覧・状態・削除保護(BT-370)', async () =>
     projects: [{ file: 'test', prefix: 'TS', name: 'Test', workspace: fixtureRoot }],
   };
   fs.mkdirSync(dataDir, { recursive: true });
-  for (const entry of ['server.js', 'tags-api.js', 'github-client.js', 'package.json']) {
+  for (const entry of ['server.js', 'tags-api.js', 'its-settings-api.js', 'its-credentials.js', 'its-import-api.js', 'redmine-client.js', 'github-client.js', 'package.json']) {
     fs.copyFileSync(path.join(sourceRoot, entry), path.join(fixtureRoot, entry));
   }
   fs.cpSync(path.join(sourceRoot, 'db'), path.join(fixtureRoot, 'db'), { recursive: true });
@@ -51,12 +51,12 @@ test('backup APIs: 作成・一覧・状態・削除保護(BT-370)', async () =>
   const baseUrl = `http://127.0.0.1:${port}`;
 
   try {
-    for (let attempt = 0; attempt < 30; attempt += 1) {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
       try {
         if ((await request(baseUrl, '/api/health')).status === 200) break;
       } catch { /* wait for startup */ }
-      await new Promise(resolve => setTimeout(resolve, 50));
-      if (attempt === 29) throw new Error('test server did not start');
+      await new Promise(resolve => setTimeout(resolve, 100));
+      if (attempt === 59) throw new Error('test server did not start');
     }
     assert.equal((await request(baseUrl, '/api/create-workspace', { file: 'extra', prefix: 'EX', name: 'Extra' })).body.ok, true);
     const added = await request(baseUrl, '/api/add-task', { title: 'before backup', project: 'extra', status: 'todo' });
