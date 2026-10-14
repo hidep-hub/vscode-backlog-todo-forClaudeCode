@@ -4219,6 +4219,16 @@ function renderPlanGantt() {
   // 絞り込みメッセージに出す条件文言。現状の絞り込み手段はキーワード検索と📌今日やるのみ
   const filterLabel = [query ? `「${query}」` : '', planPinOnly ? '📌今日やる' : '', tagLogic.describeTagFilter(tagFilter)].filter(Boolean).join(' + ');
 
+  // BM-093: 「遅延」ボタンの巡回位置をリセットする判定キー。ワークスペース・検索語・ピン・タグ絞り込みの
+  // いずれかが変わったら別キーになり、gantt.js側で先頭に戻す(存在しないタスクを指し続けないようにする)
+  const overdueFilterKey = JSON.stringify([
+    currentFilter,
+    planSearchQuery.trim(),
+    planPinOnly,
+    tagFilter.mode,
+    tagFilter.tags.map((t) => t.key).sort(),
+  ]);
+
   window.ganttView.render(root, {
     groups,
     today: getTodayJST(),
@@ -4226,6 +4236,7 @@ function renderPlanGantt() {
     holidayName: (ymd) => (window.jpHolidays ? window.jpHolidays.getHolidayName(ymd) : null),
     groupByWorkspace: !currentFilter && projects.size > 1,
     footerCounts: { total: totalCounts, shown: shownCounts, filterLabel },
+    filterKey: overdueFilterKey,
     // タイトルの右に出すタグ。EPICは自分のタグに子由来のタグ(薄)を続ける
     tagsHtml: (item) => tagLogic.buildCardTagsHtml(item.tags, item.childTags, 2),
     onSaveDates: planSaveGanttDates,
