@@ -9,7 +9,7 @@
 ```text
 AGENTS.md.sample（Git管理の唯一の正本）
   ├─ .claude/skills/install-backlog-hub/assets/backlog-hub-rules.md
-  ├─ .kiro/steering/backlog-hub-rules.md
+  ├─ .kiro/skills/install-backlog-hub/assets/backlog-hub-rules.md
   └─ 各PCで scripts/install-agent-rules.ps1 を実行
        ├─ ~/.claude/steering/backlog-hub-rules.md
        ├─ ~/.codex/AGENTS.md の managed block
@@ -150,7 +150,7 @@ AGENTS.md.sample（Git管理の唯一の正本）
   2. リポジトリ同梱版 `.claude/skills/install-backlog-hub/assets/backlog-hub-rules.md`
   3. この `AGENTS.md.sample`（共通正本。Codexには読まれない拡張子にしてある。Codexグローバル版とKiro版を作る元ネタ）
   4. Codexグローバル版 `~/.codex/AGENTS.md`（persona設定に続けてバックログルール全文を追記する）
-  5. Kiro配布元 `.kiro/steering/backlog-hub-rules.md`
+  5. Kiro配布元 `.kiro/skills/install-backlog-hub/assets/backlog-hub-rules.md`
   6. Kiroグローバル版 `~/.kiro/steering/backlog-hub-rules.md`
 - 理由: これら6ファイルが全ワークスペース・全AIエージェント共通で読み込まれる伝達手段であり、ここに書いていない運用知識は「存在しない知識」と同じになる（BT-120: archive.md退避先の混乱で実際に発生した事故）。
 
