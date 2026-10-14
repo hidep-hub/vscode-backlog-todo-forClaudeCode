@@ -5,7 +5,7 @@ description: Use when a user asks to operate the backlog dashboard: viewing, add
 
 # backlog-dashboard（Kiro）
 
-常時の運用ルールは `.kiro/steering/backlog-hub-rules.md` を読むこと。共通のAPI仕様・安全作法・タスクライフサイクルは `AGENTS.md.sample` と同じである。
+常時の運用ルールはグローバル版 `~/.kiro/steering/backlog-hub-rules.md` を読むこと。共通のAPI仕様・安全作法・タスクライフサイクルは `AGENTS.md.sample` と同じである。
 
 ## 基本操作フロー
 
@@ -60,4 +60,4 @@ Invoke-RestMethod -Uri http://localhost:3333/api/toggle-running -Method Post -Co
 
 ## Kiroルールの配置・更新
 
-リポジトリの `scripts/install-kiro-backlog.ps1` を実行する。このスクリプトは、既存の `~/.kiro/steering/backlog-hub-rules.md` と `~/.kiro/skills/install-backlog-hub` をタイムスタンプ付き`.bak`へ退避してから更新する。
+リポジトリの `scripts/install-kiro-backlog.ps1` を実行する。このスクリプトは、リポジトリ内の `.kiro/skills/install-backlog-hub/assets/backlog-hub-rules.md`（配布元の中間ファイル。正本`AGENTS.md.sample`と`install-agent-rules.ps1`で同期）を元に、既存の `~/.kiro/steering/backlog-hub-rules.md` と `~/.kiro/skills/install-backlog-hub` をタイムスタンプ付き`.bak`へ退避してから更新する。

@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$sourceSteering = Join-Path $repositoryRoot '.kiro\steering\backlog-hub-rules.md'
+$sourceSteering = Join-Path $repositoryRoot '.kiro\skills\install-backlog-hub\assets\backlog-hub-rules.md'
 $sourceSkill = Join-Path $repositoryRoot '.kiro\skills\install-backlog-hub'
 $kiroHome = if ($env:KIRO_HOME) { $env:KIRO_HOME } else { Join-Path $env:USERPROFILE '.kiro' }
 $targetSteering = Join-Path $kiroHome 'steering\backlog-hub-rules.md'

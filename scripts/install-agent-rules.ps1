@@ -37,7 +37,7 @@ function Sync-RuleDistribution {
 
     $targets = @(
         (Join-Path $repositoryRoot '.claude\skills\install-backlog-hub\assets\backlog-hub-rules.md'),
-        (Join-Path $repositoryRoot '.kiro\steering\backlog-hub-rules.md')
+        (Join-Path $repositoryRoot '.kiro\skills\install-backlog-hub\assets\backlog-hub-rules.md')
     )
     foreach ($target in $targets) {
         if (Test-FileMatches -Source $sourceRules -Target $target) {
