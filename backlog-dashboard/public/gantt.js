@@ -80,6 +80,10 @@
     scrollTarget: null,     // 'left'|'right': 「4週」で範囲を広げた直後に、増えた側へスクロールする
     selecting: false,       // 複数選択モード。EPIC・完了タスクは対象外
     selectedIds: new Set(),
+    // BM-093: 「遅延」ボタンで巡回するための現在地。indexではなくtaskIdで持つ(他クライアントの更新で
+    // 遅延件数が増減してもズレないようにするため)。フィルタ/WS切替(ctx.filterKeyの変化)・モーダル再オープンでnullに戻す
+    overdueCursorId: null,
+    overdueFilterKey: null,
   };
 
   let current = null;       // { container, ctx, scrollEl, lookup, range, dw }
@@ -137,7 +141,7 @@
     const rows = [];
     const lookup = new Map();
     const today = ctx.today;
-    const stats = { overdue: 0, lateStart: 0, unplanned: 0, oldestOverdue: null };
+    const stats = { overdue: 0, lateStart: 0, unplanned: 0, overdueItems: [] };
     const dated = []; // 範囲決定用の非完了日付
     const keys = [];  // 折りたためるグループのキー(「全部折りたたむ」用。ワークスペース折りたたみ中の分も含める)
 
@@ -156,7 +160,7 @@
         const j = judge(item, today);
         if (j === 'overdue') {
           stats.overdue++;
-          if (!stats.oldestOverdue || item.dueDate < stats.oldestOverdue) { stats.oldestOverdue = item.dueDate; stats.oldestOverdueItem = item; }
+          stats.overdueItems.push(item);
         } else if (j === 'late-start') stats.lateStart++;
       }
       if (show) rows.push({ type: 'task', item, parent, isLast });
@@ -241,6 +245,14 @@
     const prevTop = prev ? prev.scrollTop : 0;
 
     const { rows, lookup, stats, dated, keys } = collectRows(ctx);
+    // BM-093: 「遅延」ボタンの巡回順は期日が古い順(stats.overdueItemsはプロジェクト→表示順で積まれているため並べ直す)
+    stats.overdueItems.sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0));
+    // フィルタ・ワークスペース切替で表示内容が変わったら、巡回位置を先頭に戻す(存在しないタスクを指し続けないようにする)
+    const filterKey = ctx.filterKey != null ? ctx.filterKey : null;
+    if (state.overdueFilterKey !== filterKey) {
+      state.overdueFilterKey = filterKey;
+      state.overdueCursorId = null;
+    }
     const range = computeRange(ctx.today, dated);
     const dw = ZOOMS[state.zoom];
     const gridW = state.labelW + range.days * dw + 110; // 右端のバーの日付ラベルが見切れない余白
@@ -262,7 +274,7 @@
         <button type="button" class="gantt-btn${state.selecting ? ' is-on' : ''}" data-act="toggle-select" title="複数の未完了タスクを選択して一括操作">選択</button>
         ${state.selecting ? `<span class="gantt-selection-actions"><span class="gantt-selection-count">${state.selectedIds.size}件選択中</span><button type="button" class="gantt-btn" data-act="bulk-pin"${state.selectedIds.size ? '' : ' disabled'}>📌 ピン留め</button><button type="button" class="gantt-btn" data-act="bulk-unpin"${state.selectedIds.size ? '' : ' disabled'}>📌 ピン解除</button><button type="button" class="gantt-btn" data-act="bulk-due"${state.selectedIds.size ? '' : ' disabled'}>期日を設定</button></span>` : ''}
         <span class="gantt-stats">
-          ${stats.overdue ? `<button type="button" class="gantt-stat gantt-stat-overdue" data-act="jump-overdue" title="期日を過ぎて未完了のタスク。クリックで一番古いものへ移動">遅延 ${stats.overdue}件</button>` : ''}
+          ${stats.overdue ? `<button type="button" class="gantt-stat gantt-stat-overdue" data-act="jump-overdue" title="期日を過ぎて未完了のタスク。クリックで古い順に1件ずつ移動（最後まで行くと先頭に戻る）">遅延 ${stats.overdue}件</button>` : ''}
           ${stats.lateStart ? `<span class="gantt-stat gantt-stat-late" title="開始日を過ぎたのにTODO/READYのまま">開始遅れ ${stats.lateStart}件</span>` : ''}
           ${stats.unplanned ? `<span class="gantt-stat" title="開始日も期日も未設定。右の空欄をクリック／ドラッグで計画できるよ">未計画 ${stats.unplanned}件</span>` : ''}
         </span>
@@ -518,9 +530,16 @@
     current.scrollEl.scrollLeft = Math.max(0, i * current.dw - 80);
   }
 
-  // BT-383: 遅延バッジ。一番古い遅延タスクの行が折りたたみ中なら展開し、縦横にスクロールして行を一時ハイライトする
+  // BT-383/BM-093: 遅延バッジ。押すたびに期日が古い順で次の遅延タスクへ進み、末尾まで行くと先頭(最古)に戻る。
+  // 巡回位置はindexではなくtaskId(state.overdueCursorId)で持つため、他クライアントの更新で遅延件数が
+  // 増減しても、直前にいたタスクが見つかればそこから続き、見つからなければ先頭にフォールバックする。
   function jumpToOverdue() {
-    const item = current.stats.oldestOverdueItem;
+    const items = current.stats.overdueItems;
+    if (!items || items.length === 0) return;
+    const curIdx = state.overdueCursorId ? items.findIndex((it) => it.id === state.overdueCursorId) : -1;
+    const nextIdx = curIdx === -1 ? 0 : (curIdx + 1) % items.length;
+    const item = items[nextIdx];
+    state.overdueCursorId = item.id;
     if (!item) return;
     const info = current.lookup.get(item.id);
     const parent = info && info.parent;
@@ -973,7 +992,7 @@
   root.ganttView = {
     render,
     hideTip,
-    // ダイアログを開き直した時に今日の位置から見せる
-    resetScroll() { state.needsInitialScroll = true; },
+    // ダイアログを開き直した時に今日の位置から見せる。BM-093: 遅延巡回の位置も合わせて先頭に戻す
+    resetScroll() { state.needsInitialScroll = true; state.overdueCursorId = null; },
   };
 })(globalThis);
