@@ -3031,7 +3031,8 @@ body {
   color: var(--text-muted);
 }
 
-#settings-github-save {
+#settings-github-save,
+#settings-redmine-save {
   padding: 6px 16px;
   border-radius: 6px;
   border: none;
@@ -3040,11 +3041,24 @@ body {
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
   transition: opacity 0.15s;
 }
 
-#settings-github-save:hover {
+#settings-github-save:hover,
+#settings-redmine-save:hover {
   opacity: 0.85;
+}
+
+/* BM-073: Redmine欄のステータス表示。エラー時は赤文字にする(error修飾クラス) */
+#settings-redmine-status {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+#settings-github-status.is-error,
+#settings-redmine-status.is-error {
+  color: var(--btn-danger-fg);
 }
 
 .settings-theme-footer {

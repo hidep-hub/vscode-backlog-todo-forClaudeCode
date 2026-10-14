@@ -110,12 +110,12 @@ test('its-meta/its-preview/its-import work end to end against a mocked Redmine',
   const baseUrl = `http://127.0.0.1:${port}`;
 
   try {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
       try {
         if ((await get(baseUrl, '/api/health')).status === 200) break;
       } catch { /* wait for startup */ }
       await new Promise(resolve => setTimeout(resolve, 100));
-      if (attempt === 59) throw new Error('test server did not start:\n' + serverOutput);
+      if (attempt === 99) throw new Error('test server did not start. exitCode=' + child.exitCode + ' signalCode=' + child.signalCode + '\n' + serverOutput);
     }
 
     const createdWs = await post(baseUrl, '/api/create-workspace', { file: 'test', prefix: 'TS', name: 'Test' });

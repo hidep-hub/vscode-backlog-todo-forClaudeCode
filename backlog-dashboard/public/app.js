@@ -419,6 +419,16 @@ function renderWorkspaceThemeSettings(settings, workspace) {
 // --- Theme & Settings UI ---
 themeSelectEl.addEventListener('change', () => selectTheme(themeSelectEl.value));
 
+// BM-073: Redmine設定ボタン経由で設定パネルを開いた後、設定を保存してパネルを閉じた時、
+// 裏で開いている取り込みモーダルのワークスペース選択(#redmine-import-project)は変わらない
+// (changeイベントが発火しない)ため、戻った時点でトラッカー一覧を明示的に再取得する
+// (再取得しないとトラッカーセレクトがdisabledのまま残り、選べなくなる)。
+function refreshRedmineImportAfterSettingsChange() {
+  if (!githubImportEl || !githubImportEl.classList.contains('modal-visible')) return;
+  if (importSourceTab !== 'redmine') return;
+  if (githubImportEl.querySelector('#redmine-import-project').value) onRedmineImportProjectChange();
+}
+
 function closeSettings() {
   workspaceThemeDraft = null;
   settingsOverlay.classList.remove('settings-visible');
@@ -590,40 +600,59 @@ async function loadGithubSettingsForSelectedProject() {
   }
   try {
     const res = await fetch(`/api/github-settings?prefix=${encodeURIComponent(prefix)}`);
-    const data = await res.json();
+    const data = await readJsonOrStatusError(res);
     settingsGithubRepoUrlEl.value = data.repoUrl || '';
-    settingsGithubStatusEl.textContent = data.hasToken ? 'トークン設定済み' : '未設定';
+    setSettingsStatus(settingsGithubStatusEl, data.hasToken ? 'トークン設定済み' : '未設定');
     // トークン自体の値は表示せず、設定済みかどうかをplaceholderのマスク表示で示す
     settingsGithubTokenEl.placeholder = data.hasToken
       ? '●●●●●●●●●●●●（設定済み・変更する場合のみ入力）'
       : 'トークンを入力（未入力なら既存を保持）';
     settingsGithubHintEl.style.display = data.hasToken ? 'none' : 'block';
   } catch (e) {
-    settingsGithubStatusEl.textContent = '取得エラー';
+    setSettingsStatus(settingsGithubStatusEl, `取得エラー: ${e.message}`, { isError: true });
   }
 }
 
 settingsWorkspaceEl.addEventListener('change', onSettingsWorkspaceChanged);
+
+// BM-073: fetchのレスポンスをJSONとして読み、失敗時(非JSON応答。サーバー再起動直後や
+// 404/502のプレーンテキスト応答等)でも素の"Unexpected token..."を出さず、
+// ステータスコード付きの読める文言にする。
+async function readJsonOrStatusError(res) {
+  let data;
+  try {
+    data = await res.json();
+  } catch (e) {
+    throw new Error(`サーバーから予期しない応答がありました(status ${res.status})。サーバーが再起動中の可能性があります`);
+  }
+  if (!res.ok) throw new Error(data.error || `保存に失敗しました(status ${res.status})`);
+  return data;
+}
+
+// 保存系ステータス表示を共通化(成功時は通常色、失敗時は赤文字クラスを付ける)
+function setSettingsStatus(el, text, { isError = false } = {}) {
+  el.textContent = text;
+  el.classList.toggle('is-error', isError);
+}
 
 settingsGithubSaveEl.addEventListener('click', async () => {
   const prefix = settingsGithubPrefix();
   if (!prefix) return;
   const body = { prefix, repoUrl: settingsGithubRepoUrlEl.value.trim() };
   if (settingsGithubTokenEl.value) body.token = settingsGithubTokenEl.value;
-  settingsGithubStatusEl.textContent = '保存中...';
+  setSettingsStatus(settingsGithubStatusEl, '保存中...');
   try {
     const res = await fetch('/api/github-settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || '保存に失敗しました');
+    await readJsonOrStatusError(res);
     await loadGithubSettingsForSelectedProject();
     applyMainFilter(settingsWorkspace); // BT-360: 保存したワークスペースをメインボードの選択状態にする
     settingsOverlay.classList.remove('settings-visible');
   } catch (e) {
-    settingsGithubStatusEl.textContent = `エラー: ${e.message}`;
+    setSettingsStatus(settingsGithubStatusEl, `エラー: ${e.message}`, { isError: true });
   }
 });
 
@@ -645,15 +674,15 @@ async function loadRedmineSettingsForSelectedProject() {
   }
   try {
     const res = await fetch(`/api/its-settings?prefix=${encodeURIComponent(prefix)}`);
-    const data = await res.json();
+    const data = await readJsonOrStatusError(res);
     const redmine = data.redmine || {};
     settingsRedmineProjectUrlEl.value = redmine.projectUrl || '';
-    settingsRedmineStatusEl.textContent = redmine.hasToken ? 'APIキー設定済み' : '未設定';
+    setSettingsStatus(settingsRedmineStatusEl, redmine.hasToken ? 'APIキー設定済み' : '未設定');
     settingsRedmineTokenEl.placeholder = redmine.hasToken
       ? '●●●●●●●●●●●●（設定済み・変更する場合のみ入力）'
       : 'APIキーを入力（未入力なら既存を保持）';
   } catch (e) {
-    settingsRedmineStatusEl.textContent = '取得エラー';
+    setSettingsStatus(settingsRedmineStatusEl, `取得エラー: ${e.message}`, { isError: true });
   }
 }
 
@@ -662,18 +691,20 @@ settingsRedmineSaveEl.addEventListener('click', async () => {
   if (!prefix) return;
   const body = { prefix, source: 'redmine', projectUrl: settingsRedmineProjectUrlEl.value.trim() };
   if (settingsRedmineTokenEl.value) body.token = settingsRedmineTokenEl.value;
-  settingsRedmineStatusEl.textContent = '保存中...';
+  setSettingsStatus(settingsRedmineStatusEl, '保存中...');
   try {
     const res = await fetch('/api/its-settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || '保存に失敗しました');
+    await readJsonOrStatusError(res);
     await loadRedmineSettingsForSelectedProject();
+    // BM-073: GitHub保存と同じく、保存成功したら設定パネルを閉じる
+    settingsOverlay.classList.remove('settings-visible');
+    refreshRedmineImportAfterSettingsChange();
   } catch (e) {
-    settingsRedmineStatusEl.textContent = `エラー: ${e.message}`;
+    setSettingsStatus(settingsRedmineStatusEl, `エラー: ${e.message}`, { isError: true });
   }
 });
 
