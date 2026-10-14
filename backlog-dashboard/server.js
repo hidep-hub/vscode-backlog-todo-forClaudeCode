@@ -12,6 +12,7 @@ const { buildBoardFromDb, buildTaskDetail, buildSearchResults, buildWorkspaceCou
 const { buildActivity, buildRecentEvents } = require('./db/activity');
 const tasksRepo = require('./db/tasks-repo');
 const { createBackupManager } = require('./db/backup');
+const { buildTaskCsv } = require('./db/csv-export');
 const { createTagsApi } = require('./tags-api');
 const { createItsSettingsApi } = require('./its-settings-api');
 const { createItsImportApi } = require('./its-import-api');
@@ -778,6 +779,36 @@ function serveStatic(req, res) {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'Invalid JSON body' }));
     });
+    return;
+  }
+
+  // API: GET /api/export-csv?workspace=<projects[].file> (BT-412)
+  // タスク一覧のCSVをダウンロード形式で返す(読み取りのみ。workspace省略は全ワークスペース)。
+  if (req.method === 'GET' && (req.url === '/api/export-csv' || req.url.startsWith('/api/export-csv?'))) {
+    const workspace = new URL(req.url, 'http://localhost').searchParams.get('workspace') || null;
+    if (workspace && !(config.projects || []).some(p => p.file === workspace)) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'unknown_workspace', message: `未登録のワークスペースです: ${workspace}` }));
+      return;
+    }
+    try {
+      const { csv, rowCount, truncatedCount } = buildTaskCsv(getDb(BACKLOG_DIR), { workspace });
+      const d = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+      const label = workspace ? (workspace.replace(/[^A-Za-z0-9_-]/g, '_') || 'workspace') : 'all';
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="backlog-${label}-${stamp}.csv"`,
+        'X-Export-Row-Count': String(rowCount),
+        'X-Export-Truncated-Count': String(truncatedCount),
+        'Cache-Control': 'no-store',
+      });
+      res.end(csv);
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'internal_error', message: e.message }));
+    }
     return;
   }
 

@@ -485,4 +485,4 @@ function buildWorkspaceCounts(db, config) {
   return counts;
 }
 
-module.exports = { buildBoardFromDb, buildTaskDetail, buildSearchResults, buildWorkspaceCounts };
+module.exports = { buildBoardFromDb, buildTaskDetail, buildSearchResults, buildWorkspaceCounts, computeParentStatusCode };

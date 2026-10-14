@@ -39,3 +39,23 @@ test('ヘッダー1段目は2段目の幅に揃え、検索ボックスが伸縮
   assert.match(css, /\.header-action-row:not\(\.header-workspace-row\)\s*\{\s*contain:\s*inline-size;/);
   assert.match(css, /\.header-action-row:not\(\.header-workspace-row\) \.header-search-input\s*\{[^}]*flex:\s*1 1 0/);
 });
+
+test('バックアップモーダルにCSVエクスポート欄があり、通常のダウンロードで /api/export-csv を呼ぶ (BT-413)', () => {
+  assert.match(backupJs, /id="backup-export-select"/);
+  assert.match(backupJs, /id="backup-export-btn"/);
+  assert.match(backupJs, /\/api\/export-csv/);
+  assert.match(backupJs, /backup-export-btn'\)\.addEventListener\('click', downloadTaskCsv\)/);
+  assert.match(backupJs, /openBackupModal[\s\S]{0,200}refreshCsvExportTargets\(\)/, '開くたびに出力対象を更新する');
+  assert.match(backupJs, /projectFileMap/, '出力対象はボードのprojectFileMap(プロジェクト名→file値)から作る');
+  assert.ok(fs.existsSync(path.join(publicDir, 'icons', 'download.svg')));
+  assert.match(css, /\.material-icon\.icon-download\s*\{[^}]*icons\/download\.svg/);
+  assert.match(css, /\.backup-export-bar\s*\{/);
+});
+
+test('CSVエクスポートのURLは空なら全体、指定時はworkspaceをエンコードして組み立てる (BT-413)', () => {
+  const source = backupJs.match(/function buildCsvExportUrl\(workspaceFile\) \{[\s\S]*?\n\}/)[0];
+  const buildCsvExportUrl = new Function(`${source}; return buildCsvExportUrl;`)();
+  assert.equal(buildCsvExportUrl(''), '/api/export-csv');
+  assert.equal(buildCsvExportUrl('backlog-todo'), '/api/export-csv?workspace=backlog-todo');
+  assert.equal(buildCsvExportUrl('a b&c'), '/api/export-csv?workspace=a%20b%26c');
+});
