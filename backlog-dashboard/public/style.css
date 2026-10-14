@@ -3490,6 +3490,135 @@ body {
   width: 100%;
 }
 
+/* BT-410: ロゴメニュー初期画面。ブランド行・バージョン情報・件数・機能ボタン */
+.product-menu-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 28px;
+}
+
+.product-menu-brand .add-form-title {
+  margin: 0;
+  flex: 1;
+}
+
+.product-menu-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+
+.product-menu-info {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 14px 0 0;
+  padding: 8px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.product-menu-info dt {
+  color: var(--text-muted);
+}
+
+.product-menu-info dd {
+  margin: 0;
+  font-family: ui-monospace, 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+  overflow-wrap: anywhere;
+}
+
+.product-menu-stats {
+  margin: 12px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.product-menu-github-icon {
+  vertical-align: -3px;
+  margin-right: 6px;
+}
+
+/* 件数表を載せる時だけ、6列が窮屈にならないようダイアログを少し広げる */
+.modal-content:has(.product-menu-stats-table) {
+  max-width: 520px;
+}
+
+/* ワークスペースが多い環境(20件超)向けに、表本体だけ縦スクロール。見出しとTOTAL行は固定 */
+.product-menu-stats-scroll {
+  max-height: 38vh;
+  overflow-y: auto;
+}
+
+.product-menu-stats-table {
+  width: 100%;
+  /* sticky行の下に隙間ができないよう、collapseではなくseparate(間隔0)にする */
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.product-menu-stats-table th,
+.product-menu-stats-table td {
+  box-sizing: border-box;
+  height: 26px;
+  line-height: 1.2;
+  padding: 0 4px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.product-menu-stats-table .product-menu-ws-col {
+  width: 38%;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-menu-stats-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface, var(--bg));
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.product-menu-stats-table thead .product-menu-total-row th {
+  top: 26px;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+
+.product-menu-stats-table tbody tr + tr td {
+  border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.product-menu-zero {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.product-menu-total-col {
+  font-weight: 700;
+}
+
+.product-menu-actions {
+  flex-direction: column;
+  margin-top: 14px;
+}
+
 /* BT-405: 適用される更新コミットの全件一覧。件名は折り返して全文表示し、一覧部だけ縦スクロール */
 .product-menu-commit-list {
   list-style: none;

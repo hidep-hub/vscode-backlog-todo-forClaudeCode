@@ -1381,19 +1381,102 @@ function formatCommitDate(iso) {
 }
 
 /**
- * ロゴクリック時のメニュー本体を描画する(初期状態 = GitHubを開く/更新を確認する の2択)。
+ * メニュー初期画面のバージョン情報行(version/コミット/更新日/サーバー起動時刻)を/api/healthで埋める (BT-410)。
+ * 取得失敗時は「-」のまま残す。取得中に別画面へ切り替わっていた場合は何もしない。
+ */
+async function fillProductMenuInfo(content) {
+  try {
+    const h = await (await fetch('/api/health', { cache: 'no-store' })).json();
+    const infoEl = content.querySelector('#product-menu-info');
+    if (!infoEl) return;
+    const set = (key, text, title) => {
+      const el = infoEl.querySelector(`[data-info="${key}"]`);
+      if (!el) return;
+      el.textContent = text;
+      if (title) el.title = title;
+    };
+    if (h.apiVersion) set('version', `v${h.apiVersion}`);
+    const c = h.commit;
+    if (c) {
+      set('commit', `${c.shortHash}${c.dirty ? '+' : ''}`, `${c.subject}${c.dirty ? '\n（未コミットの変更あり）' : ''}`);
+      set('commitDate', formatCommitDate(c.date), c.subject);
+    }
+    if (typeof h.uptime === 'number') {
+      set('startedAt', formatCommitDate(new Date(Date.now() - h.uptime * 1000).toISOString()));
+    }
+  } catch (e) {
+    console.error('[product-menu] Failed to fetch health:', e.message);
+  }
+}
+
+const PRODUCT_MENU_STAT_CODES = ['do', 'ready', 'todo', 'done'];
+
+/**
+ * メニュー初期画面の件数表(ワークスペース×DO/READY/TODO/DONE/TOTAL)を描画済みのboardから埋める (BT-410)。
+ * 集計はバッジと同じ考え方で、親EPICは実効ステータスで1件、親に紐づく完了子の個別表示(parentIdあり)は除外する。
+ * ワークスペース行は未完了件数の多い順。行が多い場合は表本体だけ縦スクロールにする(CSS側)。
+ */
+function fillProductMenuStats(content) {
+  const statsEl = content.querySelector('#product-menu-stats');
+  if (!statsEl || !lastBoardData) return;
+  const byProject = {};
+  for (const col of lastBoardData.columns) {
+    for (const item of col.items) {
+      if (item.parentId || !item.project || !PRODUCT_MENU_STAT_CODES.includes(item.statusCode)) continue;
+      const row = byProject[item.project] || (byProject[item.project] = { do: 0, ready: 0, todo: 0, done: 0 });
+      row[item.statusCode]++;
+    }
+  }
+  const sum = (row) => PRODUCT_MENU_STAT_CODES.reduce((s, code) => s + row[code], 0);
+  const remaining = (row) => row.do + row.ready + row.todo;
+  const rows = Object.entries(byProject)
+    .sort((a, b) => remaining(b[1]) - remaining(a[1]) || a[0].localeCompare(b[0]));
+  const totalRow = { do: 0, ready: 0, todo: 0, done: 0 };
+  for (const [, row] of rows) PRODUCT_MENU_STAT_CODES.forEach((code) => { totalRow[code] += row[code]; });
+  const cells = (row) => PRODUCT_MENU_STAT_CODES.map((code) =>
+    `<td class="${row[code] ? '' : 'product-menu-zero'}">${row[code] || '-'}</td>`).join('')
+    + `<td class="product-menu-total-col">${sum(row)}</td>`;
+  statsEl.innerHTML = `
+    <div class="product-menu-stats-scroll">
+      <table class="product-menu-stats-table">
+        <thead>
+          <tr><th class="product-menu-ws-col"></th><th>DO</th><th>READY</th><th>TODO</th><th>DONE</th><th>TOTAL</th></tr>
+          <tr class="product-menu-total-row"><th class="product-menu-ws-col">WORKSPACE</th>${cells(totalRow).replace(/<td/g, '<th').replace(/<\/td>/g, '</th>')}</tr>
+        </thead>
+        <tbody>
+          ${rows.map(([proj, row]) => `<tr><td class="product-menu-ws-col" title="${escapeHtml(proj)}">${escapeHtml(proj)}</td>${cells(row)}</tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+/**
+ * ロゴクリック時のメニュー本体を描画する(初期状態 = ブランド・バージョン情報・件数と、各機能ボタン)。
  */
 function renderProductMenuDefault(content) {
   content.classList.remove('product-menu-wide');
   content.innerHTML = `
     <button class="modal-close" id="product-menu-close">&times;</button>
-    <h3 class="add-form-title">Backlog Dashboard</h3>
-    <div class="edit-form-actions" style="flex-direction: column;">
-      <button class="add-child-btn btn-add" id="product-menu-open-github">GitHubリポジトリを開く</button>
+    <div class="product-menu-brand">
+      <img src="favicon.png" alt="" class="product-menu-logo">
+      <h3 class="add-form-title">Backlog Dashboard</h3>
+      <button class="add-child-btn btn-add" id="product-menu-open-github"><svg class="product-menu-github-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHubを開く</button>
+    </div>
+    <dl class="product-menu-info" id="product-menu-info">
+      <dt>version</dt><dd data-info="version">-</dd>
+      <dt>コミット</dt><dd data-info="commit">-</dd>
+      <dt>更新日</dt><dd data-info="commitDate">-</dd>
+      <dt>サーバー起動</dt><dd data-info="startedAt">-</dd>
+    </dl>
+    <div class="product-menu-stats" id="product-menu-stats"></div>
+    <div class="edit-form-actions product-menu-actions">
       <button class="add-child-btn btn-add" id="product-menu-check-update">更新を確認する</button>
       <button class="add-child-btn btn-add" id="product-menu-restart">サーバーを再起動する</button>
     </div>
   `;
+  fillProductMenuInfo(content);
+  fillProductMenuStats(content);
   content.querySelector('#product-menu-close').addEventListener('click', closeProductMenu);
   content.querySelector('#product-menu-open-github').addEventListener('click', async () => {
     try {
