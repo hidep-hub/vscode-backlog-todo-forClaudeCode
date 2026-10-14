@@ -13,6 +13,7 @@ const { buildActivity, buildRecentEvents } = require('./db/activity');
 const tasksRepo = require('./db/tasks-repo');
 const { createBackupManager } = require('./db/backup');
 const { createTagsApi } = require('./tags-api');
+const { createItsSettingsApi } = require('./its-settings-api');
 const { version: API_VERSION } = require('./package.json');
 
 // --- Config ---
@@ -21,6 +22,7 @@ const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
 const PORT = config.port || 3333;
 const BACKLOG_DIR = config.backlogDir.replace(/^~/, os.homedir());
 const GITHUB_CREDENTIALS_PATH = path.join(__dirname, 'github-credentials.json');
+const ITS_CREDENTIALS_PATH = path.join(__dirname, 'its-credentials.json');
 
 // バックアップ(BT-370)。DBに加え、git管理外の環境ファイルもまとめて取得する。
 // 存在しないものは失敗にせずmanifestのskippedに記録される。
@@ -31,6 +33,7 @@ const backupManager = createBackupManager({
   sources: [
     { rel: 'backlog-dashboard/config.json', abs: CONFIG_PATH },
     { rel: 'backlog-dashboard/github-credentials.json', abs: GITHUB_CREDENTIALS_PATH },
+    { rel: 'backlog-dashboard/its-credentials.json', abs: ITS_CREDENTIALS_PATH },
     { rel: 'docs', abs: path.join(__dirname, '..', 'docs') },
   ],
 });
@@ -703,6 +706,18 @@ const handleTagsApi = createTagsApi({
   onChange: () => broadcast(buildBoard()),
 });
 
+// 外部ITS(Redmine/GitLab)連携の設定API(BM-071)。GitHubの設定済み判定は既存のgetGithubSettings()
+// (repoUrl+token両方が揃っているか)に委譲する。
+const handleItsSettingsApi = createItsSettingsApi({
+  config,
+  credentialsPath: ITS_CREDENTIALS_PATH,
+  readRequestBody,
+  getGithubStatus: (prefix) => {
+    const settings = getGithubSettings(prefix);
+    return { configured: !!(settings.repoUrl && settings.hasToken) };
+  },
+});
+
 function serveStatic(req, res) {
   console.log(`[http] ${req.method} ${req.url}`);
 
@@ -757,6 +772,9 @@ function serveStatic(req, res) {
 
   // API: タグ機能(BT-393)
   if (handleTagsApi(req, res)) return;
+
+  // API: 外部ITS(Redmine/GitLab)連携の設定(BM-071)
+  if (handleItsSettingsApi(req, res)) return;
 
   // API: GET /api/health
   if (req.url === '/api/health' && req.method === 'GET') {

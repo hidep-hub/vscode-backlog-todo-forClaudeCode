@@ -10,6 +10,10 @@ backlog-dashboard/config.json
 # GitHub連携用クレデンシャル（PAT等の機密情報を含むため非公開。github-credentials.json.exampleをコピーして使う）
 backlog-dashboard/github-credentials.json
 
+# 外部ITS(Redmine/GitLab)連携用クレデンシャル（APIキー/PAT等の機密情報を含むため非公開。
+# its-credentials.json.exampleをコピーして使う。BM-071）
+backlog-dashboard/its-credentials.json
+
 # バックアップファイル
 *.bak
 

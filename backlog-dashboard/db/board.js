@@ -7,6 +7,7 @@
 
 const tasksRepo = require('./tasks-repo');
 const tagsRepo = require('./tags-repo');
+const externalLinksRepo = require('./external-links-repo');
 
 function getStatusList(db) {
   return db.prepare('SELECT code, label, sort_order FROM statuses ORDER BY sort_order').all();
@@ -70,6 +71,9 @@ function toTaskItem(row, { statusLabelMap, projectName }) {
     dueDateHistory: row.__dueDateHistory || [],
     // BT-393: タスク自身に付いているタグ({id,name,color}の配列、タグのsort_order順)
     tags: row.__tags || [],
+    // BM-071: Redmine/GitLab取り込みリンク({source,key,url,projectRef}の配列)。GitHubは
+    // 既存のgithubIssueNumber/githubIssueUrlのまま、こちらにはGitHub分は含めない。
+    externalLinks: row.__externalLinks || [],
   };
 }
 
@@ -167,10 +171,12 @@ function buildBoardFromDb(db, config, workspace = null) {
   const dueHistoryByTaskId = tasksRepo.listDueDateHistory(db, taskIds);
   // workspace指定時のみIN句で絞る(All Projects時は全件取得、deliverables等と同じ方針)
   const tagsByTaskId = noRowsInScope ? {} : tagsRepo.listTagsForTasks(db, idPlaceholders ? taskIds : null);
+  const externalLinksByTaskId = noRowsInScope ? {} : externalLinksRepo.listLinksForTasks(db, idPlaceholders ? taskIds : null);
   for (const row of allRows) {
     row.__deliverables = deliverablesByTaskId[row.id] || [];
     row.__dueDateHistory = dueHistoryByTaskId[row.id] || [];
     row.__tags = tagsByTaskId[row.id] || [];
+    row.__externalLinks = externalLinksByTaskId[row.id] || [];
   }
 
   const rowsById = {};
@@ -321,6 +327,9 @@ function buildTaskDetail(db, config, displayId) {
   const tagsByTaskId = tagsRepo.listTagsForTasks(db, relevantIds);
   row.__tags = tagsByTaskId[row.id] || [];
   for (const c of childRows) c.__tags = tagsByTaskId[c.id] || [];
+  const externalLinksByTaskId = externalLinksRepo.listLinksForTasks(db, relevantIds);
+  row.__externalLinks = externalLinksByTaskId[row.id] || [];
+  for (const c of childRows) c.__externalLinks = externalLinksByTaskId[c.id] || [];
 
   const pinnedTaskIds = new Set(db.prepare(`SELECT task_id FROM pins WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
   const runningTaskIds = new Set(db.prepare(`SELECT task_id FROM running_tasks WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
