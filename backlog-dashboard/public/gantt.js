@@ -258,27 +258,34 @@
     const gridW = state.labelW + range.days * dw + 110; // 右端のバーの日付ラベルが見切れない余白
     const idx = (ymd) => diffDays(range.start, ymd);
 
+    // BM-094: ツールバーは常に2段固定にする。遅延/開始遅れ/未計画バッジや選択件数は0件⇄N件で幅が変わり、
+    // 1行のflex-wrapに混在させると折返し判定(1行⇄2行)がリアル反映の度に切り替わって縦に揺れてしまう。
+    // 幅が変わらない固定ボタン群だけの段と、増減がある表示だけの段に分けることで、段の切り替わり自体を起こさない。
     const toolbar = `
       <div class="gantt-toolbar">
-        <button type="button" class="gantt-btn" data-act="expand-all" title="ワークスペース・EPIC・単発タスクをすべて展開">▾ 全部展開</button>
-        <button type="button" class="gantt-btn" data-act="collapse-all" title="EPIC・単発タスクをすべて折りたたむ（ワークスペース見出しは残す）">▸ 全部折りたたむ</button>
-        <button type="button" class="gantt-btn" data-act="today" title="先週〜再来週が見える位置へ移動（先週の月曜が左端）">今日</button>
-        <button type="button" class="gantt-btn" data-act="more-before" title="過去へ4週ぶん広げる">◀ 4週</button>
-        <button type="button" class="gantt-btn" data-act="more-after" title="未来へ4週ぶん広げる">4週 ▶</button>
-        <span class="gantt-zoom" role="group" aria-label="表示幅">
-          <button type="button" class="gantt-btn${state.zoom === 'day' ? ' is-on' : ''}" data-act="zoom" data-zoom="day">日</button>
-          <button type="button" class="gantt-btn${state.zoom === 'week' ? ' is-on' : ''}" data-act="zoom" data-zoom="week">週</button>
-        </span>
-        <span class="gantt-range" title="左: いま見えている期間 / 括弧内: 描画されているカレンダー全体（「◀ 4週」「4週 ▶」で広げられる）"></span>
-        <label class="gantt-check"><input type="checkbox" data-act="show-done"${state.showDone ? ' checked' : ''}> 完了を表示</label>
-        <button type="button" class="gantt-btn${state.selecting ? ' is-on' : ''}" data-act="toggle-select" title="複数の未完了タスクを選択して一括操作">選択</button>
-        ${state.selecting ? `<span class="gantt-selection-actions"><span class="gantt-selection-count">${state.selectedIds.size}件選択中</span><button type="button" class="gantt-btn" data-act="bulk-pin"${state.selectedIds.size ? '' : ' disabled'}>📌 ピン留め</button><button type="button" class="gantt-btn" data-act="bulk-unpin"${state.selectedIds.size ? '' : ' disabled'}>📌 ピン解除</button><button type="button" class="gantt-btn" data-act="bulk-due"${state.selectedIds.size ? '' : ' disabled'}>期日を設定</button></span>` : ''}
-        <span class="gantt-stats">
-          ${stats.overdue ? `<button type="button" class="gantt-stat gantt-stat-overdue" data-act="jump-overdue" title="期日を過ぎて未完了のタスク。クリックで古い順に1件ずつ移動（最後まで行くと先頭に戻る）">遅延 ${stats.overdue}件</button>` : ''}
-          ${stats.lateStart ? `<span class="gantt-stat gantt-stat-late" title="開始日を過ぎたのにTODO/READYのまま">開始遅れ ${stats.lateStart}件</span>` : ''}
-          ${stats.unplanned ? `<span class="gantt-stat" title="開始日も期日も未設定。右の空欄をクリック／ドラッグで計画できるよ">未計画 ${stats.unplanned}件</span>` : ''}
-        </span>
-        <span class="gantt-hint">バーをドラッグで移動／両端で期間変更／未計画の行は空欄をクリック・ドラッグで設定</span>
+        <div class="gantt-toolbar-row gantt-toolbar-row-1">
+          <button type="button" class="gantt-btn" data-act="expand-all" title="ワークスペース・EPIC・単発タスクをすべて展開">▾ 全部展開</button>
+          <button type="button" class="gantt-btn" data-act="collapse-all" title="EPIC・単発タスクをすべて折りたたむ（ワークスペース見出しは残す）">▸ 全部折りたたむ</button>
+          <button type="button" class="gantt-btn" data-act="today" title="先週〜再来週が見える位置へ移動（先週の月曜が左端）">今日</button>
+          <button type="button" class="gantt-btn" data-act="more-before" title="過去へ4週ぶん広げる">◀ 4週</button>
+          <button type="button" class="gantt-btn" data-act="more-after" title="未来へ4週ぶん広げる">4週 ▶</button>
+          <span class="gantt-zoom" role="group" aria-label="表示幅">
+            <button type="button" class="gantt-btn${state.zoom === 'day' ? ' is-on' : ''}" data-act="zoom" data-zoom="day">日</button>
+            <button type="button" class="gantt-btn${state.zoom === 'week' ? ' is-on' : ''}" data-act="zoom" data-zoom="week">週</button>
+          </span>
+          <span class="gantt-range" title="左: いま見えている期間 / 括弧内: 描画されているカレンダー全体（「◀ 4週」「4週 ▶」で広げられる）"></span>
+        </div>
+        <div class="gantt-toolbar-row gantt-toolbar-row-2">
+          <label class="gantt-check"><input type="checkbox" data-act="show-done"${state.showDone ? ' checked' : ''}> 完了を表示</label>
+          <button type="button" class="gantt-btn${state.selecting ? ' is-on' : ''}" data-act="toggle-select" title="複数の未完了タスクを選択して一括操作">選択</button>
+          ${state.selecting ? `<span class="gantt-selection-actions"><span class="gantt-selection-count">${state.selectedIds.size}件選択中</span><button type="button" class="gantt-btn" data-act="bulk-pin"${state.selectedIds.size ? '' : ' disabled'}>📌 ピン留め</button><button type="button" class="gantt-btn" data-act="bulk-unpin"${state.selectedIds.size ? '' : ' disabled'}>📌 ピン解除</button><button type="button" class="gantt-btn" data-act="bulk-due"${state.selectedIds.size ? '' : ' disabled'}>期日を設定</button></span>` : ''}
+          <span class="gantt-stats">
+            ${stats.overdue ? `<button type="button" class="gantt-stat gantt-stat-overdue" data-act="jump-overdue" title="期日を過ぎて未完了のタスク。クリックで古い順に1件ずつ移動（最後まで行くと先頭に戻る）">遅延 ${stats.overdue}件</button>` : ''}
+            ${stats.lateStart ? `<span class="gantt-stat gantt-stat-late" title="開始日を過ぎたのにTODO/READYのまま">開始遅れ ${stats.lateStart}件</span>` : ''}
+            ${stats.unplanned ? `<span class="gantt-stat" title="開始日も期日も未設定。右の空欄をクリック／ドラッグで計画できるよ">未計画 ${stats.unplanned}件</span>` : ''}
+          </span>
+          <span class="gantt-hint">バーをドラッグで移動／両端で期間変更／未計画の行は空欄をクリック・ドラッグで設定</span>
+        </div>
       </div>`;
 
     // ヘッダー(月行 + 日行)

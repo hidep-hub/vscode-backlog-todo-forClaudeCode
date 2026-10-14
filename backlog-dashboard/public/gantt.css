@@ -35,16 +35,33 @@
   color: #fff;
 }
 
-/* ---- ツールバー ---- */
+/* ---- ツールバー ----
+   BM-094: 常に2段固定。1段目は幅が変わらない固定ボタン群、2段目は件数等の増減で幅が変わる表示をまとめる。
+   どちらの行もflex-wrapはさせない(折返し判定が増減のたびに切り替わって縦に揺れるのを防ぐため) */
 .gantt-toolbar {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   margin-bottom: 8px;
   font-size: 0.8rem;
   color: var(--text-muted);
 }
+
+.gantt-toolbar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-width: 0;
+  /* モーダルが極端に狭い時は行の折返しではなく横スクロールで吸収する(ボタン文字が縦に折れて潰れるのを防ぐ) */
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+/* ボタン・ラベル等はflexで縮めない。縮むと中の文字が折り返されて行の高さが変わり、縦揺れ対策の意味が無くなる */
+.gantt-toolbar-row > * { flex-shrink: 0; }
+
+.gantt-toolbar-row-1 .gantt-range { margin-left: auto; }
 
 .gantt-btn {
   background: transparent;
