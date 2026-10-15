@@ -1447,6 +1447,11 @@ body {
   display: block;
 }
 
+.github-import-btn .material-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .github-import-btn::after {
   content: '外部取り込み';
   margin-left: 4px;
@@ -2684,6 +2689,9 @@ body {
 }
 
 .import-source-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: none;
   background: transparent;
   color: var(--text-muted);
@@ -2713,9 +2721,62 @@ body {
 
 .github-import-toolbar {
   display: flex;
+  flex-wrap: wrap; /* BT-415: 狭い幅ではみ出さず折り返す */
   align-items: center;
   gap: 8px;
   margin: 12px 0;
+}
+
+/* BT-415: 取得後にだけ出す件数・フィルタ群 */
+.github-import-result-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.github-import-result-tools[hidden] {
+  display: none;
+}
+
+/* BT-415: 「Issueを取得」など、通信を起こす主ボタン */
+.github-import-toolbar button.import-primary-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.github-import-toolbar button.import-primary-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  filter: brightness(1.1);
+}
+
+.github-import-toolbar button.import-primary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* BT-415: 読み込み中表示(固まって見えないようスピナーを回す) */
+.import-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.import-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: import-spin 0.8s linear infinite;
+}
+
+@keyframes import-spin {
+  to { transform: rotate(360deg); }
 }
 
 .github-import-toolbar select {
@@ -2763,6 +2824,7 @@ body {
 .github-import-body {
   flex: 1;
   overflow-y: auto;
+  overflow-x: auto;
   min-height: 200px;
   display: flex;
   flex-direction: column;
@@ -2776,60 +2838,108 @@ body {
   padding: 40px 0;
 }
 
-.github-issue-card.card {
-  cursor: default;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.github-issue-checkbox {
-  flex-shrink: 0;
-  margin-top: 3px;
-  cursor: pointer;
-}
-
-.github-issue-checkbox:disabled {
-  cursor: not-allowed;
-}
-
-.github-issue-card-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.github-issue-epic {
-  border-left: 3px solid var(--accent);
-}
-
-.github-issue-children {
-  margin-left: 24px;
-  margin-top: 6px;
+/* --- 取り込み一覧のテーブル表示 (BT-415): 列見出し+1チケット1行。GitHub/Redmine共通 --- */
+.import-table {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-left: 10px;
-  border-left: 2px solid var(--border);
+  min-width: 680px; /* 狭い幅ではタイトル列が潰れないよう、本体側を横スクロールにする */
+  font-size: 0.82rem;
 }
 
-.github-issue-child-card {
-  padding: 8px 10px;
-  opacity: 0.9;
+.import-row {
+  display: grid;
+  grid-template-columns: var(--import-cols);
+  align-items: center;
+  column-gap: 8px;
+  min-height: 30px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
 }
 
-.github-issue-child-card .card-title {
+.import-row:not(.import-row-head):hover {
+  background: var(--card);
+}
+
+.import-row:not(.import-row-head):has(input:checked) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.import-row-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: 28px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-bottom: 2px solid var(--border);
+}
+
+.import-row-epic {
+  font-weight: 600;
+}
+
+.import-row-child .import-cell-title {
+  padding-left: 22px;
   font-size: 0.78rem;
 }
 
-.github-issue-card .card-title {
+.import-row-imported {
+  opacity: 0.6;
+}
+
+.import-cell {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.import-cell-id {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.import-cell-state,
+.import-cell-due {
+  color: var(--text-muted);
+}
+
+.import-cell-title {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 6px;
+}
+
+.import-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-cell-title .card-badge {
+  flex-shrink: 0;
+}
+
+.import-cell .card-tag {
+  margin: 0;
+}
+
+.github-issue-checkbox,
+.redmine-issue-checkbox {
+  cursor: pointer;
+  margin: 0;
+}
+
+.github-issue-checkbox:disabled,
+.redmine-issue-checkbox:disabled {
+  cursor: not-allowed;
 }
 
 .github-mark-icon {
   flex-shrink: 0;
-  margin-top: 2px;
   color: var(--text-muted);
 }
 
@@ -2882,7 +2992,6 @@ body {
 /* --- Redmineチケット取り込みタブ (BM-073) --- */
 .redmine-mark-icon {
   flex-shrink: 0;
-  margin-top: 2px;
   color: var(--text-muted);
 }
 

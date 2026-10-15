@@ -755,15 +755,18 @@ function getOrCreateGithubImportModal() {
       <button class="modal-close" id="github-import-close">&times;</button>
       <h3><span class="material-icon icon-link"></span> 外部チケット取り込み</h3>
       <div class="import-source-tabs" id="import-source-tabs" role="tablist">
-        <button type="button" class="import-source-tab active" data-source="github" role="tab" aria-selected="true">GitHub</button>
-        <button type="button" class="import-source-tab" data-source="redmine" role="tab" aria-selected="false">Redmine</button>
+        <button type="button" class="import-source-tab active" data-source="github" role="tab" aria-selected="true">${GITHUB_MARK_SVG}GitHub</button>
+        <button type="button" class="import-source-tab" data-source="redmine" role="tab" aria-selected="false">${REDMINE_MARK_SVG}Redmine</button>
       </div>
       <div class="import-source-panel" data-source-panel="github">
         <div class="github-import-toolbar">
           <select id="github-import-project"></select>
-          <span class="github-import-total-count" id="github-import-total-count"></span>
-          <label class="github-import-filter"><input type="checkbox" id="github-import-filter-closed" checked><span id="github-import-filter-closed-label">closedを隠す</span></label>
-          <label class="github-import-filter"><input type="checkbox" id="github-import-filter-imported" checked><span id="github-import-filter-imported-label">取込済みを隠す</span></label>
+          <button id="github-import-fetch-btn" class="import-primary-btn" disabled>Issueを取得</button>
+          <span class="github-import-result-tools" id="github-import-result-tools" hidden>
+            <span class="github-import-total-count" id="github-import-total-count"></span>
+            <label class="github-import-filter"><input type="checkbox" id="github-import-filter-closed" checked><span id="github-import-filter-closed-label">closedを隠す</span></label>
+            <label class="github-import-filter"><input type="checkbox" id="github-import-filter-imported" checked><span id="github-import-filter-imported-label">取込済みを隠す</span></label>
+          </span>
           <button id="github-import-settings-btn" title="GitHub連携設定"><span class="material-icon icon-settings"></span> GitHub設定</button>
         </div>
         <div class="github-import-body" id="github-import-body">
@@ -807,7 +810,9 @@ function getOrCreateGithubImportModal() {
     const prefixMap = (currentBoardData && currentBoardData.projectPrefixMap) || {};
     openSettingsPanel(Object.keys(prefixMap).find(name => prefixMap[name] === prefix) || '');
   });
-  githubImportEl.querySelector('#github-import-project').addEventListener('change', loadGithubImportPreview);
+  // BT-415: セレクタ変更では通信しない。「Issueを取得」ボタンを押したときだけ取得する
+  githubImportEl.querySelector('#github-import-project').addEventListener('change', onGithubImportProjectChange);
+  githubImportEl.querySelector('#github-import-fetch-btn').addEventListener('click', loadGithubImportPreview);
   githubImportEl.querySelector('#github-import-filter-closed').addEventListener('change', renderGithubImportIssueList);
   githubImportEl.querySelector('#github-import-filter-imported').addEventListener('change', renderGithubImportIssueList);
   githubImportEl.querySelector('#github-import-body').addEventListener('change', (e) => {
@@ -838,12 +843,14 @@ function getOrCreateGithubImportModal() {
     if (!e.target.classList.contains('redmine-issue-checkbox')) return;
     // BM-069決定事項: 親を選ぶと、読み込み済みの子も自動で取り込み対象に含める
     // (子チェックボックスはdata-parent-keyを持つため、空=親のチェックボックスと判定する。
-    // 子一覧(.github-issue-children)は親カードの兄弟要素なので、親カードのnextElementSiblingを見る)
+    // 子行(.import-row-child)は親行(.import-row-epic)の直後に連続して並ぶので、続く兄弟を辿って選択する)
     if (!e.target.dataset.parentKey && e.target.checked) {
-      const card = e.target.closest('.github-issue-epic');
-      const childrenWrap = card && card.nextElementSibling;
-      if (childrenWrap && childrenWrap.classList.contains('github-issue-children')) {
-        childrenWrap.querySelectorAll('.redmine-issue-checkbox:not(:disabled)').forEach((cb) => { cb.checked = true; });
+      const row = e.target.closest('.import-row-epic');
+      let next = row && row.nextElementSibling;
+      while (next && next.classList.contains('import-row-child')) {
+        const cb = next.querySelector('.redmine-issue-checkbox:not(:disabled)');
+        if (cb) cb.checked = true;
+        next = next.nextElementSibling;
       }
     }
     updateRedmineImportSelection();
@@ -871,30 +878,113 @@ function switchImportSourceTab(source) {
   el.querySelectorAll('.import-source-panel').forEach((panel) => {
     panel.hidden = panel.dataset.sourcePanel !== source;
   });
+  // BT-415: ワークスペースが選択済みでトラッカー未取得なら、Redmineタブを開いた時点で読み込む
+  if (source === 'redmine') loadRedmineImportTrackersIfNeeded();
 }
 
-// BT-107: プロジェクト選択に応じてGitHub Issue一覧(プレビュー、md書き込みなし)を取得・表示
+// BT-415: 通信待ちが「固まった」ように見えないよう、スピナー付きの読み込み中表示を使う
+function importLoadingHtml(message) {
+  return `<p class="github-import-placeholder import-loading"><span class="import-spinner" aria-hidden="true"></span>${message}</p>`;
+}
+
+// BT-415: 取り込み一覧(GitHub/Redmine共通)は、列見出し+1チケット1行のテーブル表示にする。
+// 列は {key, label, width}。widthはCSSのgrid-template-columnsにそのまま渡す。
+const IMPORT_COL_CHECK = { key: 'check', label: '', width: '28px' };
+const IMPORT_COL_TITLE = { key: 'title', label: 'タイトル', width: 'minmax(0, 1fr)' };
+const IMPORT_COLS_GITHUB = [
+  IMPORT_COL_CHECK,
+  { key: 'id', label: '#', width: '64px' },
+  IMPORT_COL_TITLE,
+  { key: 'state', label: '状態', width: '72px' },
+  { key: 'imported', label: '取込済み', width: '120px' },
+];
+const IMPORT_COLS_REDMINE = [
+  IMPORT_COL_CHECK,
+  { key: 'id', label: '#', width: '64px' },
+  IMPORT_COL_TITLE,
+  { key: 'state', label: 'ステータス', width: '104px' },
+  { key: 'due', label: '期日', width: '92px' },
+  { key: 'imported', label: '取込済み', width: '120px' },
+];
+
+function renderImportTable(cols, rowsHtml) {
+  const head = cols.map((c) => `<span class="import-cell import-cell-${c.key}">${c.label}</span>`).join('');
+  return `<div class="import-table" style="--import-cols:${cols.map((c) => c.width).join(' ')}">` +
+    `<div class="import-row import-row-head">${head}</div>${rowsHtml}</div>`;
+}
+
+// cells: [[colKey, html, titleAttr?], ...]。子行は.import-row-child(直前の親行の続きに並べる)
+function renderImportRow({ epic = false, child = false, imported = false }, cells) {
+  const cls = ['import-row', epic ? 'import-row-epic' : '', child ? 'import-row-child' : '', imported ? 'import-row-imported' : '']
+    .filter(Boolean).join(' ');
+  const cellHtml = cells.map(([key, html, title]) =>
+    `<span class="import-cell import-cell-${key}"${title ? ` title="${escapeHtml(title)}"` : ''}>${html}</span>`).join('');
+  return `<div class="${cls}">${cellHtml}</div>`;
+}
+
+function renderImportChildBadge(children) {
+  const closedCount = children.filter((c) => c.state === 'closed').length;
+  const allDone = closedCount === children.length;
+  return `<span class="card-badge${allDone ? ' badge-done' : ''}"><span class="badge-num">${closedCount}</span><span class="badge-den">/${children.length}</span></span>`;
+}
+
+function renderImportTitleHtml(markSvg, title, badgeHtml) {
+  return `${markSvg}<span class="import-title-text">${escapeHtml(title)}</span>${badgeHtml || ''}`;
+}
+
+// BT-415: メインボードで絞り込み中のワークスペースのprefix。All Projects(または未連携)なら空文字
+function getImportDefaultPrefix() {
+  const prefixMap = (currentBoardData && currentBoardData.projectPrefixMap) || {};
+  const workspaceMap = (currentBoardData && currentBoardData.workspaceMap) || {};
+  return (currentFilter && workspaceMap[currentFilter] && prefixMap[currentFilter]) || '';
+}
+
+// BT-415: GitHubタブの一覧・選択・件数表示を取得前の状態へ戻す(通信はしない)
+function onGithubImportProjectChange() {
+  const el = githubImportEl;
+  const prefix = el.querySelector('#github-import-project').value;
+  githubImportAllIssues = [];
+  resetGithubImportSelectionUi();
+  resetGithubImportFilterCounts();
+  el.querySelector('#github-import-result-tools').hidden = true;
+  el.querySelector('#github-import-fetch-btn').disabled = !prefix;
+  el.querySelector('#github-import-body').innerHTML = prefix
+    ? `<p class="github-import-placeholder">「Issueを取得」を押してください。</p>`
+    : `<p class="github-import-placeholder">プロジェクトを選択してください。</p>`;
+}
+
+// BT-107: 「Issueを取得」で、選択中プロジェクトのGitHub Issue一覧(プレビュー、md書き込みなし)を取得・表示
 async function loadGithubImportPreview() {
   const el = githubImportEl;
   const prefix = el.querySelector('#github-import-project').value;
   const bodyEl = el.querySelector('#github-import-body');
+  const fetchBtn = el.querySelector('#github-import-fetch-btn');
   resetGithubImportSelectionUi();
   resetGithubImportFilterCounts();
   githubImportAllIssues = [];
+  el.querySelector('#github-import-result-tools').hidden = true;
   if (!prefix) {
     bodyEl.innerHTML = `<p class="github-import-placeholder">プロジェクトを選択してください。</p>`;
     return;
   }
-  bodyEl.innerHTML = `<p class="github-import-placeholder">読み込み中...</p>`;
+  bodyEl.innerHTML = importLoadingHtml('GitHubからIssueを読み込み中...');
+  fetchBtn.disabled = true;
+  fetchBtn.textContent = '取得中...';
   try {
     const res = await fetch(`/api/github-preview-issues?prefix=${encodeURIComponent(prefix)}`);
     const data = await res.json();
+    if (prefix !== el.querySelector('#github-import-project').value) return; // 取得中にセレクタが変わった
     if (!res.ok) throw new Error(data.error || '取得に失敗しました');
     githubImportAllIssues = data.issues;
+    el.querySelector('#github-import-result-tools').hidden = false;
     renderGithubImportIssueList();
   } catch (e) {
+    if (prefix !== el.querySelector('#github-import-project').value) return;
     githubImportAllIssues = [];
     bodyEl.innerHTML = `<p class="github-import-placeholder">エラー: ${escapeHtml(e.message)}</p>`;
+  } finally {
+    fetchBtn.textContent = 'Issueを取得';
+    fetchBtn.disabled = !el.querySelector('#github-import-project').value;
   }
 }
 
@@ -926,7 +1016,7 @@ function renderGithubImportIssueList() {
     .filter((i) => !(hideImported && i.alreadyImported));
   el.querySelector('#github-import-total-count').textContent = `${topLevelIssues.length} / 全${topLevelAllIssues.length}件`;
   bodyEl.innerHTML = topLevelIssues.length > 0
-    ? topLevelIssues.map((issue) => renderGithubImportIssueCard(issue, issueByNumber)).join('')
+    ? renderImportTable(IMPORT_COLS_GITHUB, topLevelIssues.map((issue) => renderGithubImportIssueCard(issue, issueByNumber)).join(''))
     : `<p class="github-import-placeholder">条件に一致するIssueがありません。</p>`;
 }
 
@@ -987,7 +1077,7 @@ async function executeGithubImport() {
 }
 
 // Octicons "mark-github"（GitHub公式アイコンライブラリ、MITライセンス）
-const GITHUB_MARK_SVG = '<svg class="github-mark-icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.1-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.47-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path></svg>';
+const GITHUB_MARK_SVG = '<svg class="github-mark-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.1-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.47-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path></svg>';
 
 // BT-110: 取り込み済みタスクカードにGitHubアイコン+Issue番号を表示(クリックでIssueページを新規タブで開く)
 function renderGithubIssueBadge(issueNumber, issueUrl) {
@@ -1004,8 +1094,6 @@ function renderGithubImportedTag(taskId) {
 // BT-108: task listで子issueを持つ親(Epic)は、選択チェックボックス+配下の子issueを入れ子表示する。
 // 子issueは単独で選択できない(親を取り込むと一括で追従する、[[project_bt071_github_issue_sync_design]]の方針)
 function renderGithubImportIssueCard(issue, issueByNumber) {
-  const stateTag = issue.state === 'closed' ? '<span class="card-tag github-issue-closed">closed</span>' : '';
-  const importedTag = issue.alreadyImported ? renderGithubImportedTag(issue.importedTaskId) : '';
   const checkboxHtml = issue.alreadyImported
     ? `<input type="checkbox" class="github-issue-checkbox" disabled title="取込済み">`
     : `<input type="checkbox" class="github-issue-checkbox" data-issue-number="${issue.number}">`;
@@ -1013,48 +1101,45 @@ function renderGithubImportIssueCard(issue, issueByNumber) {
   const children = (issue.childIssueNumbers || [])
     .map((num) => issueByNumber && issueByNumber.get(num))
     .filter(Boolean);
-  const badgeHtml = children.length > 0
-    ? (() => {
-        const closedCount = children.filter((c) => c.state === 'closed').length;
-        const allDone = closedCount === children.length;
-        return `<span class="card-badge${allDone ? ' badge-done' : ''}"><span class="badge-num">${closedCount}</span><span class="badge-den">/${children.length}</span></span>`;
-      })()
-    : '';
-  const childrenHtml = children.length > 0
-    ? `<div class="github-issue-children">${children.map(renderGithubImportChildCard).join('')}</div>`
-    : '';
-
-  return `
-    <div class="card github-issue-card${children.length > 0 ? ' github-issue-epic' : ''}">
-      ${checkboxHtml}
-      <div class="github-issue-card-body">
-        <div class="card-id"><span>#${issue.number}</span>${badgeHtml}</div>
-        <div class="card-title">${GITHUB_MARK_SVG}${escapeHtml(issue.title)}</div>
-        <div class="card-meta">${stateTag}${importedTag}</div>
-      </div>
-    </div>
-    ${childrenHtml}
-  `;
+  const parentRow = renderImportRow({ epic: children.length > 0, imported: issue.alreadyImported }, [
+    ['check', checkboxHtml],
+    ['id', `#${issue.number}`],
+    ['title', renderImportTitleHtml(GITHUB_MARK_SVG, issue.title, children.length > 0 ? renderImportChildBadge(children) : ''), issue.title],
+    ['state', issue.state === 'closed' ? '<span class="card-tag github-issue-closed">closed</span>' : 'open'],
+    ['imported', issue.alreadyImported ? renderGithubImportedTag(issue.importedTaskId) : ''],
+  ]);
+  return parentRow + children.map(renderGithubImportChildCard).join('');
 }
 
 function renderGithubImportChildCard(issue) {
-  const stateTag = issue.state === 'closed' ? '<span class="card-tag github-issue-closed">closed</span>' : '';
-  const importedTag = issue.alreadyImported ? renderGithubImportedTag(issue.importedTaskId) : '';
-  return `
-    <div class="card github-issue-card github-issue-child-card">
-      <div class="github-issue-card-body">
-        <div class="card-id"><span>#${issue.number}</span></div>
-        <div class="card-title">${GITHUB_MARK_SVG}${escapeHtml(issue.title)}</div>
-        <div class="card-meta">${stateTag}${importedTag}</div>
-      </div>
-    </div>
-  `;
+  return renderImportRow({ child: true, imported: issue.alreadyImported }, [
+    ['check', ''], // 子は単独で選択できない(親を取り込むと一括で追従する)
+    ['id', `#${issue.number}`],
+    ['title', renderImportTitleHtml(GITHUB_MARK_SVG, issue.title), issue.title],
+    ['state', issue.state === 'closed' ? '<span class="card-tag github-issue-closed">closed</span>' : 'open'],
+    ['imported', issue.alreadyImported ? renderGithubImportedTag(issue.importedTaskId) : ''],
+  ]);
 }
 
 function openGithubImportModal() {
   const el = getOrCreateGithubImportModal();
   populateGithubImportProjectSelect(el.querySelector('#github-import-project'));
   populateRedmineImportProjectSelect(el.querySelector('#redmine-import-project')); // BM-073
+  // BT-415: メインボードで選択中のワークスペースを初期値にする(All Projectsなら前回値のまま)。
+  // changeイベントは発火させず、通信は「Issueを取得」/Redmineタブ表示まで起こさない
+  const defaultPrefix = getImportDefaultPrefix();
+  if (defaultPrefix) {
+    const githubSelect = el.querySelector('#github-import-project');
+    if (githubSelect.value !== defaultPrefix) {
+      githubSelect.value = defaultPrefix;
+      onGithubImportProjectChange();
+    }
+    const redmineSelect = el.querySelector('#redmine-import-project');
+    if (redmineSelect.value !== defaultPrefix) {
+      redmineSelect.value = defaultPrefix;
+      onRedmineImportProjectChange();
+    }
+  }
   switchImportSourceTab('github'); // BM-073: 常にGitHubタブから開く(前回Redmineを見ていても初期化する)
   el.classList.add('modal-visible');
 }
@@ -1101,28 +1186,43 @@ function resetRedmineImportState() {
   redmineImportSelectedKeys.clear();
 }
 
-// ワークスペース変更時: トラッカー一覧をits-metaで取得する。未設定ワークスペースはエラー文言を出す
-async function onRedmineImportProjectChange() {
+let redmineTrackersLoadedPrefix = ''; // BT-415: トラッカー取得済みのワークスペースprefix(空=未取得)
+
+// ワークスペース変更時: 表示を初期化し、Redmineタブを表示中ならトラッカー一覧を取得する。
+// 初期選択でモーダルを開いただけ(GitHubタブ表示中)では通信せず、タブを切り替えた時に取得する(BT-415)
+function onRedmineImportProjectChange() {
   const els = redmineImportEls();
   resetRedmineImportState();
-  const prefix = els.project.value;
+  redmineTrackersLoadedPrefix = '';
   els.tracker.innerHTML = `<option value="">トラッカーを選択...</option>`;
   els.tracker.disabled = true;
   els.listBtn.hidden = true;
   els.totalCount.textContent = '';
   els.body.innerHTML = `<p class="github-import-placeholder">ワークスペースを選択してください。</p>`;
   resetRedmineImportSelectionUi();
-  if (!prefix) return;
-  els.body.innerHTML = `<p class="github-import-placeholder">読み込み中...</p>`;
+  if (importSourceTab === 'redmine') loadRedmineImportTrackersIfNeeded();
+}
+
+// トラッカー一覧をits-metaで取得する。未設定ワークスペースはエラー文言を出す
+async function loadRedmineImportTrackersIfNeeded() {
+  const els = redmineImportEls();
+  const prefix = els.project.value;
+  if (!prefix || redmineTrackersLoadedPrefix === prefix) return;
+  els.body.innerHTML = importLoadingHtml('Redmineからトラッカーを読み込み中...');
+  els.tracker.innerHTML = `<option value="">読み込み中...</option>`;
   try {
     const res = await fetch(`/api/its-meta?prefix=${encodeURIComponent(prefix)}&source=redmine`);
     const data = await res.json();
+    if (prefix !== els.project.value) return; // 取得中にワークスペースが変わった(新しい方が処理する)
     if (!res.ok) throw new Error(data.error || '取得に失敗しました');
     els.tracker.innerHTML = `<option value="">トラッカーを選択...</option>` +
       data.trackers.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
     els.tracker.disabled = false;
+    redmineTrackersLoadedPrefix = prefix;
     els.body.innerHTML = `<p class="github-import-placeholder">トラッカーを選択し、「一覧を出す」を押してください。</p>`;
   } catch (e) {
+    if (prefix !== els.project.value) return;
+    els.tracker.innerHTML = `<option value="">トラッカーを選択...</option>`;
     els.body.innerHTML = `<p class="github-import-placeholder">エラー: ${escapeHtml(e.message)}</p>`;
   }
 }
@@ -1141,7 +1241,7 @@ async function loadRedmineImportList({ reset }) {
   if (!prefix || !trackerId) return;
   if (reset) {
     resetRedmineImportState();
-    els.body.innerHTML = `<p class="github-import-placeholder">読み込み中...</p>`;
+    els.body.innerHTML = importLoadingHtml('Redmineからチケットを読み込み中...');
   } else {
     if (redmineImportNextOffset === null || redmineImportLoadingMore) return;
     redmineImportLoadingMore = true;
@@ -1191,7 +1291,7 @@ function renderRedmineImportIssueList() {
     ? `<button id="redmine-import-load-more-btn" class="redmine-import-load-more">さらに読み込む（残り${redmineImportTotal - redmineImportAllIssues.length}件）</button>`
     : '';
   els.body.innerHTML = (topLevelIssues.length > 0
-    ? topLevelIssues.map((issue) => renderRedmineImportIssueCard(issue, issueByKey, allChildKeys)).join('')
+    ? renderImportTable(IMPORT_COLS_REDMINE, topLevelIssues.map((issue) => renderRedmineImportIssueCard(issue, issueByKey, allChildKeys)).join(''))
     : `<p class="github-import-placeholder">条件に一致するチケットがありません。</p>`) + loadMoreHtml;
 }
 
@@ -1235,8 +1335,8 @@ async function executeRedmineImport() {
   }
 }
 
-// Material Symbols風の簡易アイコン(Redmine公式ロゴは複雑なため、丸十字のシンプルなマークで代替)
-const REDMINE_MARK_SVG = '<svg class="redmine-mark-icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 4v8M4 8h8" stroke="currentColor" stroke-width="1.4"/></svg>';
+// Redmineのロゴ(単色・currentColor)。GitHubのGITHUB_MARK_SVGと同じく、テーマの文字色に追従させる
+const REDMINE_MARK_SVG = '<svg class="redmine-mark-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M1.092 15.088c.789.243 4.098 1.005 4.098 1.005c.198.061.139.21.139.21c-.228 1.798-.178 3.17-.178 3.644c0 .21-.153.18-.153.18H.168c-.209 0-.164-.19-.164-.19c.04-.599.212-2.303.878-4.746c0 0 .033-.157.21-.103m21.816 0c-.789.243-4.098 1.005-4.098 1.005c-.198.061-.139.21-.139.21c.228 1.798.178 3.17.178 3.644c0 .21.153.18.153.18h4.83c.21 0 .164-.19.164-.19c-.04-.599-.212-2.303-.878-4.746c0 0-.034-.157-.21-.103m-1.929-5.354l-3.448 1.667c-.164.063-.082.212-.082.212c.476 1.134.766 2.091.99 3.251c.038.194.169.132.169.132l3.879-1.684s.116-.044.068-.193c-.172-.531-1.05-2.649-1.402-3.341c0 0-.062-.105-.174-.044m-17.958 0l3.448 1.667c.164.063.082.212.082.212a15.6 15.6 0 0 0-.991 3.251c-.037.194-.169.132-.169.132l-3.878-1.684s-.116-.044-.068-.193c.172-.531 1.05-2.649 1.402-3.341c0 0 .062-.105.174-.044m4.085-4.368l2.302 2.681c.099.128-.032.222-.032.222c-.923.498-1.59 1.25-2.161 2.111c-.114.17-.236.046-.236.046L4.062 8.242s-.126-.074-.016-.22c.854-1.134 1.63-1.934 2.871-2.689c0 0 .094-.089.189.033m9.788 0l-2.302 2.681c-.099.128.032.222.032.222c.923.498 1.59 1.25 2.161 2.111c.114.17.236.046.236.046l2.917-2.184s.126-.074.016-.22c-.854-1.134-1.63-1.934-2.871-2.689c0 0-.094-.089-.189.033M12 7.661c.388 0 1.105.037 1.444.093c.177.03.221-.088.221-.088l1.449-3.028s.097-.114-.106-.188c-1.082-.396-1.657-.578-3.008-.578c-1.335 0-1.926.182-3.008.578c-.203.074-.106.188-.106.188l1.449 3.028s.044.118.221.088c.339-.056 1.056-.093 1.444-.093"></path></svg>';
 
 function renderRedmineImportedTag(taskId) {
   const idSuffix = taskId ? ` (${escapeHtml(taskId)})` : '';
@@ -1247,56 +1347,33 @@ function renderRedmineImportedTag(taskId) {
 // 子チェックボックスは独立無効化はしない(親と一緒に選ぶ想定だが、個別選択も許容する=GitHub側と仕様を揃えない。
 // Redmineは子だけ単独取り込みも許す方が自然なため)
 function renderRedmineImportIssueCard(issue, issueByKey, allChildKeys) {
-  const stateTag = issue.state === 'closed' ? '<span class="card-tag github-issue-closed">closed</span>' : `<span class="card-tag">${escapeHtml(issue.statusName)}</span>`;
-  const importedTag = issue.alreadyImported ? renderRedmineImportedTag(issue.importedTaskId) : '';
-  const dueTag = issue.dueDate ? `<span class="card-tag">期日 ${escapeHtml(issue.dueDate)}</span>` : '';
-  const checkboxHtml = issue.alreadyImported
-    ? `<input type="checkbox" class="redmine-issue-checkbox" disabled title="取込済み">`
-    : `<input type="checkbox" class="redmine-issue-checkbox" data-issue-key="${issue.key}" data-parent-key="">`;
-
   const children = (issue.childKeys || [])
     .map((key) => issueByKey.get(key))
     .filter(Boolean);
-  const badgeHtml = children.length > 0
-    ? (() => {
-        const closedCount = children.filter((c) => c.state === 'closed').length;
-        const allDone = closedCount === children.length;
-        return `<span class="card-badge${allDone ? ' badge-done' : ''}"><span class="badge-num">${closedCount}</span><span class="badge-den">/${children.length}</span></span>`;
-      })()
-    : '';
-  const childrenHtml = children.length > 0
-    ? `<div class="github-issue-children">${children.map((c) => renderRedmineImportChildCard(c)).join('')}</div>`
-    : '';
-
-  return `
-    <div class="card github-issue-card${children.length > 0 ? ' github-issue-epic' : ''}">
-      ${checkboxHtml}
-      <div class="github-issue-card-body">
-        <div class="card-id"><span>#${escapeHtml(issue.key)}</span>${badgeHtml}</div>
-        <div class="card-title">${REDMINE_MARK_SVG}${escapeHtml(issue.title)}</div>
-        <div class="card-meta">${stateTag}${dueTag}${importedTag}</div>
-      </div>
-    </div>
-    ${childrenHtml}
-  `;
+  const parentRow = renderRedmineImportRow(issue, {
+    epic: children.length > 0,
+    parentKey: '',
+    badgeHtml: children.length > 0 ? renderImportChildBadge(children) : '',
+  });
+  return parentRow + children.map((c) => renderRedmineImportRow(c, { child: true, parentKey: c.parentKey || '' })).join('');
 }
 
-function renderRedmineImportChildCard(issue) {
-  const stateTag = issue.state === 'closed' ? '<span class="card-tag github-issue-closed">closed</span>' : `<span class="card-tag">${escapeHtml(issue.statusName)}</span>`;
-  const importedTag = issue.alreadyImported ? renderRedmineImportedTag(issue.importedTaskId) : '';
+// 親行・子行で列の中身は同じ。子行は字下げ(.import-row-child)だけが違い、期日も子に出す
+function renderRedmineImportRow(issue, { epic = false, child = false, parentKey, badgeHtml = '' }) {
   const checkboxHtml = issue.alreadyImported
     ? `<input type="checkbox" class="redmine-issue-checkbox" disabled title="取込済み">`
-    : `<input type="checkbox" class="redmine-issue-checkbox" data-issue-key="${issue.key}" data-parent-key="${escapeHtml(issue.parentKey || '')}">`;
-  return `
-    <div class="card github-issue-card github-issue-child-card">
-      ${checkboxHtml}
-      <div class="github-issue-card-body">
-        <div class="card-id"><span>#${escapeHtml(issue.key)}</span></div>
-        <div class="card-title">${REDMINE_MARK_SVG}${escapeHtml(issue.title)}</div>
-        <div class="card-meta">${stateTag}${importedTag}</div>
-      </div>
-    </div>
-  `;
+    : `<input type="checkbox" class="redmine-issue-checkbox" data-issue-key="${escapeHtml(issue.key)}" data-parent-key="${escapeHtml(parentKey)}">`;
+  const stateHtml = issue.state === 'closed'
+    ? '<span class="card-tag github-issue-closed">closed</span>'
+    : escapeHtml(issue.statusName);
+  return renderImportRow({ epic, child, imported: issue.alreadyImported }, [
+    ['check', checkboxHtml],
+    ['id', `#${escapeHtml(issue.key)}`],
+    ['title', renderImportTitleHtml(REDMINE_MARK_SVG, issue.title, badgeHtml), issue.title],
+    ['state', stateHtml],
+    ['due', issue.dueDate ? escapeHtml(issue.dueDate) : ''],
+    ['imported', issue.alreadyImported ? renderRedmineImportedTag(issue.importedTaskId) : ''],
+  ]);
 }
 
 // BM-073: 取り込み済みタスクカードにRedmineアイコン+チケット番号を表示(クリックで元チケットを新規タブで開く)。
