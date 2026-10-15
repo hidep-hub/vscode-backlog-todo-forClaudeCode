@@ -6076,22 +6076,23 @@ mark.activity-hit {
   color: var(--text);
 }
 
-/* CSVエクスポート欄 (BT-413)。バックアップとは目的が違うため、ヘッダーとは罫線で区切る */
+/* CSVエクスポート区画 (BT-413/BT-416)。バックアップ区画(一覧・注意書き)の下に罫線で区切って置く */
 .backup-export-bar {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   flex-wrap: wrap;
 }
 
+/* 見出しはバックアップ区画のタイトル(.backup-modal-header h3)と同じサイズ。アイコンは1emなので連動して拡大する */
 .backup-export-title {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.85rem;
-  font-weight: 600;
+  margin: 0 6px 0 0;
+  font-size: 1rem;
   white-space: nowrap;
 }
 
@@ -6113,10 +6114,12 @@ mark.activity-hit {
   line-height: 1.5;
 }
 
+/* 一覧は4行分の高さに固定し、超えたらスクロールする(BT-416)。見出し行36px+4行(1行42px) */
 .backup-modal-body {
   overflow: auto;
-  padding: 8px 16px;
-  min-height: 120px;
+  padding: 0 16px;
+  height: 204px;
+  flex: none;
 }
 
 .backup-empty {
@@ -6180,7 +6183,6 @@ mark.activity-hit {
 
 .backup-modal-footer {
   padding: 10px 16px;
-  border-top: 1px solid var(--border);
   color: var(--text-muted);
   font-size: 0.74rem;
   line-height: 1.5;
