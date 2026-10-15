@@ -4252,7 +4252,10 @@ function buildDescriptionSectionHtml(item) {
 }
 
 // 説明欄の折りたたみトグルを初期化する（BT-080）。2行に収まる場合はボタンを出さない
-function setupDescriptionToggle(container) {
+// BM-089: WS再描画でモーダルを作り直した際、呼び出し元が直前の展開状態をexpandedで渡すと
+// 復元できる（渡さなければ常に折りたたみ状態=従来通り）。判定(scrollHeight比較)はまだ
+// expandedクラスを付けていない折りたたみ状態で行うため、復元は判定の後に行う。
+function setupDescriptionToggle(container, { expanded = false } = {}) {
   container.querySelectorAll('.description-collapsible').forEach((wrap) => {
     const text = wrap.querySelector('.description-text');
     const section = wrap.closest('.detail-description-section');
@@ -4273,6 +4276,11 @@ function setupDescriptionToggle(container) {
       btn.textContent = '▲ 閉じる';
       btn.setAttribute('aria-expanded', 'true');
     });
+    if (expanded) {
+      wrap.classList.add('expanded');
+      btn.textContent = '▲ 閉じる';
+      btn.setAttribute('aria-expanded', 'true');
+    }
   });
 }
 
@@ -5379,9 +5387,13 @@ function mergeKeepingDescription(lightItem) {
   return { ...lightItem, description: prevFull.description };
 }
 
+// BM-089: 子詳細モーダル(BT-366)と同じ考え方で、編集フォーム表示中は未保存の入力を
+// 壊さないよう再描画をスキップする。ボード全体やティッカー等(呼び出し元のws.message内の他処理)
+// は引き続き毎回更新されるため、ここで止まるのはこの1モーダルの表示だけ。
 function refreshModalIfOpen() {
   refreshChildModalIfOpen();
   if (!currentModalItemId || !modalEl || !modalEl.classList.contains('modal-visible')) return;
+  if (modalEl.querySelector('#edit-task-title')) return;
   const item = findItemById(currentModalItemId);
   if (item) renderModalContent(mergeKeepingDescription(item));
 }
@@ -5502,6 +5514,8 @@ function openChildModal(item, parentEpic = null) {
   // 失われるため、renderModalContentと同様に保存・復元する
   const prevScrollEl = body.querySelector('.detail-scroll-content');
   const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : null;
+  // BM-089: 説明欄「もっと見る」の展開状態も同様に保存・復元する（renderModalContentと同じ対策）
+  const prevDescExpanded = !!body.querySelector('.description-collapsible.expanded');
 
   const parentCrumbHtml = buildParentBreadcrumbHtml(resolveChildParent(item, parentEpic), item);
 
@@ -5672,8 +5686,8 @@ function openChildModal(item, parentEpic = null) {
 
   modal.classList.add('modal-visible');
 
-  // 説明欄の折りたたみトグル初期化（BT-080: 表示後でないとscrollHeightが取れない）
-  setupDescriptionToggle(body);
+  // 説明欄の折りたたみトグル初期化（BT-080: 表示後でないとscrollHeightが取れない。BM-089: 直前の展開状態を復元）
+  setupDescriptionToggle(body, { expanded: prevDescExpanded });
 }
 
 async function detachTask(taskId) {
@@ -6252,6 +6266,9 @@ function renderModalContent(item) {
   // ミニボードをスクロールしていた場合に先頭へ飛ばされるため、位置を保存・復元する
   const prevScrollEl = body.querySelector('.detail-scroll-content');
   const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : null;
+  // BM-089: 同様に、説明欄「もっと見る」で展開して読んでいる最中にWS再描画が走ると
+  // 折りたたみ状態に戻ってしまう(見た目上「閉じられた」ように感じる)ため、展開状態も保存・復元する
+  const prevDescExpanded = !!body.querySelector('.description-collapsible.expanded');
 
   const isEpic = item.children && item.children.length > 0;
   content.classList.toggle('modal-wide', isEpic);
@@ -6351,8 +6368,8 @@ function renderModalContent(item) {
     }
   }
 
-  // 説明欄の折りたたみトグル初期化（BT-080）
-  setupDescriptionToggle(body);
+  // 説明欄の折りたたみトグル初期化（BT-080。BM-089: 直前の展開状態を復元）
+  setupDescriptionToggle(body, { expanded: prevDescExpanded });
 
   // 「戻る」ボタンのイベント
   const backBtn = body.querySelector('#modal-back-btn');
