@@ -755,8 +755,8 @@ function getOrCreateGithubImportModal() {
       <button class="modal-close" id="github-import-close">&times;</button>
       <h3><span class="material-icon icon-link"></span> 外部チケット取り込み</h3>
       <div class="import-source-tabs" id="import-source-tabs" role="tablist">
-        <button type="button" class="import-source-tab active" data-source="github" role="tab" aria-selected="true">GitHub</button>
-        <button type="button" class="import-source-tab" data-source="redmine" role="tab" aria-selected="false">Redmine</button>
+        <button type="button" class="import-source-tab active" data-source="github" role="tab" aria-selected="true">${GITHUB_MARK_SVG}GitHub</button>
+        <button type="button" class="import-source-tab" data-source="redmine" role="tab" aria-selected="false">${REDMINE_MARK_SVG}Redmine</button>
       </div>
       <div class="import-source-panel" data-source-panel="github">
         <div class="github-import-toolbar">

@@ -1447,6 +1447,11 @@ body {
   display: block;
 }
 
+.github-import-btn .material-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .github-import-btn::after {
   content: '外部取り込み';
   margin-left: 4px;
@@ -2684,6 +2689,9 @@ body {
 }
 
 .import-source-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: none;
   background: transparent;
   color: var(--text-muted);
