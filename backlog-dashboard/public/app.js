@@ -194,6 +194,12 @@ function getUrlWorkspaceParam() {
   return params.get('workspace') || '';
 }
 
+// BM-066: ?id=BM-xxx で起動時に該当タスクの詳細を自動的に開くためのパラメータ読み取り。
+function getUrlTaskIdParam() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('id') || '';
+}
+
 function getSessionFilter() {
   return sessionStorage.getItem(WS_FILTER_KEY);
 }
@@ -2693,6 +2699,7 @@ function connect() {
       renderHeaderTicker(data.recentEvents);
       refreshModalIfOpen();
       refreshPlanBoardIfOpen();
+      openTaskFromUrlIfPresent(); // BM-066: ?id=BM-xxx での起動時オープン(内部で1回だけ実行)
     } catch (e) {
       console.error('[app] Failed to parse message:', e);
     }
@@ -5368,6 +5375,17 @@ function findChildItemById(id) {
   return null;
 }
 
+// BM-066: 子タスクIDから、それを含む親Epic itemを探す（URL起動時にEPIC＋ハイライトで開くため）
+function findParentEpicOfChildId(id) {
+  if (!currentBoardData) return null;
+  for (const col of currentBoardData.columns) {
+    for (const item of col.items) {
+      if ((item.children || []).some((c) => c.id === id)) return item;
+    }
+  }
+  return null;
+}
+
 // 最後にモーダルへ描画した完全なitem(description取得済み)をタスクIDで保持する。
 // BM-083: WebSocketのboard再送(他ユーザー/他タブの操作含む)でrefreshModalIfOpen/
 // refreshChildModalIfOpenが呼ばれるたびにfindItemById(軽量版、descriptionキー無し)で
@@ -5455,6 +5473,50 @@ async function loadFullDescriptionIfMissing(item, expectedModalItemId, rerender,
 function openEpicWithHighlight(epicItem, highlightTaskIds) {
   activityHighlightTaskIds = new Set(highlightTaskIds);
   openCardDetail(epicItem);
+}
+
+// BM-066: 起動時URL(?id=BM-xxx)で指定されたタスクの詳細を自動的に開く。
+// WS初回受信によるrenderBoard後に1回だけ呼ばれる想定(urlTaskOpenAttemptedで多重実行を防止)。
+// 子タスクが指定された場合は単体で開かず、親EpicをopenEpicWithHighlightで開いて
+// 該当カードをハイライトする(「親や兄弟も見たい」という利用シーンのため、BM-066合意事項)。
+let urlTaskOpenAttempted = false;
+
+async function openTaskFromUrlIfPresent() {
+  if (urlTaskOpenAttempted) return;
+  const taskId = getUrlTaskIdParam();
+  if (!taskId) return;
+  urlTaskOpenAttempted = true;
+
+  const topLevelItem = findItemById(taskId);
+  // BT-201/BT-240: 完了済み子タスクはDONE列にparentId付きの単独item(ミラー)としても
+  // 混在するため、通常のtop-level判定より先にparentIdの有無で子タスクかどうかを見分ける
+  // (見分けないと、完了済み子タスクだけ親Epicを経由せず単体モーダルで開いてしまう)
+  if (topLevelItem && topLevelItem.parentId) {
+    const parentEpic = findItemById(topLevelItem.parentId);
+    if (parentEpic) {
+      openEpicWithHighlight(parentEpic, [taskId]);
+      return;
+    }
+  }
+  if (topLevelItem) {
+    openCardDetail(topLevelItem);
+    return;
+  }
+
+  const parentEpic = findParentEpicOfChildId(taskId);
+  if (parentEpic) {
+    openEpicWithHighlight(parentEpic, [taskId]);
+    return;
+  }
+
+  // ボード上(currentBoardData)に見つからない場合の救済。削除済み・論理削除直後等で
+  // boardの再送に乗っていないケースを想定し、/api/task/:idを最後に1回だけ試す。
+  const full = await fetchTaskDetail(taskId);
+  if (!full) {
+    alert(`指定されたタスク（${taskId}）が見つかりませんでした。削除されたか、IDが間違っている可能性があります。`);
+    return;
+  }
+  openCardDetail(full);
 }
 
 function getOrCreateChildModal() {
