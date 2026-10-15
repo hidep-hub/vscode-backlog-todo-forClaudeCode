@@ -268,6 +268,22 @@ const THEME_PRESETS = {
   'dark-slate':    { label: 'Dark Slate', mode: 'dark', accent: '#94a3b8' },
 };
 
+// BT-417: Workspace Themeのカスタム色の見本。原色を避け、彩度を抑えてライト/ダーク両方で映える中間トーンで揃える
+const THEME_CUSTOM_SWATCHES = [
+  { name: 'ネイビー', value: '#3d5a80' },
+  { name: 'スレートブルー', value: '#5b7fa6' },
+  { name: 'ダスティティール', value: '#4f9a94' },
+  { name: 'シーグリーン', value: '#3f8f6b' },
+  { name: 'セージ', value: '#7a9e7e' },
+  { name: 'オリーブ', value: '#8a9a5b' },
+  { name: 'マスタード', value: '#c9a227' },
+  { name: 'テラコッタ', value: '#c8744f' },
+  { name: 'コーラル', value: '#e07a6b' },
+  { name: 'ダスティローズ', value: '#c76d84' },
+  { name: 'モーヴ', value: '#9b7bb3' },
+  { name: 'ラベンダー', value: '#8b8fd1' },
+];
+
 function mixColors(first, second, amount) {
   const hex = value => value.replace('#', '').match(/.{2}/g).map(part => parseInt(part, 16));
   const [r1, g1, b1] = hex(first); const [r2, g2, b2] = hex(second);
@@ -422,7 +438,18 @@ function renderWorkspaceThemeSettings(settings, workspace) {
     <button type="button" class="theme-preset${draft.preset === name ? ' is-selected' : ''}" data-preset="${name}" style="--preset-accent:${preset.accent}">
       <span class="theme-preset-swatch"></span>${preset.label}
     </button>`).join('') + `
-    <label class="theme-custom-color">Custom <input type="color" id="workspace-custom-accent" value="${draft.custom || '#38bdf8'}"></label>`;
+    <div class="theme-custom-color">
+      <span class="theme-custom-label">Custom</span>
+      <div class="theme-custom-swatches" role="group" aria-label="カスタム色の見本">${THEME_CUSTOM_SWATCHES.map(c => `
+        <button type="button" class="tag-swatch" data-custom="${c.value}" title="${c.name}" aria-label="${c.name}" aria-pressed="${(draft.custom || '').toLowerCase() === c.value}" style="background:${c.value}"></button>`).join('')}
+      </div>
+      <label class="theme-custom-picker" title="見本にない色を選ぶ">その他の色 <input type="color" id="workspace-custom-accent" value="${draft.custom || '#38bdf8'}"></label>
+    </div>`;
+  themePresetGridEl.querySelectorAll('[data-custom]').forEach(button => button.addEventListener('click', () => {
+    workspaceThemeDraft = { workspace, theme: { custom: button.dataset.custom, mode: systemMode() } };
+    renderWorkspaceThemeSettings(settings, workspace);
+    applyPalette(workspaceThemeDraft.theme); // 見本もピッカー同様、保存前にその場でプレビュー
+  }));
   themePresetGridEl.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => {
     workspaceThemeDraft = { workspace, theme: { preset: button.dataset.preset } };
     renderWorkspaceThemeSettings(settings, workspace);

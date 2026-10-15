@@ -325,8 +325,12 @@ body.dev-instance {
 .theme-preset, .theme-custom-color { align-items: center; background: var(--card); border: 1px solid var(--border); border-radius: 6px; color: var(--text); cursor: pointer; display: flex; font: inherit; font-size: .76rem; gap: 6px; min-width: 0; padding: 6px 7px; text-align: left; }
 .theme-preset:hover, .theme-preset.is-selected { border-color: var(--accent); background: var(--card-hover); }
 .theme-preset-swatch { background: var(--preset-accent); border-radius: 50%; flex: 0 0 12px; height: 12px; width: 12px; }
-.theme-custom-color { grid-column: span 2; justify-content: space-between; }
-.theme-custom-color input { border: 0; cursor: pointer; height: 22px; padding: 0; width: 32px; }
+.theme-custom-color { cursor: default; flex-wrap: wrap; gap: 8px; grid-column: span 2; }
+.theme-custom-label { font-weight: 600; width: 100%; }
+.theme-custom-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+/* .settings-group label/input (後方定義) に負けないよう .settings-group 配下で指定する */
+.settings-group .theme-custom-picker { align-items: center; color: var(--text-muted); cursor: pointer; display: inline-flex; font-weight: 400; gap: 6px; margin-bottom: 0; text-transform: none; letter-spacing: normal; }
+.settings-group .theme-custom-picker input { background: transparent; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; height: 28px; padding: 0; width: 34px; }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
