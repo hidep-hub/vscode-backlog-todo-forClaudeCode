@@ -183,16 +183,16 @@ function getOrCreateBackupModal() {
         <span class="backup-dir-label" id="backup-dir-label"></span>
         <button type="button" class="backup-modal-close" id="backup-modal-close" title="閉じる">&times;</button>
       </div>
-      <div class="backup-export-bar">
-        <span class="backup-export-title"><span class="material-icon icon-download"></span> CSVエクスポート</span>
-        <select class="backup-export-select" id="backup-export-select" aria-label="CSVに出力するワークスペース"></select>
-        <button type="button" class="backup-create-btn" id="backup-export-btn" title="選択したワークスペースのタスク一覧をCSVでダウンロードする">CSVをダウンロード</button>
-        <span class="backup-export-note">外部のガントチャート等へ転送する用のタスク一覧です（履歴は含みません。完全な保全は「新規バックアップ」を使います）。</span>
-      </div>
       <div class="backup-modal-body" id="backup-modal-body"><div class="backup-empty">読み込み中...</div></div>
       <div class="backup-modal-footer">
         バックアップには github-credentials.json（PAT）を含みます。フォルダを外部へコピーする際はご注意ください。
         日次7世代＋週次4世代を残し、それより古いものは作成時に自動で整理されます。
+      </div>
+      <div class="backup-export-bar">
+        <h3 class="backup-export-title"><span class="material-icon icon-download"></span> CSVエクスポート</h3>
+        <select class="backup-export-select" id="backup-export-select" aria-label="CSVに出力するワークスペース"></select>
+        <button type="button" class="backup-create-btn" id="backup-export-btn" title="選択したワークスペースのタスク一覧をCSVでダウンロードする">CSVをダウンロード</button>
+        <span class="backup-export-note">外部のガントチャート等へ転送する用のタスク一覧です（履歴は含みません。完全な保全は「新規バックアップ」を使います）。</span>
       </div>
     </div>
   `;

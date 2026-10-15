@@ -59,3 +59,13 @@ test('CSVエクスポートのURLは空なら全体、指定時はworkspaceを�
   assert.equal(buildCsvExportUrl('backlog-todo'), '/api/export-csv?workspace=backlog-todo');
   assert.equal(buildCsvExportUrl('a b&c'), '/api/export-csv?workspace=a%20b%26c');
 });
+
+test('モーダルはバックアップ区画(一覧→注意書き)の下にCSV区画が続き、CSV見出しはバックアップ見出しと同サイズ (BT-416)', () => {
+  const list = backupJs.indexOf('id="backup-modal-body"');
+  const note = backupJs.indexOf('backup-modal-footer');
+  const csv = backupJs.indexOf('class="backup-export-bar"');
+  assert.ok(list > 0 && note > list && csv > note, '一覧 → 注意書き → CSV欄の順');
+  assert.match(css, /\.backup-modal-header h3\s*\{[^}]*font-size:\s*1rem/);
+  assert.match(css, /\.backup-export-title\s*\{[^}]*font-size:\s*1rem/);
+  assert.match(css, /\.backup-modal-body\s*\{[^}]*height:\s*204px/, '一覧は4行分の固定高さ');
+});
