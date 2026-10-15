@@ -990,6 +990,179 @@ body {
   white-space: nowrap;
 }
 
+/* --- Board Lane Mode Toggle (BM-049) --- */
+.board-lane-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.board-lane-mode-btn:hover {
+  color: var(--text);
+  background: var(--card-hover);
+}
+.board-lane-mode-btn[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* --- Board Lane (BM-049: All Projects時のワークスペース別スイムレーン表示) --- */
+.board-lane {
+  margin-bottom: 14px;
+}
+.board-lane-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.board-lane-header:hover {
+  color: var(--accent);
+}
+.board-lane-toggle {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  width: 1em;
+  text-align: center;
+}
+.board-lane-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.board-lane-body {
+  padding-top: 8px;
+}
+.board-lane.is-collapsed .board-lane-header {
+  border-bottom-color: transparent;
+}
+
+/* BM-049: レーンヘッダーの件数バッジ(DO/READY/TODO/DONE)。畳んだ状態でも
+   件数が見えるよう常時表示する。4値を小さい丸バッジで並べ、カラム見出しの
+   並び順(DO/READY/TODO/DONE)に合わせる。 */
+.board-lane-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.board-lane-count-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4em;
+  padding: 1px 5px;
+  border-radius: 10px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--card);
+}
+.board-lane-count-do { color: #fff; background: var(--today-accent, #ff6b6b); }
+.board-lane-count-ready { color: #fff; background: var(--accent); }
+
+/* BM-049: 畳んだレーンでも「このワークスペースで今AIが動いている」ことが分かるよう、
+   フッターのrunning-stripと同系の見た目(スピナー+アイコン+ID)を縮小して出す。 */
+.board-lane-running {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.board-lane-running-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.board-lane-running-icon {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.board-lane-running-id {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* BM-096: レーンヘッダーの「開く」/「ワークスペースを作る」ボタンと、KIRO/CODE選択メニュー */
+.board-lane-launch-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.board-lane-launch-btn:hover {
+  color: var(--accent);
+  background: var(--card-hover);
+}
+.board-lane-launch-btn .material-icon {
+  width: 14px;
+  height: 14px;
+}
+.board-lane-launch-btn.is-launching {
+  opacity: 0.5;
+}
+.board-lane-launch-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+.board-lane-launch-menu-item {
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.board-lane-launch-menu-item:hover {
+  background: var(--border);
+}
+
 .ws-filter-trigger-arrow {
   flex-shrink: 0;
   font-size: 0.65rem;
@@ -1294,6 +1467,21 @@ body {
   min-height: 0;
   overflow: hidden;
   order: 1;
+}
+
+/* BM-049: レーン表示は縦に複数レーンを積む構成のため、.board自体をスクロールコンテナにする
+   (通常は内部のcolumn-bodyだけがスクロールし、.board自体は画面に固定している) */
+.board.lane-mode-active {
+  overflow-y: auto;
+}
+.board.lane-mode-active .column-body {
+  /* レーン内の各列は、カラム自体ではなく.boardのスクロールに合わせて伸びる方が自然なため、
+     高さの上限を外し内部スクロールを無効化する(多数のカードがあっても.board全体でスクロール) */
+  overflow-y: visible;
+  flex: none;
+}
+.board.lane-mode-active .column {
+  min-height: 0;
 }
 
 .board-columns {
