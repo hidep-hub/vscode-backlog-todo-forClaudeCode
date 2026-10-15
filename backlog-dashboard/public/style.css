@@ -1007,6 +1007,9 @@ body {
   cursor: pointer;
   white-space: nowrap;
 }
+.board-lane-mode-btn[hidden] {
+  display: none;
+}
 .board-lane-mode-btn:hover {
   color: var(--text);
   background: var(--card-hover);
