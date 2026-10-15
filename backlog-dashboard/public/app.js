@@ -19,6 +19,7 @@ const wsFilterWrapEl = document.getElementById('ws-filter-wrap');
 const wsFilterTriggerEl = document.getElementById('ws-filter-trigger');
 const wsFilterTriggerLabelEl = document.getElementById('ws-filter-trigger-label');
 const wsFilterMenuEl = document.getElementById('ws-filter-menu');
+const boardLaneModeBtnEl = document.getElementById('board-lane-mode-btn'); // BM-049: All Projects時のレーン/一枚ボード切替
 const searchBtn = document.getElementById('search-btn');
 const planBtn = document.getElementById('plan-btn');
 const themeSelectEl = document.getElementById('theme-select');
@@ -111,6 +112,17 @@ let todayFilterActive = localStorage.getItem('todayFilterActive') === 'true';
 let doneTodayOnly = localStorage.getItem('doneTodayOnly') === 'true'; // 完了カラム「本日完了だけ」表示（達成感モード）
 let modalParentEpic = null; // 子タスク詳細表示中の親Epic（戻る用）
 let expandedCols = new Set(); // 完了カラム等で「他N件」を展開表示中のカラムID
+// BM-049: All Projects時のかんばん表示モード。'lane' = ワークスペース別レーン表示、'flat' = 従来の横断ボード。
+// レーン表示が意味を持つのは currentFilter === '' の時だけ。
+let boardLaneMode = localStorage.getItem('boardLaneMode') || 'lane';
+// レーン表示で畳んでいるワークスペース名の集合。localStorageに永続化し、再読込後も畳み状態を保持する。
+let collapsedBoardLanes = new Set();
+try {
+  collapsedBoardLanes = new Set(JSON.parse(localStorage.getItem('collapsedBoardLanes') || '[]'));
+} catch { collapsedBoardLanes = new Set(); }
+function persistCollapsedBoardLanes() {
+  localStorage.setItem('collapsedBoardLanes', JSON.stringify([...collapsedBoardLanes]));
+}
 let expandedMiniCols = new Set(); // ミニボードの完了カラムで「他N件」展開中のカラムID
 let pendingHighlightChildId = null; // BT-201: 親Epicリンククリック直後、ミニボードでハイライトすべき子タスクID
 let workspaceFilterMap = null; // サーバーから取得: { workspaceKey -> projectName }
@@ -1853,6 +1865,65 @@ async function pollUpdateStatus() {
 pollUpdateStatus();
 setInterval(pollUpdateStatus, 2000); // 2秒おき。ロック解除を事故なく素早く反映したいための短い間隔
 
+// --- Board Lane Workspace Launch Menu (BM-096) ---
+// レーンヘッダーの「開く」ボタンをクリックした時、KIRO/CODEのどちらで開くか選ぶ小さいメニューを
+// そのボタンの直下に出す。badge-mode-menuと同じ「クリックでトグル、外側クリック/Escで閉じる」
+// パターンだが、ボタンがレーン数分動的に生成されるため、固定DOM1個の使い回しではなく
+// クリックされたボタンの近くに都度生成する。
+let boardLaneMenuEl = null;
+function closeBoardLaneWorkspaceMenu() {
+  if (boardLaneMenuEl) {
+    boardLaneMenuEl.remove();
+    boardLaneMenuEl = null;
+  }
+}
+function openBoardLaneWorkspaceMenu(btnEl, project) {
+  if (boardLaneMenuEl) { closeBoardLaneWorkspaceMenu(); return; }
+  const menu = document.createElement('div');
+  menu.className = 'board-lane-launch-menu';
+  menu.innerHTML = `
+    <button type="button" class="board-lane-launch-menu-item" data-editor="kiro">KIROで開く</button>
+    <button type="button" class="board-lane-launch-menu-item" data-editor="code">CODEで開く</button>
+  `;
+  menu.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const item = e.target.closest('.board-lane-launch-menu-item');
+    if (!item) return;
+    closeBoardLaneWorkspaceMenu();
+    await launchBoardLaneWorkspace(btnEl, project, item.dataset.editor);
+  });
+  btnEl.appendChild(menu);
+  boardLaneMenuEl = menu;
+}
+document.addEventListener('click', (e) => {
+  if (boardLaneMenuEl && !e.target.closest('.board-lane-launch-btn')) closeBoardLaneWorkspaceMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && boardLaneMenuEl) closeBoardLaneWorkspaceMenu();
+});
+
+async function launchBoardLaneWorkspace(btnEl, project, editor) {
+  btnEl.disabled = true;
+  btnEl.classList.add('is-launching');
+  try {
+    const resp = await fetch('/api/open-workspace-by-project', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, editor }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      alert(`ワークスペースを開けなかったよ: ${data.error || ''}`);
+    }
+  } catch (e) {
+    console.error('[board-lane-launch] Network error:', e);
+    alert('ネットワークエラーが発生したよ');
+  } finally {
+    btnEl.disabled = false;
+    btnEl.classList.remove('is-launching');
+  }
+}
+
 // --- Project Filter ---
 // メインボードの絞り込みを切り替える（ドロップダウン操作と、設定パネルでの保存の両方から使う）
 function applyMainFilter(project) {
@@ -1864,6 +1935,50 @@ function applyMainFilter(project) {
   if (currentBoardData) renderBoard(currentBoardData);
   refreshPlanBoardIfOpen(); // BM-036: Plan Board(週次計画/ガント)が開いていれば絞り込み結果を反映する
   if (typeof tickerShowsHeatmap === 'function' && tickerShowsHeatmap()) scheduleHeaderHeatmapRender(); // BT-382: ヘッダのヒートマップもワークスペースに連動
+}
+
+// --- Board Lane Mode (BM-049) ---
+// All Projects選択時だけ意味を持つ、かんばんの表示モード切替。
+// 'lane' = ワークスペース別レーン表示(デフォルト) / 'flat' = 従来の横断した一枚のボード。
+if (boardLaneModeBtnEl) {
+  boardLaneModeBtnEl.addEventListener('click', () => {
+    boardLaneMode = boardLaneMode === 'lane' ? 'flat' : 'lane';
+    localStorage.setItem('boardLaneMode', boardLaneMode);
+    if (currentBoardData) renderBoard(currentBoardData);
+  });
+}
+
+// All Projects選択時のみボタンを表示し、現在のモードをラベル・aria状態に反映する。
+function updateBoardLaneModeBtn() {
+  if (!boardLaneModeBtnEl) return;
+  const show = !currentFilter;
+  boardLaneModeBtnEl.hidden = !show;
+  if (!show) return;
+  const isLane = boardLaneMode === 'lane';
+  boardLaneModeBtnEl.textContent = isLane ? 'ワークスペース別' : '横断ボード';
+  boardLaneModeBtnEl.title = isLane
+    ? 'ワークスペースごとにレーン分けして表示中（クリックで横断した一枚のボードに切替）'
+    : '全ワークスペースを横断した一枚のボードを表示中（クリックでワークスペース別レーン表示に切替）';
+  boardLaneModeBtnEl.setAttribute('aria-pressed', String(isLane));
+}
+
+// レーンの並び順を決める: レーン内タスクのupdatedAt最大値が新しい順(直近更新のあるワークスペースが上)。
+// タスクが1件も無いワークスペースはレーンを出さない。
+function computeBoardLaneOrder(data) {
+  const latestByProject = new Map();
+  for (const col of data.columns) {
+    for (const item of col.items) {
+      if (!item.project) continue;
+      const ts = item.updatedAt || '';
+      const prev = latestByProject.get(item.project);
+      if (!prev || ts > prev) latestByProject.set(item.project, ts);
+    }
+  }
+  return [...latestByProject.keys()].sort((a, b) => {
+    const tsCmp = (latestByProject.get(b) || '').localeCompare(latestByProject.get(a) || '');
+    if (tsCmp !== 0) return tsCmp;
+    return a.localeCompare(b, 'ja', { sensitivity: 'base' });
+  });
 }
 
 // BM-029: ワークスペース絞り込みドロップダウン（列固定表示: 名前 + DO/READY/TODO件数）。
@@ -2756,54 +2871,38 @@ function renderBoard(data) {
   boardEl.innerHTML = '';
   renderRunningStrip(data);
   renderWorkspaceSummary(data);
-  const boardColumnsEl = document.createElement('div');
-  boardColumnsEl.className = 'board-columns';
-  boardEl.appendChild(boardColumnsEl);
 
   // 狭幅時サイドバー(BM-018)用: カラムごとの全件数(limit適用前)を集めておく
+  // BM-049: レーン表示中はnarrow railを無効化するため、この集計は一枚ボード表示時のみ使う。
   const railCounts = {};
   // BM-078: VS Code Simple Browser等のwebview環境では、appendChild直後は
   // レイアウトがまだ確定しておらずscrollTopの書き戻しが0にクランプされることがある。
   // 通常のブラウザでは起きないため、次フレームでの再書き戻しを保険として追加する。
   const columnBodyEls = {};
 
-  // プロジェクト別残タスクバッジ表示（クリックでフィルタ連携）
-  const badgesEl = document.getElementById('project-badges');
-  if (badgesEl && data.remainingByProject) {
-    // 描画中のボードデータを直接使う。WebSocket再接続や初回描画の順序に左右されず、
-    // URLで開いたワークスペースを確実に強調できる。
-    // BT-341: 集計対象はバッジ設定メニューで選んだモード。親に紐づく完了子の個別表示(parentIdあり)は除外する。
-    const badgeCodes = BADGE_MODES[badgeMode].codes;
-    const badgeCounts = {};
-    for (const col of data.columns) {
-      for (const item of col.items) {
-        if (item.parentId || !item.project || !badgeCodes.includes(item.statusCode)) continue;
-        badgeCounts[item.project] = (badgeCounts[item.project] || 0) + 1;
-      }
-    }
-    const entries = Object.entries(badgeCounts)
-      .filter(([, count]) => count > 0)
-      .sort((a, b) => b[1] - a[1]);
-    badgesEl.innerHTML = entries.map(([proj, count]) => {
-      const isActive = currentFilter === proj;
-      const isDimmed = !!currentFilter && !isActive;
-      const isCurrentWorkspace = isUrlWorkspaceProject(proj, data);
-      const cls = ['proj-badge', isActive ? 'active' : '', isDimmed ? 'dimmed' : '', isCurrentWorkspace ? 'workspace-context' : ''].filter(Boolean).join(' ');
-      return `<span class="${cls}" data-project="${escapeHtml(proj)}">${proj}<span class="proj-badge-count">${count}</span></span>`;
-    }).join('');
-  }
-
-  // BM-029: ワークスペース絞り込みドロップダウンの DO/READY/TODO 列を更新する。
-  // proj-badge と同じ考え方（親EPICは実効ステータスで1件、parentIdありの個別完了子表示は除外）。
+  // BM-029: ワークスペース絞り込みドロップダウンの DO/READY/TODO/DONE 件数を更新する。
+  // wsFilterCountsはレーンヘッダーの件数表示(BM-049)にも使う。
   renderWsFilterCounts(data);
 
-  for (const col of data.columns) {
+  // BM-049: All Projects選択時のみ、ワークスペース別レーン表示が意味を持つ。
+  const laneModeActive = !currentFilter && boardLaneMode === 'lane';
+  updateBoardLaneModeBtn();
+  const runningTasksAll = collectRunningTasks(data); // レーンヘッダーの実行中タスク表示に使う
+  // レーン表示は縦に複数レーンを積むため、.board自体を縦スクロールさせる(通常は内部の
+  // column-bodyだけがスクロールし、.boardはoverflow:hiddenで画面に固定している)。
+  boardEl.classList.toggle('lane-mode-active', laneModeActive);
+
+  // カラム1つ分のDOM（ヘッダー・カード一覧）を組み立てる。laneKeyを渡すとそのワークスペースの
+  // タスクだけに絞り込む（レーン表示用）。laneKey===nullは従来の一枚ボード/通常の絞り込み。
+  function buildBoardColumn(col, laneKey) {
     const fields = col.visibleFields || ['id', 'title', 'badge', 'project', 'category', 'completedDate'];
     const isCompact = col.compact || false;
 
     // フィルタ適用
     let items = col.items;
-    if (currentFilter) {
+    if (laneKey !== null) {
+      items = items.filter(item => item.project === laneKey);
+    } else if (currentFilter) {
       items = items.filter(item => item.project === currentFilter);
     }
     if (todayFilterActive) {
@@ -2841,8 +2940,12 @@ function renderBoard(data) {
 
     const colEl = document.createElement('div');
     colEl.className = 'column' + (isCompact ? ' column-compact' : '');
-    colEl.id = 'narrow-rail-target-' + col.id;
-    railCounts[col.id] = totalBeforeLimit;
+    // BM-049: レーン表示中は同じcol.idが複数回出現するため、id重複(無効なDOM)を避けて
+    // narrow-rail-target-*のidは一枚ボード表示時のみ付与する(narrow railもレーン表示中は無効化する)。
+    if (laneKey === null) {
+      colEl.id = 'narrow-rail-target-' + col.id;
+      railCounts[col.id] = totalBeforeLimit;
+    }
 
     // 完了カラム用「本日完了だけ」トグルチップ
     const doneTodayToggleHtml = isCompact
@@ -2875,7 +2978,7 @@ function renderBoard(data) {
     `;
 
     const body = colEl.querySelector('.column-body');
-    setupDropZone(body, col.id, col.match);
+    setupDropZone(body, col.id, col.match, laneKey);
 
     for (const item of items) {
       const card = document.createElement('div');
@@ -2886,8 +2989,8 @@ function renderBoard(data) {
 
       if (item.id && item.id !== '-') {
         card.dataset.taskId = item.id;
-        setupDragAndDrop(card, item, col.id);
-        setupParentDropTarget(card, item);
+        setupDragAndDrop(card, item, col.id, laneKey);
+        setupParentDropTarget(card, item, laneKey);
       }
 
       card.classList.add('card-clickable');
@@ -3031,10 +3134,112 @@ function renderBoard(data) {
       }
     }
 
-    boardColumnsEl.appendChild(colEl);
     // scrollTopはDOM接続後でないと反映されない(接続前は高さが確定せず0にクランプされる)
     if (scrollPositions[col.id] != null) body.scrollTop = scrollPositions[col.id];
     columnBodyEls[col.id] = body;
+
+    return colEl;
+  }
+
+  if (laneModeActive) {
+    // BM-049: ワークスペース別レーン表示。レーン1個=1ワークスペースで、中にTODO/READY/DO/DONEの
+    // 4列フルセットを持つ(添付イメージ構造)。レーンの並び順は、レーン内タスクのupdatedAt最大値が
+    // 新しい順(直近更新のあるワークスペースが上)。タスクが1件も無いワークスペースはレーンを出さない。
+    const laneNames = computeBoardLaneOrder(data);
+    for (const laneKey of laneNames) {
+      const collapsed = collapsedBoardLanes.has(laneKey);
+      const laneEl = document.createElement('section');
+      laneEl.className = 'board-lane' + (collapsed ? ' is-collapsed' : '');
+      const header = document.createElement('div');
+      header.className = 'board-lane-header';
+
+      // BM-049: 畳んだ状態でも状況が分かるよう、件数と実行中タスクをヘッダーに出す。
+      const c = wsFilterCounts[laneKey] || { do: 0, ready: 0, todo: 0, done: 0 };
+      const countsHtml = `<span class="board-lane-counts" title="DO ${c.do} / READY ${c.ready} / TODO ${c.todo} / DONE ${c.done}">
+        <span class="board-lane-count-item board-lane-count-do">${c.do}</span>
+        <span class="board-lane-count-item board-lane-count-ready">${c.ready}</span>
+        <span class="board-lane-count-item board-lane-count-todo">${c.todo}</span>
+        <span class="board-lane-count-item board-lane-count-done">${c.done}</span>
+      </span>`;
+
+      const laneRunning = runningTasksAll.filter(({ item }) => item.project === laneKey);
+      const runningHtml = laneRunning.length > 0
+        ? `<span class="board-lane-running">${laneRunning.map(({ item }) => {
+            const meta = runningAgentMeta(item.agentId || 'user');
+            return `<span class="board-lane-running-chip" title="${escapeHtml(meta.label)}: ${escapeHtml(item.title)}"><span class="running-spinner"></span><img class="board-lane-running-icon" src="${meta.icon}" alt="${escapeHtml(meta.label)}"><span class="board-lane-running-id">${escapeHtml(item.id)}</span></span>`;
+          }).join('')}</span>`
+        : '';
+
+      // BM-096: ワークスペースパス設定済みなら「開く」(KIRO/CODE選択メニュー)、
+      // 未設定(Inbox等)なら「ワークスペースを作る」導線を出す(タスク詳細モーダルと同じ分岐)。
+      const wsPath = (data.workspaceMap || {})[laneKey] || '';
+      const launchHtml = wsPath
+        ? `<button type="button" class="board-lane-launch-btn" data-lane="${escapeHtml(laneKey)}" title="ワークスペースを開く"><span class="material-icon icon-folder-open"></span></button>`
+        : `<button type="button" class="board-lane-launch-btn board-lane-launch-create" data-lane="${escapeHtml(laneKey)}" title="ワークスペースを作る"><span class="material-icon icon-construction"></span></button>`;
+
+      header.innerHTML = `<button type="button" class="board-lane-toggle" title="${collapsed ? '開く' : '畳む'}">${collapsed ? '▸' : '▾'}</button><span class="board-lane-title">${escapeHtml(laneKey)}</span>${launchHtml}${countsHtml}${runningHtml}`;
+      header.addEventListener('click', () => {
+        if (collapsedBoardLanes.has(laneKey)) collapsedBoardLanes.delete(laneKey); else collapsedBoardLanes.add(laneKey);
+        persistCollapsedBoardLanes();
+        renderBoard(lastBoardData);
+      });
+      const launchBtn = header.querySelector('.board-lane-launch-btn');
+      launchBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // ヘッダー自体のクリック(折りたたみ)に伝播させない
+        if (wsPath) {
+          openBoardLaneWorkspaceMenu(launchBtn, laneKey);
+        } else {
+          openSettingsPanel(NEW_WORKSPACE_VALUE); // 既存のタスク詳細モーダルと同じ「作る」導線に一本化
+        }
+      });
+      laneEl.appendChild(header);
+
+      if (!collapsed) {
+        const laneBody = document.createElement('div');
+        laneBody.className = 'board-lane-body';
+        const laneColumnsEl = document.createElement('div');
+        laneColumnsEl.className = 'board-columns';
+        for (const col of data.columns) {
+          laneColumnsEl.appendChild(buildBoardColumn(col, laneKey));
+        }
+        laneBody.appendChild(laneColumnsEl);
+        laneEl.appendChild(laneBody);
+      }
+      boardEl.appendChild(laneEl);
+    }
+  } else {
+    const boardColumnsEl = document.createElement('div');
+    boardColumnsEl.className = 'board-columns';
+    boardEl.appendChild(boardColumnsEl);
+    for (const col of data.columns) {
+      boardColumnsEl.appendChild(buildBoardColumn(col, null));
+    }
+  }
+
+  // プロジェクト別残タスクバッジ表示（クリックでフィルタ連携）
+  const badgesEl = document.getElementById('project-badges');
+  if (badgesEl && data.remainingByProject) {
+    // 描画中のボードデータを直接使う。WebSocket再接続や初回描画の順序に左右されず、
+    // URLで開いたワークスペースを確実に強調できる。
+    // BT-341: 集計対象はバッジ設定メニューで選んだモード。親に紐づく完了子の個別表示(parentIdあり)は除外する。
+    const badgeCodes = BADGE_MODES[badgeMode].codes;
+    const badgeCounts = {};
+    for (const col of data.columns) {
+      for (const item of col.items) {
+        if (item.parentId || !item.project || !badgeCodes.includes(item.statusCode)) continue;
+        badgeCounts[item.project] = (badgeCounts[item.project] || 0) + 1;
+      }
+    }
+    const entries = Object.entries(badgeCounts)
+      .filter(([, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1]);
+    badgesEl.innerHTML = entries.map(([proj, count]) => {
+      const isActive = currentFilter === proj;
+      const isDimmed = !!currentFilter && !isActive;
+      const isCurrentWorkspace = isUrlWorkspaceProject(proj, data);
+      const cls = ['proj-badge', isActive ? 'active' : '', isDimmed ? 'dimmed' : '', isCurrentWorkspace ? 'workspace-context' : ''].filter(Boolean).join(' ');
+      return `<span class="${cls}" data-project="${escapeHtml(proj)}">${proj}<span class="proj-badge-count">${count}</span></span>`;
+    }).join('');
   }
 
   // BM-078: webview環境向けの保険。次フレームでレイアウト確定後に再度書き戻す。
@@ -3164,7 +3369,13 @@ function renderBoard(data) {
   });
 
   updateSelectionBar();
-  renderNarrowRail(data.columns, railCounts);
+  // BM-049: レーン表示中は同じカラムIDが複数回出現し、narrow railのジャンプ先が一意に決まらないため無効化する。
+  if (laneModeActive) {
+    const railEl = document.getElementById('narrow-rail');
+    if (railEl) railEl.innerHTML = '';
+  } else {
+    renderNarrowRail(data.columns, railCounts);
+  }
 }
 
 // --- Narrow Rail (BM-018) ---
@@ -4068,7 +4279,10 @@ function setupDescriptionToggle(container) {
 // --- Drag & Drop ---
 let dragData = null;
 
-function setupDragAndDrop(card, item, colId) {
+// BM-049: レーン表示（ワークスペース別）中は、別レーン（別ワークスペース）への
+// ドラッグ移動・親子化を禁止する。laneKeyは通常モードでは常に同一値(null)にして、
+// 既存の「ワークスペース跨ぎの移動・親子化を許可する」挙動を変えない。
+function setupDragAndDrop(card, item, colId, laneKey = null) {
   card.setAttribute('draggable', 'true');
   card.classList.add('card-draggable');
 
@@ -4077,7 +4291,7 @@ function setupDragAndDrop(card, item, colId) {
     // 親子化できるドラッグ元にする。通常の列移動・並べ替えは全カードで維持する。
     // board APIでは子を持たないタスクのchildrenTotalはnullで返る。
     const canAttach = !item.parentId && !item.childrenTotal && item.statusCode !== 'done';
-    dragData = { id: item.id, sourceColId: colId, canAttach };
+    dragData = { id: item.id, sourceColId: colId, canAttach, lane: laneKey };
     card.classList.add('card-dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', item.id);
@@ -4093,11 +4307,12 @@ function setupDragAndDrop(card, item, colId) {
   });
 }
 
-function canDropAsChildOn(drag, parentItem) {
+function canDropAsChildOn(drag, parentItem, laneKey = null) {
   return !!drag?.canAttach
     && drag.id !== parentItem.id
     && !parentItem.parentId
-    && parentItem.statusCode !== 'done';
+    && parentItem.statusCode !== 'done'
+    && drag.lane === laneKey;
 }
 
 function clearParentDropHighlights() {
@@ -4106,9 +4321,9 @@ function clearParentDropHighlights() {
 
 // カード上へのドロップは列移動ではなく、ドラッグ元をこのカードの子にする操作。
 // 単独タスクを親にすると、そのままEPICとして扱える。
-function setupParentDropTarget(card, parentItem) {
+function setupParentDropTarget(card, parentItem, laneKey = null) {
   card.addEventListener('dragover', (e) => {
-    if (!canDropAsChildOn(dragData, parentItem)) return;
+    if (!canDropAsChildOn(dragData, parentItem, laneKey)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
@@ -4121,7 +4336,7 @@ function setupParentDropTarget(card, parentItem) {
   });
 
   card.addEventListener('drop', async (e) => {
-    if (!canDropAsChildOn(dragData, parentItem)) return;
+    if (!canDropAsChildOn(dragData, parentItem, laneKey)) return;
     e.preventDefault();
     e.stopPropagation();
     const childId = dragData.id;
@@ -4131,13 +4346,13 @@ function setupParentDropTarget(card, parentItem) {
   });
 }
 
-function setupDropZone(bodyEl, colId, colMatch) {
+function setupDropZone(bodyEl, colId, colMatch, laneKey = null) {
   let lastDropTarget = { card: null, position: 'below' }; // dragoverで計算した最後のターゲットを保持
 
   bodyEl.addEventListener('dragover', (e) => {
+    if (!dragData || dragData.lane !== laneKey) return; // BM-049: 別レーンへのドロップは禁止
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    if (!dragData) return;
 
     // 同一カラムでも別カラムでもドロップ位置インジケータを表示
     const target = getDropTarget(bodyEl, e.clientY);
@@ -4160,11 +4375,10 @@ function setupDropZone(bodyEl, colId, colMatch) {
   });
 
   bodyEl.addEventListener('drop', (e) => {
+    if (!dragData || dragData.lane !== laneKey) return; // BM-049: 別レーンへのドロップは禁止
     e.preventDefault();
     bodyEl.classList.remove('drop-over');
     clearDropIndicators(bodyEl);
-
-    if (!dragData) return;
 
     // dragoverで記憶した位置を使う（drop時のclientYはブラウザで不安定なため）
     const target = lastDropTarget;

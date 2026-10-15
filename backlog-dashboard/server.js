@@ -308,6 +308,32 @@ function openWorkspace(taskId, editor) {
   return { success: true, workspace: project.workspace };
 }
 
+// BM-096: かんばんのワークスペース別レーン表示(BM-049)のヘッダーから、特定タスクを介さず
+// プロジェクト名(item.project、config.projects[].name)で直接ワークスペースを開く。
+// openWorkspace()と検証ロジックを共有し、taskId解決の部分だけプロジェクト名検索に替える。
+function openWorkspaceByProject(projectName, editor) {
+  const editorCommand = editor || 'code';
+  if (!SUPPORTED_EDITORS.includes(editorCommand)) {
+    return { success: false, error: `Unsupported editor: ${editorCommand}` };
+  }
+  const project = (config.projects || []).find(p => p.name === projectName);
+  if (!project) {
+    return { success: false, error: `Project not found: "${projectName}"` };
+  }
+  if (!project.workspace) {
+    return { success: false, error: `Project "${project.name}" has no workspace path configured` };
+  }
+  if (!SAFE_WORKSPACE_PATH.test(project.workspace)) {
+    return { success: false, error: `Workspace path contains unsupported characters: ${project.workspace}` };
+  }
+  if (!fs.existsSync(project.workspace)) {
+    return { success: false, error: `Workspace path does not exist: ${project.workspace}` };
+  }
+
+  spawnEditor(editorCommand, project.workspace);
+  return { success: true, workspace: project.workspace };
+}
+
 // ============================================================
 // Workspace Creation API (BT-051)
 // ============================================================
@@ -1639,6 +1665,30 @@ function serveStatic(req, res) {
         return;
       }
       const result = openWorkspace(taskId, editor);
+      if (result.success) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, workspace: result.workspace }));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: result.error }));
+      }
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: POST /api/open-workspace-by-project (BM-096: かんばんのレーンヘッダーから、
+  // タスクを介さずプロジェクト名だけでワークスペースを開く)
+  if (req.url === '/api/open-workspace-by-project' && req.method === 'POST') {
+    readRequestBody(req).then(({ project, editor }) => {
+      if (!project) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'project is required' }));
+        return;
+      }
+      const result = openWorkspaceByProject(project, editor);
       if (result.success) {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ ok: true, workspace: result.workspace }));
