@@ -183,6 +183,16 @@
               <button id="settings-redmine-save">保存</button>
             </div>
           </div>
+          <div class="settings-group settings-group-github settings-group-redmine">
+            <label>GitLab連携（ワークスペース単位。トークンはホスト単位で共有）</label>
+            <input type="text" id="settings-gitlab-project-url" placeholder="https://host/group/project">
+            <input type="password" id="settings-gitlab-token" placeholder="トークンを入力（未入力なら既存を保持）">
+            <p class="settings-github-hint" id="settings-gitlab-hint">Personal Access Tokenはread_apiスコープだけのものを推奨します。同じGitLabホストなら他のワークスペースでも共有されます</p>
+            <div class="settings-github-footer">
+              <span id="settings-gitlab-status"></span>
+              <button id="settings-gitlab-save">保存</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

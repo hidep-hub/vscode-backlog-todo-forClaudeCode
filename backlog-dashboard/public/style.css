@@ -2818,6 +2818,18 @@ body {
   color: var(--text);
 }
 
+/* BM-074: GitLabタブの「一覧を出す」はワークスペース未選択時にdisabledになる(GitHubの
+   「Issueを取得」と同じ考え方)。他の通常ボタンはhover以外の状態差が無いため、ここで追加する */
+.github-import-toolbar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.github-import-toolbar button:disabled:hover {
+  background: none;
+  color: var(--text-muted);
+}
+
 .github-import-filter {
   display: flex;
   align-items: center;
@@ -2935,13 +2947,15 @@ body {
 }
 
 .github-issue-checkbox,
-.redmine-issue-checkbox {
+.redmine-issue-checkbox,
+.gitlab-issue-checkbox {
   cursor: pointer;
   margin: 0;
 }
 
 .github-issue-checkbox:disabled,
-.redmine-issue-checkbox:disabled {
+.redmine-issue-checkbox:disabled,
+.gitlab-issue-checkbox:disabled {
   cursor: not-allowed;
 }
 
@@ -2965,12 +2979,16 @@ body {
   border-top: 1px solid var(--border);
 }
 
-#github-import-selected-count {
+#github-import-selected-count,
+#redmine-import-selected-count,
+#gitlab-import-selected-count {
   font-size: 0.75rem;
   color: var(--text-muted);
 }
 
-#github-import-execute-btn {
+#github-import-execute-btn,
+#redmine-import-execute-btn,
+#gitlab-import-execute-btn {
   padding: 6px 16px;
   border-radius: 6px;
   border: none;
@@ -2982,11 +3000,15 @@ body {
   transition: opacity 0.15s;
 }
 
-#github-import-execute-btn:hover:not(:disabled) {
+#github-import-execute-btn:hover:not(:disabled),
+#redmine-import-execute-btn:hover:not(:disabled),
+#gitlab-import-execute-btn:hover:not(:disabled) {
   opacity: 0.85;
 }
 
-#github-import-execute-btn:disabled {
+#github-import-execute-btn:disabled,
+#redmine-import-execute-btn:disabled,
+#gitlab-import-execute-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
@@ -3024,6 +3046,18 @@ body {
 .redmine-import-load-more:hover {
   background: var(--card);
   color: var(--text);
+}
+
+/* --- GitLab issue取り込みタブ (BM-074) --- */
+.gitlab-mark-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.card-tag.gitlab-issue-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
 /* --- Mini Kanban Board (inside modal) --- */
@@ -3194,7 +3228,8 @@ body {
   cursor: not-allowed;
 }
 
-/* BM-073: GitHub欄の下にRedmine欄を足す。見出し間に区切りの空きを作る */
+/* BM-073/BM-074: GitHub欄の下にRedmine/GitLab欄を足す。見出し間に区切りの空きを作る。
+   どちらも同じクラス(.settings-group-redmine)を併用するため、GitLab欄にも同じ余白が付く */
 .settings-group-redmine {
   margin-top: 20px;
   padding-top: 16px;
@@ -3337,7 +3372,8 @@ body {
 }
 
 #settings-github-save,
-#settings-redmine-save {
+#settings-redmine-save,
+#settings-gitlab-save {
   padding: 6px 16px;
   border-radius: 6px;
   border: none;
@@ -3351,18 +3387,21 @@ body {
 }
 
 #settings-github-save:hover,
-#settings-redmine-save:hover {
+#settings-redmine-save:hover,
+#settings-gitlab-save:hover {
   opacity: 0.85;
 }
 
-/* BM-073: Redmine欄のステータス表示。エラー時は赤文字にする(error修飾クラス) */
-#settings-redmine-status {
+/* BM-073/BM-074: Redmine/GitLab欄のステータス表示。エラー時は赤文字にする(error修飾クラス) */
+#settings-redmine-status,
+#settings-gitlab-status {
   font-size: 0.75rem;
   color: var(--text-muted);
 }
 
 #settings-github-status.is-error,
-#settings-redmine-status.is-error {
+#settings-redmine-status.is-error,
+#settings-gitlab-status.is-error {
   color: var(--btn-danger-fg);
 }
 
