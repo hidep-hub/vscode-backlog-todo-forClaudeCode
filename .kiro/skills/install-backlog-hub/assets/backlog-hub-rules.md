@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.8.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.9.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## ルール正本と配布方式
 
@@ -77,10 +77,15 @@ AGENTS.md.sample（Git管理の唯一の正本）
     - **AIがタグを付ける・作る場合の作法**: 付与の前に`GET /api/tags`で既存タグを確認し、似た名前があれば新規作成せず既存タグを使う。新規作成が必要な場合も、自己判断で`confirmSimilar:true`を付けず、ユーザーに確認してから行う
   - **外部ITS連携（BM-071、API 2.6.0）**: GitHub以外の外部チケット（Redmine/GitLab）とタスクの紐づけ。`GET /api/board`・`GET /api/task/:id`のitem（子にも）に`externalLinks: [{source, key, url, projectRef}]`が付く。**GitHub分は従来どおり`githubIssueNumber`/`githubIssueUrl`で、`externalLinks`には含まれない**。1タスクにつきsourceごとに1件まで
     - 設定API: `GET /api/its-settings?prefix=XX`（`prefix`は`projects[].prefix`）/ `POST /api/its-settings {prefix, source, projectUrl?, token?}` / `GET /api/its-host-status?source=&url=`。**トークンは秘密情報のため、AIは扱わない（設定の入力・参照・ログ出力をしない）。設定はユーザーがUIで行う**
-  - **Redmine取り込み（BM-072、API 2.7.0）**: 外部への書き戻しはしない読み取り専用の取り込み。GitLabは未対応（`source:"gitlab"`は400）
-    - `GET /api/its-meta?prefix=&source=redmine`（プロジェクト名・トラッカー一覧）/ `GET /api/its-preview?prefix=&source=redmine&trackerId=&status=open|all&offset=0`（1回最大500件。各issueの`alreadyImported`で取込済みか分かる。`nextOffset`が`null`でなければ続きがある）/ `POST /api/its-import {prefix, source:"redmine", keys:[...]}` → `{ok, added, skipped, errors}`
+  - **Redmine取り込み（BM-072、API 2.7.0）**: 外部への書き戻しはしない読み取り専用の取り込み
+    - `GET /api/its-meta?prefix=&source=redmine`（プロジェクト名・トラッカー一覧。**Redmine専用**。GitLabにはトラッカーの概念が無いため`source=gitlab`は400）/ `GET /api/its-preview?prefix=&source=redmine&trackerId=&status=open|all&offset=0`（1回最大500件。各issueの`alreadyImported`で取込済みか分かる。`nextOffset`が`null`でなければ続きがある）/ `POST /api/its-import {prefix, source:"redmine", keys:[...]}` → `{ok, added, skipped, errors}`
     - 取り込む項目は件名・説明・開始日・期日で、ステータスは`todo`固定。取込済みのチケットは`skipped`になる。取得した一覧の中だけ`parent`で親子化し、親子は2階層まで（3階層目は平坦化される）。連携未設定は400、Redmine側の失敗は502
     - **AIが取り込む場合の作法**: 取り込みはタスクを大量に作る操作のため、先に`its-preview`で対象を確認してユーザーに示し、承認を得てから`its-import`を実行する
+  - **GitLab取り込み（BM-074、API 2.9.0）**: Redmineと同じ`its-preview`/`its-import`に`source:"gitlab"`で合流。外部への書き戻しはしない読み取り専用の取り込み
+    - `GET /api/its-preview?prefix=&source=gitlab&status=open|all&offset=0` — GitLabには「トラッカー」「親子構造」の概念が無いため、`trackerId`は不要でフラットな一覧のみ（`parentKey`/`childKeys`は常に空）。取得した各issueの`dueDate`は`due_date`のみ（開始日フィールドは無いため`startDate`は常に`null`）。全件数`total`はGitLabの`x-total`ヘッダーが取れない場合`null`になる（「全件数不明」。続きの有無はGitLab側の`x-next-page`ヘッダーで判定するため`nextOffset`は正しく機能する）
+    - `POST /api/its-import {prefix, source:"gitlab", keys:[...]}` → `{ok, added, skipped, errors}`。階層化しないため、選択したissueはすべてトップレベルのタスクとして作成される
+    - `its-meta`はRedmine専用のため、GitLabでは呼ばない（呼ぶと400）
+    - **AIが取り込む場合の作法**: Redmineと同じく、先に`its-preview`で対象を確認してユーザーに示し、承認を得てから`its-import`を実行する
   - **タスク一覧のCSVエクスポート（BT-221、API 2.8.0）**: `GET /api/export-csv?workspace=<projects[].file>` — 外部のガントチャート等へ転送するためのCSVをダウンロード形式（`Content-Disposition: attachment`、BOM付きUTF-8）で返す。読み取り専用で、バックアップ中の全体ロック（409）の対象外。`workspace`省略で全ワークスペース、未登録の`workspace`は400（`unknown_workspace`）
     - 1行1タスクで、EPICの直後にその子が続く。列は`workspace, id, parent_id, type, board_order, title, status, assignee, start_date, due_date, completed_at, tags, category, description, description_truncated, deliverables, its_source, its_issue, its_url`。`workspace`は常に先頭、`board_order`はボード上の並び順（親ごと。トップレベルは同じ実効ステータス内）、`deliverables`はパスではなくファイル名のみ
     - 論理削除済みは含まない。履歴（`task_events`）は含めない（完全な保全は`/api/backup`で行う）。説明欄は3万文字超で切り詰め`description_truncated=1`になる。応答ヘッダ`X-Export-Row-Count`/`X-Export-Truncated-Count`で件数を確認できる。画面からはバックアップのモーダル内「CSVエクスポート」欄で取得できる
