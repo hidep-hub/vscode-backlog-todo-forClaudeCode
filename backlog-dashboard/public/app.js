@@ -858,7 +858,7 @@ function getOrCreateGithubImportModal() {
             <label class="github-import-filter"><input type="checkbox" id="github-import-filter-closed" checked><span id="github-import-filter-closed-label">closedを隠す</span></label>
             <label class="github-import-filter"><input type="checkbox" id="github-import-filter-imported" checked><span id="github-import-filter-imported-label">取込済みを隠す</span></label>
           </span>
-          <button id="github-import-settings-btn" title="GitHub連携設定"><span class="material-icon icon-settings"></span> GitHub設定</button>
+          <button id="github-import-settings-btn" class="import-settings-btn" title="GitHub連携設定"><span class="material-icon icon-settings"></span> GitHub設定</button>
         </div>
         <div class="github-import-body" id="github-import-body">
           <p class="github-import-placeholder">プロジェクトを選択してください。</p>
@@ -876,9 +876,11 @@ function getOrCreateGithubImportModal() {
             <option value="open">未完了のみ</option>
             <option value="all">すべて</option>
           </select>
-          <button id="redmine-import-list-btn" hidden>一覧を出す</button>
-          <span class="github-import-total-count" id="redmine-import-total-count"></span>
-          <button id="redmine-import-settings-btn" title="Redmine連携設定"><span class="material-icon icon-settings"></span> Redmine設定</button>
+          <button id="redmine-import-list-btn" class="import-primary-btn" disabled>一覧を出す</button>
+          <span class="github-import-result-tools" id="redmine-import-result-tools">
+            <span class="github-import-total-count" id="redmine-import-total-count"></span>
+          </span>
+          <button id="redmine-import-settings-btn" class="import-settings-btn" title="Redmine連携設定"><span class="material-icon icon-settings"></span> Redmine設定</button>
         </div>
         <div class="github-import-body" id="redmine-import-body">
           <p class="github-import-placeholder">ワークスペースを選択してください。</p>
@@ -895,9 +897,11 @@ function getOrCreateGithubImportModal() {
             <option value="open">未完了のみ</option>
             <option value="all">すべて</option>
           </select>
-          <button id="gitlab-import-list-btn" disabled>一覧を出す</button>
-          <span class="github-import-total-count" id="gitlab-import-total-count"></span>
-          <button id="gitlab-import-settings-btn" title="GitLab連携設定"><span class="material-icon icon-settings"></span> GitLab設定</button>
+          <button id="gitlab-import-list-btn" class="import-primary-btn" disabled>一覧を出す</button>
+          <span class="github-import-result-tools" id="gitlab-import-result-tools">
+            <span class="github-import-total-count" id="gitlab-import-total-count"></span>
+          </span>
+          <button id="gitlab-import-settings-btn" class="import-settings-btn" title="GitLab連携設定"><span class="material-icon icon-settings"></span> GitLab設定</button>
         </div>
         <div class="github-import-body" id="gitlab-import-body">
           <p class="github-import-placeholder">ワークスペースを選択してください。</p>
@@ -944,11 +948,18 @@ function getOrCreateGithubImportModal() {
     openSettingsPanel(Object.keys(prefixMap).find(name => prefixMap[name] === prefix) || '');
   });
   githubImportEl.querySelector('#redmine-import-project').addEventListener('change', onRedmineImportProjectChange);
-  githubImportEl.querySelector('#redmine-import-tracker').addEventListener('change', updateRedmineImportListButtonState);
+  githubImportEl.querySelector('#redmine-import-tracker').addEventListener('change', () => {
+    const els = redmineImportEls();
+    saveRedmineLastTracker(els.project.value, els.tracker.value); // BM-099: 選んだトラッカーを記憶
+    updateRedmineImportListButtonState();
+  });
   githubImportEl.querySelector('#redmine-import-list-btn').addEventListener('click', () => loadRedmineImportList({ reset: true }));
   githubImportEl.querySelector('#redmine-import-body').addEventListener('click', (e) => {
     if (e.target.closest('#redmine-import-load-more-btn')) loadRedmineImportList({ reset: false });
   });
+  // BM-099: 件名ホバーで説明欄をツールチップ表示(ガントの.gantt-tipと同じ見た目を流用)
+  githubImportEl.querySelector('#redmine-import-body').addEventListener('mouseover', onImportTitleMouseOver);
+  githubImportEl.querySelector('#redmine-import-body').addEventListener('mouseout', onImportTitleMouseOut);
   githubImportEl.querySelector('#redmine-import-body').addEventListener('change', (e) => {
     if (!e.target.classList.contains('redmine-issue-checkbox')) return;
     // BM-069決定事項: 親を選ぶと、読み込み済みの子も自動で取り込み対象に含める
@@ -983,11 +994,23 @@ function getOrCreateGithubImportModal() {
   });
   githubImportEl.querySelector('#gitlab-import-execute-btn').addEventListener('click', executeGitlabImport);
 
+  // BM-099: 列幅のドラッグ/ダブルクリック(ガントの.gantt-resizerと同じ操作感)。
+  // モーダル単位で1回配線すれば、GitHub/Redmine/GitLab 3タブの.import-tableすべてに効く
+  githubImportEl.addEventListener('pointerdown', (e) => {
+    const resizer = e.target.closest('.import-resizer');
+    if (resizer && e.button === 0) beginImportColResize(e, resizer);
+  });
+  githubImportEl.addEventListener('dblclick', (e) => {
+    const resizer = e.target.closest('.import-resizer');
+    if (resizer) autoFitImportColWidth(resizer);
+  });
+
   return githubImportEl;
 }
 
 function closeGithubImportModal() {
   if (githubImportEl) githubImportEl.classList.remove('modal-visible');
+  hideImportTip(); // BM-099: モーダルを閉じてもツールチップが残らないようにする
 }
 
 // BM-073: GitHub/Redmineタブの表示切り替え。パネルのhidden属性とタブのactiveクラスだけを操作し、
@@ -1016,7 +1039,12 @@ function importLoadingHtml(message) {
 // BT-415: 取り込み一覧(GitHub/Redmine共通)は、列見出し+1チケット1行のテーブル表示にする。
 // 列は {key, label, width}。widthはCSSのgrid-template-columnsにそのまま渡す。
 const IMPORT_COL_CHECK = { key: 'check', label: '', width: '28px' };
-const IMPORT_COL_TITLE = { key: 'title', label: 'タイトル', width: 'minmax(0, 1fr)' };
+// BM-099追補(ヒデさんフィードバック): タイトルは元々flex(minmax(0,1fr))で残りスペースを吸収する
+// 列だったため、他の列(担当など)を広げるとタイトルが連動して縮み、結果的に境界線の見た目の
+// 位置がドラッグ方向と逆に動く(ように見える)現象が起きていた。タイトルも他列と同じ「固定幅+
+// ドラッグでリサイズ可能」な列にすることで、掴んだ列だけが変わる単純な操作に揃える
+// (テーブル全体の横幅は.import-tableのmin-widthで確保し、広がった分は横スクロールで吸収する)。
+const IMPORT_COL_TITLE = { key: 'title', label: 'タイトル', width: '380px' };
 const IMPORT_COLS_GITHUB = [
   IMPORT_COL_CHECK,
   { key: 'id', label: '#', width: '64px' },
@@ -1024,10 +1052,13 @@ const IMPORT_COLS_GITHUB = [
   { key: 'state', label: '状態', width: '72px' },
   { key: 'imported', label: '取込済み', width: '120px' },
 ];
+// BM-099: 件名だけだと分かりにくいため、担当・バージョンの列を追加
 const IMPORT_COLS_REDMINE = [
   IMPORT_COL_CHECK,
   { key: 'id', label: '#', width: '64px' },
   IMPORT_COL_TITLE,
+  { key: 'assignee', label: '担当', width: '96px' },
+  { key: 'version', label: 'バージョン', width: '110px' },
   { key: 'state', label: 'ステータス', width: '104px' },
   { key: 'due', label: '期日', width: '92px' },
   { key: 'imported', label: '取込済み', width: '120px' },
@@ -1042,10 +1073,101 @@ const IMPORT_COLS_GITLAB = [
   { key: 'imported', label: '取込済み', width: '120px' },
 ];
 
+// BM-099: 列幅はドラッグ/ダブルクリックで調整できる(ガントの.gantt-resizerと同じ操作感)。
+// 列キー単位でlocalStorageに保持するため、GitHub/Redmine/GitLab 3タブで同じキー(id/state/due/imported等)
+// は幅を共有し、タブ切り替え・次回起動後も引き継がれる。check/title列は対象外(固定幅/flex)。
+const IMPORT_COL_W_MIN = 40;
+const IMPORT_COL_W_MAX = 400;
+
+function loadImportColWidths() {
+  try {
+    const raw = localStorage.getItem('importColWidths');
+    if (raw) return JSON.parse(raw) || {};
+  } catch { /* 無視 */ }
+  return {};
+}
+let importColWidths = loadImportColWidths();
+function saveImportColWidths() {
+  try { localStorage.setItem('importColWidths', JSON.stringify(importColWidths)); } catch { /* 無視 */ }
+}
+
+function resolveImportColWidth(col) {
+  if (col.key === 'check') return col.width;
+  const saved = importColWidths[col.key];
+  return saved ? `${saved}px` : col.width;
+}
+
 function renderImportTable(cols, rowsHtml) {
-  const head = cols.map((c) => `<span class="import-cell import-cell-${c.key}">${c.label}</span>`).join('');
-  return `<div class="import-table" style="--import-cols:${cols.map((c) => c.width).join(' ')}">` +
+  const widths = cols.map((c) => resolveImportColWidth(c));
+  const isResizable = (c) => c.key !== 'check';
+  const head = cols.map((c) => {
+    if (!isResizable(c)) return `<span class="import-cell import-cell-${c.key}">${c.label}</span>`;
+    const title = 'ドラッグで列幅を変更（ダブルクリックで内容に合わせる）';
+    // BM-099追補2回目(ヒデさんフィードバック): 「左端の境界線を動かす」設計は、タイトルのような
+    // 固定幅列を間に挟むと「見た目の境界線の位置」と「実際に動く境界線」がズレて逆転して見える
+    // (左端は前の列の幅で決まり、ドラッグしても動かない。実際に動くのは右側のもう1本先の境界)。
+    // Excelと同じ「列の右端の境界線=その列自身の右端」に統一する。これなら境界線は常に
+    // ドラッグ対象の列自身の端そのものなので、見た目の位置とマウスの動きが必ず一致する。
+    // タイトルも固定幅のリサイズ対象列にしたため、全列が自分の右端リサイザーを持つだけで
+    // check以外のすべての境界線が1本ずつ埋まる(「タイトルの左に境界が無い」問題も、
+    // idの右端リサイザーがその場所を担うことで自動的に解消する)。
+    return `<span class="import-cell import-cell-${c.key}"><span class="import-head-label">${c.label}</span><i class="import-resizer" data-col-key="${c.key}" title="${title}"></i></span>`;
+  }).join('');
+  // 幅の再構築に必要な列定義(key, デフォルトwidth)をDOMに持たせる(再描画後もリサイズ処理から参照できるように)
+  const colsMeta = JSON.stringify(cols.map((c) => ({ key: c.key, width: c.width }))).replace(/'/g, '&#39;');
+  return `<div class="import-table" data-cols='${colsMeta}' style="--import-cols:${widths.join(' ')}">` +
     `<div class="import-row import-row-head">${head}</div>${rowsHtml}</div>`;
+}
+
+// table要素の--import-colsを、overrideKeyの列だけoverridePxに差し替えて再構築する。
+// (他の列はresolveImportColWidthで現在の保存値/デフォルトを使う。minmax(0,1fr)のtitle列は
+// スペースを含むため単純なsplit(' ')では復元できず、data-colsのJSON定義から組み直す)
+function rebuildImportColsVar(table, overrideKey, overridePx) {
+  let colsMeta;
+  try { colsMeta = JSON.parse(table.dataset.cols || '[]'); } catch { return; }
+  const widths = colsMeta.map((c) => (c.key === overrideKey ? `${Math.round(overridePx)}px` : resolveImportColWidth(c)));
+  table.style.setProperty('--import-cols', widths.join(' '));
+}
+
+// Excelの列幅調整と同じ操作感: 列の左端の境界線をドラッグした方向に、その列自身が伸び縮みする
+function beginImportColResize(e, resizer) {
+  e.preventDefault();
+  const colKey = resizer.dataset.colKey;
+  const table = resizer.closest('.import-table');
+  const cell = resizer.closest('.import-cell');
+  if (!table || !cell) return;
+  hideImportTip();
+  const x0 = e.clientX;
+  const w0 = cell.getBoundingClientRect().width;
+  const move = (ev) => {
+    const w = Math.max(IMPORT_COL_W_MIN, Math.min(IMPORT_COL_W_MAX, w0 + (ev.clientX - x0)));
+    rebuildImportColsVar(table, colKey, w);
+  };
+  const up = () => {
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    document.body.classList.remove('gantt-resizing');
+    importColWidths[colKey] = Math.round(cell.getBoundingClientRect().width);
+    saveImportColWidths();
+  };
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', up);
+  document.body.classList.add('gantt-resizing');
+}
+
+// ガントのautoFitLabelWidthと同じ操作感: ダブルクリックで、表示中の内容に収まる最大幅へ自動調整する
+function autoFitImportColWidth(resizer) {
+  const colKey = resizer.dataset.colKey;
+  const table = resizer.closest('.import-table');
+  if (!table || !colKey) return;
+  const cells = [...table.querySelectorAll(`.import-cell-${colKey}`)];
+  if (!cells.length) return;
+  let need = 0;
+  for (const c of cells) need = Math.max(need, c.scrollWidth);
+  const w = Math.max(IMPORT_COL_W_MIN, Math.min(IMPORT_COL_W_MAX, need + 4));
+  importColWidths[colKey] = w;
+  saveImportColWidths();
+  rebuildImportColsVar(table, colKey, w);
 }
 
 // cells: [[colKey, html, titleAttr?], ...]。子行は.import-row-child(直前の親行の続きに並べる)
@@ -1329,6 +1451,22 @@ function resetRedmineImportState() {
 
 let redmineTrackersLoadedPrefix = ''; // BT-415: トラッカー取得済みのワークスペースprefix(空=未取得)
 
+// BM-099: 最後に選んだトラッカーをワークスペース(prefix)単位で覚える(ヒデさんフィードバック)。
+// ワークスペースを切り替えても、過去に選んだトラッカーがあれば自動で選択し直す
+function loadRedmineLastTrackerByPrefix() {
+  try {
+    const raw = localStorage.getItem('redmineLastTrackerByPrefix');
+    if (raw) return JSON.parse(raw) || {};
+  } catch { /* 無視 */ }
+  return {};
+}
+let redmineLastTrackerByPrefix = loadRedmineLastTrackerByPrefix();
+function saveRedmineLastTracker(prefix, trackerId) {
+  if (!prefix) return;
+  redmineLastTrackerByPrefix[prefix] = trackerId;
+  try { localStorage.setItem('redmineLastTrackerByPrefix', JSON.stringify(redmineLastTrackerByPrefix)); } catch { /* 無視 */ }
+}
+
 // ワークスペース変更時: 表示を初期化し、Redmineタブを表示中ならトラッカー一覧を取得する。
 // 初期選択でモーダルを開いただけ(GitHubタブ表示中)では通信せず、タブを切り替えた時に取得する(BT-415)
 function onRedmineImportProjectChange() {
@@ -1337,7 +1475,7 @@ function onRedmineImportProjectChange() {
   redmineTrackersLoadedPrefix = '';
   els.tracker.innerHTML = `<option value="">トラッカーを選択...</option>`;
   els.tracker.disabled = true;
-  els.listBtn.hidden = true;
+  els.listBtn.disabled = true;
   els.totalCount.textContent = '';
   els.body.innerHTML = `<p class="github-import-placeholder">ワークスペースを選択してください。</p>`;
   resetRedmineImportSelectionUi();
@@ -1360,6 +1498,12 @@ async function loadRedmineImportTrackersIfNeeded() {
       data.trackers.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
     els.tracker.disabled = false;
     redmineTrackersLoadedPrefix = prefix;
+    // BM-099: このワークスペースで最後に選んだトラッカーが選択肢に残っていれば復元する
+    const lastTracker = redmineLastTrackerByPrefix[prefix];
+    if (lastTracker && els.tracker.querySelector(`option[value="${lastTracker}"]`)) {
+      els.tracker.value = lastTracker;
+    }
+    updateRedmineImportListButtonState();
     els.body.innerHTML = `<p class="github-import-placeholder">トラッカーを選択し、「一覧を出す」を押してください。</p>`;
   } catch (e) {
     if (prefix !== els.project.value) return;
@@ -1368,10 +1512,11 @@ async function loadRedmineImportTrackersIfNeeded() {
   }
 }
 
-// BM-069方針E: トラッカーを選ぶまで「一覧を出す」ボタンは出さない
+// BM-069方針E→BM-099で変更: トラッカーを選ぶまで「一覧を出す」は押せない(hiddenではなくdisabled)。
+// GitHubの「Issueを取得」ボタンと同じ挙動にし、押せる状態になったら色が変わる(import-primary-btn)
 function updateRedmineImportListButtonState() {
   const els = redmineImportEls();
-  els.listBtn.hidden = !els.tracker.value;
+  els.listBtn.disabled = !els.tracker.value;
 }
 
 // 一覧取得・「さらに読み込む」(reset:falseでnextOffsetから続きを積み増す)
@@ -1671,6 +1816,9 @@ function renderRedmineImportIssueCard(issue, issueByKey, allChildKeys) {
 }
 
 // 親行・子行で列の中身は同じ。子行は字下げ(.import-row-child)だけが違い、期日も子に出す
+// BM-099: チケット番号・件名はクリックでRedmineの元チケットを新規タブで開く(取込済みカードの
+// renderRedmineIssueBadgeと同じパターン)。件名ホバーでは説明欄をツールチップ表示する
+// (onImportTitleMouseOver。ネイティブtitle属性の全文ツールチップは置き換えるため付与しない)。
 function renderRedmineImportRow(issue, { epic = false, child = false, parentKey, badgeHtml = '' }) {
   const checkboxHtml = issue.alreadyImported
     ? `<input type="checkbox" class="redmine-issue-checkbox" disabled title="取込済み">`
@@ -1678,14 +1826,88 @@ function renderRedmineImportRow(issue, { epic = false, child = false, parentKey,
   const stateHtml = issue.state === 'closed'
     ? '<span class="card-tag github-issue-closed">closed</span>'
     : escapeHtml(issue.statusName);
+  const idHtml = `<a class="import-id-link" href="${escapeHtml(issue.url)}" target="_blank" rel="noopener noreferrer">#${escapeHtml(issue.key)}</a>`;
+  const titleHtml = `<a class="import-title-link" href="${escapeHtml(issue.url)}" target="_blank" rel="noopener noreferrer" data-issue-key="${escapeHtml(issue.key)}">${renderImportTitleHtml(REDMINE_MARK_SVG, issue.title, badgeHtml)}</a>`;
   return renderImportRow({ epic, child, imported: issue.alreadyImported }, [
     ['check', checkboxHtml],
-    ['id', `#${escapeHtml(issue.key)}`],
-    ['title', renderImportTitleHtml(REDMINE_MARK_SVG, issue.title, badgeHtml), issue.title],
+    ['id', idHtml],
+    ['title', titleHtml],
+    ['assignee', issue.assignee ? escapeHtml(issue.assignee) : ''],
+    ['version', issue.version ? escapeHtml(issue.version) : ''],
     ['state', stateHtml],
     ['due', issue.dueDate ? escapeHtml(issue.dueDate) : ''],
     ['imported', issue.alreadyImported ? renderRedmineImportedTag(issue.importedTaskId) : ''],
   ]);
+}
+
+// --- BM-099: 件名ホバーの説明欄ツールチップ(ガントの.gantt-tip、gantt.js同パターンを流用) ---
+let importTipEl = null;
+let importTipShowTimer = null;
+let importTipHideTimer = null;
+const IMPORT_TIP_DELAY = 350;
+const IMPORT_TIP_HIDE_DELAY = 250;
+
+function ensureImportTip() {
+  if (importTipEl) return importTipEl;
+  importTipEl = document.createElement('div');
+  importTipEl.className = 'gantt-tip'; // BM-099: ガントの吹き出し(.gantt-tip、gantt.css)の見た目を流用
+  importTipEl.addEventListener('mouseenter', () => clearTimeout(importTipHideTimer));
+  importTipEl.addEventListener('mouseleave', scheduleHideImportTip);
+  document.body.appendChild(importTipEl);
+  return importTipEl;
+}
+
+function hideImportTip() {
+  clearTimeout(importTipShowTimer);
+  clearTimeout(importTipHideTimer);
+  if (importTipEl) importTipEl.classList.remove('gantt-tip-visible');
+}
+
+function scheduleHideImportTip() {
+  clearTimeout(importTipShowTimer);
+  clearTimeout(importTipHideTimer);
+  importTipHideTimer = setTimeout(() => { if (importTipEl) importTipEl.classList.remove('gantt-tip-visible'); }, IMPORT_TIP_HIDE_DELAY);
+}
+
+function importTipHtml(issue) {
+  const descHtml = issue.description
+    ? escapeHtml(issue.description)
+    : '<span class="gantt-tip-none">説明はありません</span>';
+  return `<div class="gantt-tip-head"><span class="gantt-tip-id">#${escapeHtml(issue.key)}</span><span class="gantt-tip-title">${escapeHtml(issue.title)}</span></div><div class="gantt-tip-desc">${descHtml}</div>`;
+}
+
+// gantt.jsのpositionGanttTipと同じ位置決め(カーソル追従、画面端での折り返し)
+function positionImportTip(tip, x, y) {
+  const margin = 10;
+  const left = Math.min(x + 6, window.innerWidth - tip.offsetWidth - margin);
+  let top = y + 14;
+  if (top + tip.offsetHeight > window.innerHeight - margin) top = Math.max(margin, y - tip.offsetHeight - 10);
+  tip.style.left = `${Math.max(margin, left)}px`;
+  tip.style.top = `${top}px`;
+}
+
+function onImportTitleMouseOver(e) {
+  const el = e.target.closest('.import-title-link');
+  if (!el) return;
+  const issue = redmineImportAllIssues.find((i) => i.key === el.dataset.issueKey);
+  if (!issue) return;
+  clearTimeout(importTipHideTimer);
+  clearTimeout(importTipShowTimer);
+  const x = e.clientX;
+  const y = e.clientY;
+  importTipShowTimer = setTimeout(() => {
+    const tip = ensureImportTip();
+    tip.innerHTML = importTipHtml(issue);
+    tip.style.left = '0px';
+    tip.style.top = '0px';
+    tip.classList.add('gantt-tip-visible');
+    positionImportTip(tip, x, y);
+  }, IMPORT_TIP_DELAY);
+}
+
+function onImportTitleMouseOut(e) {
+  if (!e.target.closest('.import-title-link')) return;
+  scheduleHideImportTip();
 }
 
 // GitLab公式ロゴ(タヌキ、多色版)の輪郭パスを単色化したもの(fill="currentColor"でテーマ追従、

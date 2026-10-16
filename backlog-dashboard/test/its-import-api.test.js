@@ -39,11 +39,14 @@ function sendJson(res, status, body) {
 }
 
 // 固定のRedmineチケット集合: 1(トラッカー1の親, close), 2,3(1の子), 4(トラッカー1,親なし), 5(トラッカー2)
+// BM-099: id:4に担当者(assigned_to)・バージョン(fixed_version)を持たせ、一覧APIが追加の
+// includeパラメータなしでもこれらをそのまま返すこと(プレビュー応答に反映されること)を検証する。
+// id:1(assigned_to/fixed_versionなし)はnullになることの確認用。
 const ISSUES = [
   { id: 1, subject: '親チケット', description: '親の説明', tracker: { id: 1, name: 'タスク' }, status: { id: 5, name: '完了' }, start_date: '2026-10-01', due_date: '2026-10-10' },
   { id: 2, subject: '子チケットA', description: '子Aの説明', tracker: { id: 1, name: 'タスク' }, status: { id: 1, name: '新規' }, parent: { id: 1 }, start_date: null, due_date: null },
   { id: 3, subject: '子チケットB', description: '子Bの説明', tracker: { id: 1, name: 'タスク' }, status: { id: 1, name: '新規' }, parent: { id: 1 }, start_date: null, due_date: null },
-  { id: 4, subject: '単独チケット', description: '単独の説明', tracker: { id: 1, name: 'タスク' }, status: { id: 1, name: '新規' }, start_date: null, due_date: '2026-11-01' },
+  { id: 4, subject: '単独チケット', description: '単独の説明', tracker: { id: 1, name: 'タスク' }, status: { id: 1, name: '新規' }, start_date: null, due_date: '2026-11-01', assigned_to: { id: 9, name: '山田太郎' }, fixed_version: { id: 3, name: 'v1.2' } },
   { id: 5, subject: '別トラッカー', description: '', tracker: { id: 2, name: '不具合' }, status: { id: 1, name: '新規' }, start_date: null, due_date: null },
 ];
 
@@ -137,6 +140,13 @@ test('its-meta/its-preview/its-import work end to end against a mocked Redmine',
     const issue4 = previewOpen.body.issues.find((i) => i.key === '4');
     assert.equal(issue4.dueDate, '2026-11-01');
     assert.equal(issue4.alreadyImported, false);
+    // BM-099: assigned_to/fixed_version/descriptionが追加のAPI呼び出し無しでプレビューに反映される
+    assert.equal(issue4.assignee, '山田太郎');
+    assert.equal(issue4.version, 'v1.2');
+    assert.equal(issue4.description, '単独の説明');
+    const issue2 = previewOpen.body.issues.find((i) => i.key === '2');
+    assert.equal(issue2.assignee, null); // assigned_toが無いissueはnullになる
+    assert.equal(issue2.version, null);
 
     // its-preview: status=all -> 完了(id:1)も含めて4件、親子関係が見える
     const previewAll = await get(baseUrl, '/api/its-preview?prefix=TS&source=redmine&trackerId=1&status=all');
@@ -283,6 +293,10 @@ test('its-preview/its-import work end to end against a mocked GitLab (no hierarc
     assert.equal(issue12.parentKey, null);
     assert.deepEqual(issue12.childKeys, []);
     assert.equal(issue12.alreadyImported, false);
+    // BM-099: 担当者・バージョン表示はRedmineタブのみの対象。GitLabは常にnull/''になる
+    assert.equal(issue12.assignee, null);
+    assert.equal(issue12.version, null);
+    assert.equal(issue12.description, '');
 
     // its-preview: status=all -> closed(iid:11)も含めて3件
     const previewAll = await get(baseUrl, '/api/its-preview?prefix=TS&source=gitlab&status=all');

@@ -5,7 +5,9 @@
 //   GET  /api/its-meta?prefix=&source=redmine
 //     -> { projectName, trackers:[{id,name}] }(Redmine専用。GitLabはトラッカーの概念が無いため呼べない=400)
 //   GET  /api/its-preview?prefix=&source=redmine|gitlab&trackerId=(redmineのみ必須)&status=open|all&offset=0
-//     -> { issues:[{key,title,url,state,statusName,startDate,dueDate,alreadyImported,importedTaskId,parentKey,childKeys}], total, nextOffset }
+//     -> { issues:[{key,title,url,state,statusName,startDate,dueDate,alreadyImported,importedTaskId,parentKey,childKeys,
+//                    assignee,version,description}], total, nextOffset }
+//          ※assignee/version/description はRedmineのみ(BM-099)。GitLabは常にnull/''。
 //   POST /api/its-import {prefix, source, keys:[...]}
 //     -> { ok, added, skipped, errors }
 //
@@ -64,6 +66,11 @@ function toRedminePreviewItem(issue, { host, closedStatusIds, importedMap, child
     statusName: issue.status.name,
     startDate: issue.start_date || null,
     dueDate: issue.due_date || null,
+    // BM-099: 一覧(/issues.json)は追加のincludeパラメータなしでもassigned_to/fixed_version/
+    // descriptionを標準で返すため、追加のAPI呼び出しは不要(値が無いissueはフィールド自体が無い)。
+    assignee: issue.assigned_to ? issue.assigned_to.name : null,
+    version: issue.fixed_version ? issue.fixed_version.name : null,
+    description: issue.description || '',
     alreadyImported: importedMap.has(String(issue.id)),
     importedTaskId: importedMap.get(String(issue.id)) || null,
     parentKey: issue.parent ? String(issue.parent.id) : null,
@@ -83,6 +90,11 @@ function toGitlabPreviewItem(issue, { importedMap }) {
     statusName: closed ? 'closed' : 'opened',
     startDate: null, // GitLab issueに開始日フィールドは無い
     dueDate: issue.due_date || null,
+    // BM-099: GitLabは対象外(担当者/バージョン表示はRedmineタブのみ)。フィールドの有無で
+    // フロント側の分岐を増やさないよう、形だけ揃えて空にしておく。
+    assignee: null,
+    version: null,
+    description: '',
     alreadyImported: importedMap.has(String(issue.iid)),
     importedTaskId: importedMap.get(String(issue.iid)) || null,
     parentKey: null,
