@@ -2681,9 +2681,15 @@ body {
   width: 95%;
 }
 
-/* BT-379: modal-wideを共有するGitHub取り込みダイアログは従来幅のまま */
+/* BM-099: 件名が読めるよう、週次計画/ガント(.plan-board-panel、width:95vw)と同じ横幅いっぱいに広げる。
+   旧: 860px固定(BT-379)。取り込み一覧は列数が多く横スクロールが前提のテーブルのため、横幅の恩恵が大きい */
 .modal-content.modal-wide.github-import-modal {
-  max-width: 860px;
+  max-width: 95vw;
+  width: 95vw;
+  /* BM-099: 高さ・スクロールは.github-import-modal(内側のflexコンテナ)側で制御するため、
+     .modal-contentの既定(overflow-y:auto)はここで打ち消す。外側と内側で二重スクロールに
+     ならないようにする */
+  overflow: hidden;
 }
 
 /* --- 外部取り込みダイアログのタブ (BM-073) --- */
@@ -2720,10 +2726,27 @@ body {
 }
 
 /* --- GitHub Issues取り込みダイアログ (BT-106) --- */
+/* BM-099: 週次計画/ガント(.plan-board-panel、height:85vh)と同じく、高さを明示指定することで
+   内部の.github-import-body(flex:1)が確実に余白分だけの高さになり、そこだけがスクロール
+   コンテナになる(ヘッダー行の position:sticky もこのスクロールコンテナ基準で効く)。
+   旧: max-heightのみ指定だったため親(.modal-content)側がスクロールしてしまい、ヘッダー固定が
+   機能していなかった */
 .github-import-modal {
+  height: 85vh;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
+}
+
+/* BM-099: 各タブの内容(.import-source-panel)自体もflexコンテナにして、中の
+   .github-import-body(flex:1)が.github-import-modalの高さいっぱいまで正しく縮むようにする。
+   min-height:0は「flexアイテムの既定の最小高さ=コンテンツぶん」を打ち消すために必須
+   (無いと中身の分だけ親を押し広げてしまい、結局モーダル全体がスクロールしてしまう) */
+.import-source-panel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .github-import-toolbar {
@@ -2744,6 +2767,19 @@ body {
 
 .github-import-result-tools[hidden] {
   display: none;
+}
+
+/* BM-099: 件数・連携設定ボタンはツールバーの右端にまとめる(ヒデさんフィードバック)。
+   設定ボタン自身にmargin-left:autoを付け、件数表示はその直前に続ける(折返し時も
+   右寄せと件数の並びが崩れない。狭い幅では右端寄せをやめて自然な折返しに戻す) */
+.github-import-toolbar .import-settings-btn {
+  margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .github-import-toolbar .import-settings-btn {
+    margin-left: 0;
+  }
 }
 
 /* BT-415: 「Issueを取得」など、通信を起こす主ボタン */
@@ -2861,7 +2897,9 @@ body {
 .import-table {
   display: flex;
   flex-direction: column;
-  min-width: 680px; /* 狭い幅ではタイトル列が潰れないよう、本体側を横スクロールにする */
+  /* BM-099: Redmineタブは担当・バージョン列が増えた分、タイトル列の確保スペースを維持するため広げる。
+     GitHub/GitLabタブは列が少ないぶん横スクロール不要になるが、共通スタイルのため揃えておく */
+  min-width: 820px;
   font-size: 0.82rem;
 }
 
@@ -2895,6 +2933,41 @@ body {
   border-bottom: 2px solid var(--border);
 }
 
+/* BM-099: 列幅のドラッグ/ダブルクリック(ガントの.gantt-resizer、gantt.cssと同じ見た目・操作感を流用) */
+.import-row-head .import-cell {
+  position: relative;
+  overflow: visible; /* リサイザーがセル境界からわずかに出るため */
+}
+
+/* 親セルがoverflow:visibleになった分、見出し文字はここで改めて省略表示にする */
+.import-row-head .import-head-label {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* BM-099追補2回目(ヒデさんフィードバック): 境界線は各列の右端=その列自身の右端に1本だけ置く。
+   タイトルを固定幅のリサイズ対象列にしたことで、check以外の全列が自分の右端リサイザーを
+   持つだけで境界線が1本ずつ埋まる(左端方式は、見た目の境界線位置と実際に動く境界がズレて
+   「ドラッグ方向と逆に動く」ように見える問題があったため、右端方式に戻した) */
+.import-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 2;
+  border-right: 2px solid color-mix(in srgb, var(--text-muted) 55%, transparent);
+  box-sizing: border-box;
+}
+
+.import-resizer:hover, body.gantt-resizing .import-resizer {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-right-color: var(--accent);
+}
+
 .import-row-epic {
   font-weight: 600;
 }
@@ -2918,6 +2991,35 @@ body {
 .import-cell-id {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* BM-099: チケット番号・件名のクリックで元チケットを新規タブで開く */
+.import-id-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.import-id-link:hover {
+  text-decoration: underline;
+}
+
+.import-title-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.import-title-link:hover .import-title-text {
+  text-decoration: underline;
+}
+
+.import-cell-assignee,
+.import-cell-version {
+  color: var(--text-muted);
 }
 
 .import-cell-state,
