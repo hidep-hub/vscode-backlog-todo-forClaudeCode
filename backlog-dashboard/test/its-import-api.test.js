@@ -92,7 +92,7 @@ test('its-meta/its-preview/its-import work end to end against a mocked Redmine',
     projects: [],
   };
   fs.mkdirSync(dataDir, { recursive: true });
-  for (const entry of ['server.js', 'tags-api.js', 'its-settings-api.js', 'its-credentials.js', 'its-import-api.js', 'redmine-client.js', 'github-client.js', 'package.json']) {
+  for (const entry of ['server.js', 'tags-api.js', 'its-settings-api.js', 'its-credentials.js', 'its-import-api.js', 'redmine-client.js', 'gitlab-client.js', 'github-client.js', 'package.json']) {
     fs.copyFileSync(path.join(sourceRoot, entry), path.join(fixtureRoot, entry));
   }
   fs.cpSync(path.join(sourceRoot, 'db'), path.join(fixtureRoot, 'db'), { recursive: true });
@@ -185,6 +185,135 @@ test('its-meta/its-preview/its-import work end to end against a mocked Redmine',
     assert.equal(added.body.ok, true);
     assert.equal((await post(baseUrl, '/api/its-import', { prefix: 'TS', source: 'gitlab', keys: ['1'] })).status, 400);
     assert.equal((await post(baseUrl, '/api/its-import', { prefix: 'TS', source: 'redmine', keys: [] })).status, 400);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill();
+      await once(child, 'exit');
+    }
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+// BM-074: GitLab issue集合(階層化なし・フラット一覧)。issue 10(open), 11(closed), 12(open, due_date有)
+const GITLAB_ISSUES = [
+  { iid: 10, title: 'GitLab issue A', description: 'Aの説明', state: 'opened', due_date: null, web_url: 'http://gitlab.example.com/group/project/-/issues/10' },
+  { iid: 11, title: 'GitLab issue B', description: 'Bの説明', state: 'closed', due_date: null, web_url: 'http://gitlab.example.com/group/project/-/issues/11' },
+  { iid: 12, title: 'GitLab issue C', description: '', state: 'opened', due_date: '2026-12-01', web_url: 'http://gitlab.example.com/group/project/-/issues/12' },
+];
+
+async function startMockGitlab() {
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://x');
+    if (url.pathname === '/api/v4/projects/group%2Fproject/issues') {
+      const iidParams = url.searchParams.getAll('iids[]').map(Number);
+      if (iidParams.length > 0) {
+        const matched = GITLAB_ISSUES.filter((i) => iidParams.includes(i.iid));
+        return sendJson(res, 200, matched);
+      }
+      const state = url.searchParams.get('state');
+      const matched = state === 'all' ? GITLAB_ISSUES : GITLAB_ISSUES.filter((i) => i.state === 'opened');
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'x-total': String(matched.length) });
+      return res.end(JSON.stringify(matched));
+    }
+    sendJson(res, 404, {});
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  return { server, host: `http://127.0.0.1:${port}`, close: () => new Promise((r) => server.close(r)) };
+}
+
+test('its-preview/its-import work end to end against a mocked GitLab (no hierarchy, read-only)', async (t) => {
+  const sourceRoot = path.resolve(__dirname, '..');
+  const fixtureRoot = fs.mkdtempSync(path.join(sourceRoot, '.api-test-'));
+  const dataDir = path.join(fixtureRoot, 'data');
+  const port = await unusedPort();
+  const mockGitlab = await startMockGitlab();
+  t.after(() => mockGitlab.close());
+
+  const config = {
+    port, backlogDir: dataDir, defaultWorkspaceParent: fixtureRoot,
+    columns: [
+      { id: 'todo', label: 'TODO', match: ['todo'] },
+      { id: 'done', label: 'DONE', match: ['done'] },
+    ],
+    projects: [],
+  };
+  fs.mkdirSync(dataDir, { recursive: true });
+  for (const entry of ['server.js', 'tags-api.js', 'its-settings-api.js', 'its-credentials.js', 'its-import-api.js', 'redmine-client.js', 'gitlab-client.js', 'github-client.js', 'package.json']) {
+    fs.copyFileSync(path.join(sourceRoot, entry), path.join(fixtureRoot, entry));
+  }
+  fs.cpSync(path.join(sourceRoot, 'db'), path.join(fixtureRoot, 'db'), { recursive: true });
+  fs.writeFileSync(path.join(fixtureRoot, 'config.json'), JSON.stringify(config), 'utf8');
+  fs.writeFileSync(path.join(fixtureRoot, 'its-credentials.json'), JSON.stringify({
+    workspaces: { test: { gitlab: { projectUrl: `${mockGitlab.host}/group/project` } } },
+    hosts: { gitlab: { [mockGitlab.host]: { token: 'mock-token' } } },
+  }), 'utf8');
+
+  const child = spawn(process.execPath, ['server.js'], { cwd: fixtureRoot, stdio: ['ignore', 'pipe', 'pipe'] });
+  let serverOutput = '';
+  child.stdout.on('data', (d) => { serverOutput += d.toString(); });
+  child.stderr.on('data', (d) => { serverOutput += d.toString(); });
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        if ((await get(baseUrl, '/api/health')).status === 200) break;
+      } catch { /* wait for startup */ }
+      await new Promise(resolve => setTimeout(resolve, 100));
+      if (attempt === 99) throw new Error('test server did not start. exitCode=' + child.exitCode + ' signalCode=' + child.signalCode + '\n' + serverOutput);
+    }
+
+    const createdWs = await post(baseUrl, '/api/create-workspace', { file: 'test', prefix: 'TS', name: 'Test' });
+    assert.equal(createdWs.body.ok, true, JSON.stringify(createdWs.body));
+
+    // its-meta: Redmine専用。GitLabを指定すると400(トラッカーの概念が無いため)
+    assert.equal((await get(baseUrl, '/api/its-meta?prefix=TS&source=gitlab')).status, 400);
+
+    // its-preview: GitLabはtrackerId不要。open既定 -> closed(iid:11)は隠れ、10,12が残る。階層化なし(parentKey/childKeysは常に空)
+    const previewOpen = await get(baseUrl, '/api/its-preview?prefix=TS&source=gitlab');
+    assert.equal(previewOpen.status, 200);
+    assert.equal(previewOpen.body.total, 2);
+    assert.equal(previewOpen.body.nextOffset, null);
+    const keys = previewOpen.body.issues.map((i) => i.key);
+    assert.deepEqual(keys.sort(), ['10', '12']);
+    const issue12 = previewOpen.body.issues.find((i) => i.key === '12');
+    assert.equal(issue12.dueDate, '2026-12-01');
+    assert.equal(issue12.startDate, null); // GitLab issueに開始日フィールドは無い
+    assert.equal(issue12.parentKey, null);
+    assert.deepEqual(issue12.childKeys, []);
+    assert.equal(issue12.alreadyImported, false);
+
+    // its-preview: status=all -> closed(iid:11)も含めて3件
+    const previewAll = await get(baseUrl, '/api/its-preview?prefix=TS&source=gitlab&status=all');
+    assert.equal(previewAll.body.total, 3);
+    const closedItem = previewAll.body.issues.find((i) => i.key === '11');
+    assert.equal(closedItem.state, 'closed');
+
+    // its-import: 3件すべて選んで取り込む。GitLabは階層化しないので全てトップレベルになる
+    const imported = await post(baseUrl, '/api/its-import', { prefix: 'TS', source: 'gitlab', keys: ['10', '11', '12'] });
+    assert.equal(imported.status, 200);
+    assert.equal(imported.body.ok, true, JSON.stringify(imported.body));
+    assert.equal(imported.body.added, 3, JSON.stringify(imported.body));
+    assert.equal(imported.body.skipped, 0);
+    assert.deepEqual(imported.body.errors, []);
+
+    const board = await get(baseUrl, '/api/board?workspace=test');
+    const allItems = board.body.columns.flatMap((c) => c.items);
+    const taskA = allItems.find((i) => i.title === 'GitLab issue A');
+    assert.ok(taskA, 'GitLab issue A should be imported');
+    // BM-069方針B: ステータスはtodo固定。GitLab側がcloseでも取り込み後はtodoになる
+    assert.equal(taskA.statusCode, 'todo');
+    assert.deepEqual(taskA.externalLinks, [{ source: 'gitlab', key: '10', url: 'http://gitlab.example.com/group/project/-/issues/10', projectRef: 'group/project' }]);
+    assert.equal(taskA.children.length, 0); // 階層化なし
+    const taskC = allItems.find((i) => i.title === 'GitLab issue C');
+    assert.ok(taskC);
+    assert.equal(taskC.dueDate, '2026-12-01');
+
+    // 同じキーを再度取り込むと全件skipped
+    const reimported = await post(baseUrl, '/api/its-import', { prefix: 'TS', source: 'gitlab', keys: ['10', '11'] });
+    assert.equal(reimported.body.added, 0);
+    assert.equal(reimported.body.skipped, 2);
   } finally {
     if (child.exitCode === null && child.signalCode === null) {
       child.kill();
