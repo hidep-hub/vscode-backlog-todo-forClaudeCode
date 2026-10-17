@@ -331,6 +331,31 @@ button.gantt-stat { cursor: pointer; }
 }
 
 .gantt-label-epic { cursor: pointer; font-weight: 600; }
+/* BT-430: EPIC行の「＋ 子タスクを追加」。タスク欄が狭いときは「＋」だけに縮む(欄の幅でコンテナクエリ) */
+.gantt-label-epic, .gantt-label-head { container-type: inline-size; }
+.gantt-add-child {
+  flex: none;
+  margin-left: 6px;
+  padding: 0 6px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.68rem;
+  font-weight: 400;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.gantt-add-child:hover { color: var(--text); background: var(--surface-hover, var(--border)); }
+@container (max-width: 360px) {
+  .gantt-add-child-text { display: none; }
+  .gantt-add-child { width: 20px; padding: 0; justify-content: center; }
+}
 .gantt-label-head { font-weight: 600; color: var(--text-muted); cursor: pointer; }
 .gantt-toggle { width: 12px; color: var(--text-muted); flex: none; }
 /* BT-390: EPIC行ラベルのアイコン(看板と同じepic-icon部品) */

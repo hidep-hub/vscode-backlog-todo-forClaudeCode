@@ -223,7 +223,7 @@
       for (const g of singles) {
         const key = `single:${project}`;
         keys.push(key);
-        emit({ type: 'head', key, label: '単発タスク', count: g.children.length, collapsed: state.collapsed.has(key) });
+        emit({ type: 'head', key, label: '単発タスク', project, count: g.children.length, collapsed: state.collapsed.has(key) });
         for (const c of g.children) pushItem(c, null, !wsCollapsed && !state.collapsed.has(key), false);
       }
     }
@@ -355,7 +355,11 @@
 
     function buildRow(r) {
       if (r.type === 'head') {
-        return `<div class="gantt-row gantt-row-head"><div class="gantt-label gantt-label-head" data-act="toggle-epic" data-epic-id="${esc(r.key)}"><span class="gantt-toggle">${r.collapsed ? '▸' : '▾'}</span>${esc(r.label)}<span class="gantt-count">${r.count}</span><i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px"></div></div>`;
+        // BT-430: 単発タスク見出しの右端に「＋ 単発タスクを追加」(EPIC行の子タスク追加と同じ見た目・縮み方)。onAddTask未指定なら出さない
+        const addSingleBtn = ctx.onAddTask
+          ? `<button type="button" class="gantt-add-child" data-act="add-single" data-project="${esc(r.project || '')}" title="${esc(r.project || '')} に単発タスクを追加" aria-label="単発タスクを追加"><span class="gantt-add-child-icon">＋</span><span class="gantt-add-child-text">単発タスクを追加</span></button>`
+          : '';
+        return `<div class="gantt-row gantt-row-head"><div class="gantt-label gantt-label-head" data-act="toggle-epic" data-epic-id="${esc(r.key)}"><span class="gantt-toggle">${r.collapsed ? '▸' : '▾'}</span>${esc(r.label)}<span class="gantt-count">${r.count}</span>${addSingleBtn}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px"></div></div>`;
       }
       if (r.type === 'epic') {
         const collapsed = state.collapsed.has(r.epic.id);
@@ -387,7 +391,11 @@
         const eRunning = r.epic.running || r.epic.statusCode === 'do'
           ? `<span class="gantt-running${r.epic.running ? '' : ' is-idle'}" title="${r.epic.running ? '実行中' : '進行中'}"></span>` : '';
         const epicIcon = '<span class="epic-icon gantt-epic-icon" title="EPIC（子タスクを束ねる親タスク）"><span class="material-icon icon-stacks"></span></span>';
-        return `<div class="gantt-row gantt-row-epic${r.epic.statusCode === 'done' ? ' is-done' : ''}" data-epic-id="${esc(r.epic.id)}"><div class="gantt-label gantt-label-epic" data-act="toggle-epic" data-epic-id="${esc(r.epic.id)}" data-task-id="${esc(r.epic.id)}"><span class="gantt-toggle">${collapsed ? '▸' : '▾'}</span>${epicIcon}<span class="gantt-id">${esc(r.epic.id)}</span>${eRunning}<span class="gantt-title">${esc(r.epic.title)}</span>${tagsCell(r.epic)}<span class="gantt-count">${r.done}/${r.total}</span><i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px">${bar}</div></div>`;
+        // BT-430: タイトル欄の右端に「＋ 子タスクを追加」。欄が狭いときはCSS(コンテナクエリ)で「＋」だけに縮む。onAddChild未指定なら出さない
+        const addChildBtn = ctx.onAddChild
+          ? `<button type="button" class="gantt-add-child" data-act="add-child" data-epic-id="${esc(r.epic.id)}" data-project="${esc(r.epic.project || '')}" title="${esc(r.epic.id)} に子タスクを追加" aria-label="子タスクを追加"><span class="gantt-add-child-icon">＋</span><span class="gantt-add-child-text">子タスクを追加</span></button>`
+          : '';
+        return `<div class="gantt-row gantt-row-epic${r.epic.statusCode === 'done' ? ' is-done' : ''}" data-epic-id="${esc(r.epic.id)}"><div class="gantt-label gantt-label-epic" data-act="toggle-epic" data-epic-id="${esc(r.epic.id)}" data-task-id="${esc(r.epic.id)}"><span class="gantt-toggle">${collapsed ? '▸' : '▾'}</span>${epicIcon}<span class="gantt-id">${esc(r.epic.id)}</span>${eRunning}<span class="gantt-title">${esc(r.epic.title)}</span>${tagsCell(r.epic)}<span class="gantt-count">${r.done}/${r.total}</span>${addChildBtn}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px">${bar}</div></div>`;
       }
       const item = r.item;
       const done = isDone(item);
@@ -637,6 +645,12 @@
     if (e.target.closest('.gantt-resizer')) return; // 幅変更のつかみ。行の詳細・折りたたみは動かさない
     // 期日欄のクリックはカレンダーを開くだけ(行の詳細は開かない)
     if (e.target.closest('.gantt-due-input, .gantt-due-text')) { hideTip(); return; }
+    // BT-430: EPIC行の「子タスクを追加」。フォームを開くだけで、折りたたみ・詳細は動かさない
+    const addChildEl = e.target.closest('[data-act="add-child"]');
+    if (addChildEl) { if (current.ctx.onAddChild) current.ctx.onAddChild(addChildEl.dataset.epicId, addChildEl.dataset.project); return; }
+    // BT-430: 単発タスク見出しの「単発タスクを追加」。そのワークスペースで通常の追加フォームを開く
+    const addSingleEl = e.target.closest('[data-act="add-single"]');
+    if (addSingleEl) { if (current.ctx.onAddTask) current.ctx.onAddTask(addSingleEl.dataset.project); return; }
     // BT-424: ステータス文字のクリックは変更メニューを開くだけ(行の詳細は開かない)
     const stateBtn = e.target.closest('[data-act="status-menu"]');
     if (stateBtn) { openStatusMenu(stateBtn); return; }
