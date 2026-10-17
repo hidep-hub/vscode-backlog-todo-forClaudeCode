@@ -95,6 +95,10 @@
 
   const isDone = (item) => item.statusCode === 'done';
 
+  // ステータスのcode→表示名。フッター集計の並び(DO→DONE)と、行のステータスメニューの並び(STATUS_MENU)で使う
+  const STATUS_LABEL = { do: 'DO', ready: 'READY', todo: 'TODO', done: 'DONE' };
+  const STATUS_MENU = ['todo', 'ready', 'do', 'done'];
+
   // 遅延判定。'overdue' | 'late-start' | 'normal'(完了は常にnormal)
   function judge(item, today) {
     if (isDone(item)) return 'normal';
@@ -145,9 +149,16 @@
     const dated = []; // 範囲決定用の非完了日付
     const keys = [];  // 折りたためるグループのキー(「全部折りたたむ」用。ワークスペース折りたたみ中の分も含める)
 
+    // BT-424: 並びはID順(プレフィクス→番号の数値順)で固定する。BT-364で日付では入れ替えないようにしたが、
+    // カンバンの並びのままだとステータスを変えた時に別の列の位置へ飛ぶため、ステータスにも左右されない並びにする
+    const byId = (a, b) => {
+      const pa = /^(.*?)(\d+)$/.exec(a.id), pb = /^(.*?)(\d+)$/.exec(b.id);
+      if (!pa || !pb) return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      if (pa[1] !== pb[1]) return pa[1] < pb[1] ? -1 : 1;
+      return Number(pa[2]) - Number(pb[2]);
+    };
     // 完了で日付も完了日も無いタスクは置く場所が無いので行ごと出さない
-    const visibleChildren = (g) => g.children.filter((c) => !isDone(c) || (state.showDone && (barSpan(c) || c.completedDate)));
-    // BT-364: 並びは日付で入れ替えない（日程を編集しても行が動かないよう、カンバンの並びをそのまま使う）
+    const visibleChildren = (g) => g.children.filter((c) => !isDone(c) || (state.showDone && (barSpan(c) || c.completedDate))).sort(byId);
 
     // show=falseでも統計・範囲・lookupには数える(折りたたんでも「遅延N件」等は変わらないように)
     // BM-033: isLastはEPIC配下で表示中の子のうち最後の1件かどうか(ツリー線を止める位置の判定用)
@@ -184,7 +195,7 @@
         .map((g) => ({ epic: g.epic, children: visibleChildren(g), allChildren: g.children }))
         .filter((g) => g.children.length > 0);
       if (groups.length === 0) continue;
-      const epics = groups.filter((g) => g.epic);
+      const epics = groups.filter((g) => g.epic).sort((a, b) => byId(a.epic, b.epic));
       const singles = groups.filter((g) => !g.epic);
 
       const wsCollapsed = ctx.groupByWorkspace && state.collapsedWs.has(project);
@@ -390,13 +401,14 @@
       const dueCell = done
         ? `<span class="gantt-due-text">${esc(item.dueDate || '')}</span>`
         : `<input type="text" class="date-field gantt-due-input${j === 'overdue' ? ' is-overdue' : ''}" readonly autocomplete="off" placeholder="期日" data-task-id="${esc(item.id)}" value="${esc(item.dueDate || '')}" title="期日（クリックでカレンダー）">`;
-      // BT-365: 行頭に [スピナー][ステータス文字]。DONEもグレーの文字で出す(緑ドットは廃止)
-      const stateCell = `<span class="gantt-state">${running || '<span class="gantt-running-slot"></span>'}<span class="gantt-status-text st-${esc(item.statusCode)}" title="${esc(item.status || item.statusCode)}">${esc(String(item.statusCode).toUpperCase())}</span></span>`;
+      // BT-424: ステータスはタイトル(タグ・pin)の右、期日の左。[スピナー][ステータス文字]のボタンで、クリックで変更メニューを開く。
+      // DONEもグレーの文字で出す(緑ドットは廃止、BT-365)
+      const stateCell = `<button type="button" class="gantt-state" data-act="status-menu" data-task-id="${esc(item.id)}" title="${esc(item.status || item.statusCode)}（クリックで変更）">${running || '<span class="gantt-running-slot"></span>'}<span class="gantt-status-text st-${esc(item.statusCode)}">${esc(String(item.statusCode).toUpperCase())}</span></button>`;
       // BM-033: 子タスクはis-childでツリー線用の背景・インデントを付与。is-lastは縦線を自分の行で止める印
       const childCls = r.parent ? ` is-child${r.isLast ? ' is-last' : ''}` : '';
       const selectable = state.selecting && !done;
       const selectionMark = selectable ? `<span class="gantt-selection-mark${state.selectedIds.has(item.id) ? ' is-selected' : ''}" aria-hidden="true">${state.selectedIds.has(item.id) ? '✓' : ''}</span>` : '';
-      const label = `<div class="gantt-label gantt-label-task${childCls}${selectable ? ' is-selecting' : ''}" data-act="${selectable ? 'select-task' : 'open'}" data-task-id="${esc(item.id)}">${selectionMark}${stateCell}<span class="gantt-id">${esc(item.id)}</span><span class="gantt-title">${esc(item.title)}</span>${tagsCell(item)}${pin}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;
+      const label = `<div class="gantt-label gantt-label-task${childCls}${selectable ? ' is-selecting' : ''}" data-act="${selectable ? 'select-task' : 'open'}" data-task-id="${esc(item.id)}">${selectionMark}<span class="gantt-id">${esc(item.id)}</span><span class="gantt-title">${esc(item.title)}</span>${tagsCell(item)}${pin}<i class="gantt-resizer gantt-resizer-state" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${stateCell}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;
 
       let trackInner = '';
       let trackClass = 'gantt-track';
@@ -444,7 +456,6 @@
     // そのワークスペース1件分の内訳(ctx.footerCountsはapp.js側でcurrentFilterを反映済み)。
     // 検索・ピン絞り込みが効いている時は「母数(絞り込み前)/絞り込み後の件数(太字)」の形で両方出し、
     // DONEバッジの右に「全体の何件から何件に絞り込んだか」のメッセージも添える
-    const STATUS_LABEL = { do: 'DO', ready: 'READY', todo: 'TODO', done: 'DONE' };
     const footer = (() => {
       const fc = ctx.footerCounts;
       if (!fc) return '';
@@ -470,7 +481,7 @@
       <div class="gantt-scroll">
         <div class="gantt-grid" style="width:${gridW}px;--gantt-label-w:${state.labelW}px;--gantt-row-h:${ROW_H}px;--gantt-head-h:${HEAD_H}px;--gantt-dw:${dw}px">
           <div class="gantt-head">
-            <div class="gantt-corner"><span class="gantt-corner-name">タスク${ctx.onAddTask ? '<button type="button" class="gantt-add-btn" data-act="add-task" title="タスクを追加">+</button>' : ''}</span><span class="gantt-corner-due">期日</span><i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i><i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>
+            <div class="gantt-corner"><span class="gantt-corner-name">タスク${ctx.onAddTask ? '<button type="button" class="gantt-add-btn" data-act="add-task" title="タスクを追加">+</button>' : ''}</span><span class="gantt-corner-status">ステータス</span><span class="gantt-corner-due">期日</span><i class="gantt-resizer gantt-resizer-state" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i><i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i><i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>
             <div class="gantt-head-days"><div class="gantt-months" style="width:${range.days * dw}px">${monthHtml}</div><div class="gantt-days" style="width:${range.days * dw}px">${dayHtml}</div></div>
           </div>
           <div class="gantt-bands" style="width:${range.days * dw}px">${bandHtml.join('')}${todayLine}</div>
@@ -626,6 +637,9 @@
     if (e.target.closest('.gantt-resizer')) return; // 幅変更のつかみ。行の詳細・折りたたみは動かさない
     // 期日欄のクリックはカレンダーを開くだけ(行の詳細は開かない)
     if (e.target.closest('.gantt-due-input, .gantt-due-text')) { hideTip(); return; }
+    // BT-424: ステータス文字のクリックは変更メニューを開くだけ(行の詳細は開かない)
+    const stateBtn = e.target.closest('[data-act="status-menu"]');
+    if (stateBtn) { openStatusMenu(stateBtn); return; }
     const actEl = e.target.closest('[data-act]');
     if (!actEl) return;
     const act = actEl.dataset.act;
@@ -693,6 +707,64 @@
       console.error('[gantt] save failed:', err);
     }
     rerender();
+  }
+
+  // BT-424: 行のステータス変更メニュー。選択肢はSTATUS_MENU/STATUS_LABELから作り、選ぶとctx.onChangeStatusへ渡す
+  let statusMenuEl = null;
+  function closeStatusMenu() {
+    if (!statusMenuEl) return;
+    statusMenuEl.remove();
+    statusMenuEl = null;
+    document.removeEventListener('pointerdown', onStatusMenuOutside, true);
+    document.removeEventListener('keydown', onStatusMenuKey, true);
+    window.removeEventListener('resize', closeStatusMenu);
+    document.removeEventListener('scroll', closeStatusMenu, true);
+  }
+  function onStatusMenuOutside(e) { if (statusMenuEl && !statusMenuEl.contains(e.target)) closeStatusMenu(); }
+  function onStatusMenuKey(e) { if (e.key === 'Escape') closeStatusMenu(); }
+
+  function openStatusMenu(anchor) {
+    const taskId = anchor.dataset.taskId;
+    const info = current && current.lookup.get(taskId);
+    if (!info || !current.ctx.onChangeStatus) return;
+    const reopen = statusMenuEl && statusMenuEl.dataset.taskId === taskId;
+    closeStatusMenu();
+    if (reopen) return; // 同じボタンの再クリックは閉じるだけ
+    hideTip();
+    const menu = document.createElement('div');
+    menu.className = 'gantt-status-menu';
+    menu.dataset.taskId = taskId;
+    menu.setAttribute('role', 'menu');
+    const esc = current.ctx.escapeHtml;
+    menu.innerHTML = STATUS_MENU.map((code) =>
+      `<button type="button" role="menuitem" class="gantt-status-menu-item st-${code}${code === info.item.statusCode ? ' is-current' : ''}" data-status="${code}">${esc(STATUS_LABEL[code])}</button>`).join('');
+    menu.onclick = async (e) => {
+      const btn = e.target.closest('[data-status]');
+      if (!btn) return;
+      e.stopPropagation();
+      const next = btn.dataset.status;
+      closeStatusMenu();
+      if (next === info.item.statusCode) return;
+      try {
+        await current.ctx.onChangeStatus(taskId, next);
+      } catch (err) {
+        console.error('[gantt] status change failed:', err);
+      }
+      rerender();
+    };
+    document.body.appendChild(menu);
+    const r = anchor.getBoundingClientRect();
+    const mw = menu.offsetWidth;
+    const mh = menu.offsetHeight;
+    const left = Math.max(4, Math.min(r.left, window.innerWidth - mw - 4));
+    const top = r.bottom + mh + 4 > window.innerHeight ? Math.max(4, r.top - mh - 2) : r.bottom + 2;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    statusMenuEl = menu;
+    document.addEventListener('pointerdown', onStatusMenuOutside, true);
+    document.addEventListener('keydown', onStatusMenuKey, true);
+    window.addEventListener('resize', closeStatusMenu);
+    document.addEventListener('scroll', closeStatusMenu, true); // ガント内外どちらのスクロールでも閉じる
   }
 
   async function applyBulkSelection(action, anchor) {

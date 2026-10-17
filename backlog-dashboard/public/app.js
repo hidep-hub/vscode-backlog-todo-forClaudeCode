@@ -5561,6 +5561,25 @@ async function planSaveGanttDates(taskId, patch) {
   }
 }
 
+// BT-424: ガント行のステータス変更。失敗はgantt.js側でログに出すため例外を投げる
+async function planChangeGanttStatus(taskId, newStatus) {
+  const resp = await fetch('/api/update-status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId, newStatus }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${resp.status}`);
+  }
+  // WS更新が届くまでの間に表示が元へ戻らないよう、手元のデータにも先に反映する
+  const apply = (item) => { if (item.id === taskId) item.statusCode = newStatus; };
+  for (const item of planCollectItems()) {
+    apply(item);
+    (item.children || []).forEach(apply);
+  }
+}
+
 // BM-046: フッターのDO/READY/TODO/DONE件数。currentFilter(ワークスペースセレクタ)が効いた状態の
 // planCollectItems()を母数にし、検索・ピン絞り込み適用後の groups を絞り込み後の件数とする。
 // EPICは子の集計に含める(renderWsFilterCountsと同じ考え方。親自身のstatusCodeは数えない)
@@ -5613,6 +5632,8 @@ function renderPlanGantt() {
     // タイトルの右に出すタグ。EPICは自分のタグに子由来のタグ(薄)を続ける
     tagsHtml: (item) => tagLogic.buildCardTagsHtml(item.tags, item.childTags, 2),
     onSaveDates: planSaveGanttDates,
+    // BT-424: 行のステータス文字から変更する
+    onChangeStatus: planChangeGanttStatus,
     // BT-376: ヘッダの+から既存のタスク追加フォームを開く(日付は空のまま。ユーザーが計画時に入れる)
     onAddTask: () => openAddTaskForm('todo', currentFilter || '', ''),
     onOpen: (item, parentEpic) => {
