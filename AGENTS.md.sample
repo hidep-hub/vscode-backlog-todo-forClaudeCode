@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.9.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.10.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## ルール正本と配布方式
 
@@ -80,6 +80,7 @@ AGENTS.md.sample（Git管理の唯一の正本）
   - **Redmine取り込み（BM-072、API 2.7.0）**: 外部への書き戻しはしない読み取り専用の取り込み
     - `GET /api/its-meta?prefix=&source=redmine`（プロジェクト名・トラッカー一覧。**Redmine専用**。GitLabにはトラッカーの概念が無いため`source=gitlab`は400）/ `GET /api/its-preview?prefix=&source=redmine&trackerId=&status=open|all&offset=0`（1回最大500件。各issueの`alreadyImported`で取込済みか分かる。`nextOffset`が`null`でなければ続きがある）/ `POST /api/its-import {prefix, source:"redmine", keys:[...]}` → `{ok, added, skipped, errors}`
     - 取り込む項目は件名・説明・開始日・期日で、ステータスは`todo`固定。取込済みのチケットは`skipped`になる。取得した一覧の中だけ`parent`で親子化し、親子は2階層まで（3階層目は平坦化される）。連携未設定は400、Redmine側の失敗は502
+    - **【BM-099, API 2.10.0】`its-preview`の各issueに`assignee`（担当者名）/`version`（対象バージョン名）/`description`（説明文）が付く**。Redmineのみで、値が無ければ`assignee`/`version`は`null`、`description`は空文字。GitLabは形だけ揃えて常に`null`/`null`/空文字。追加のAPI呼び出しは発生しない。`its-import`で取り込む項目（件名・説明・開始日・期日）は変わらない
     - **AIが取り込む場合の作法**: 取り込みはタスクを大量に作る操作のため、先に`its-preview`で対象を確認してユーザーに示し、承認を得てから`its-import`を実行する
   - **GitLab取り込み（BM-074、API 2.9.0）**: Redmineと同じ`its-preview`/`its-import`に`source:"gitlab"`で合流。外部への書き戻しはしない読み取り専用の取り込み
     - `GET /api/its-preview?prefix=&source=gitlab&status=open|all&offset=0` — GitLabには「トラッカー」「親子構造」の概念が無いため、`trackerId`は不要でフラットな一覧のみ（`parentKey`/`childKeys`は常に空）。取得した各issueの`dueDate`は`due_date`のみ（開始日フィールドは無いため`startDate`は常に`null`）。全件数`total`はGitLabの`x-total`ヘッダーが取れない場合`null`になる（「全件数不明」。続きの有無はGitLab側の`x-next-page`ヘッダーで判定するため`nextOffset`は正しく機能する）
