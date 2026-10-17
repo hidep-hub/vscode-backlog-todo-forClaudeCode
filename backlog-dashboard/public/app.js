@@ -5635,7 +5635,10 @@ function renderPlanGantt() {
     // BT-424: 行のステータス文字から変更する
     onChangeStatus: planChangeGanttStatus,
     // BT-376: ヘッダの+から既存のタスク追加フォームを開く(日付は空のまま。ユーザーが計画時に入れる)
-    onAddTask: () => openAddTaskForm('todo', currentFilter || '', ''),
+    // BT-430: 単発タスク見出しからはそのワークスペース(project)を渡す。ヘッダの+は無指定で従来どおり
+    onAddTask: (project) => openAddTaskForm('todo', project || currentFilter || '', ''),
+    // BT-430: EPIC行の「子タスクを追加」。親EPICのワークスペースで子タスク追加フォームを開く
+    onAddChild: (epicId, project) => openAddTaskForm('todo', project || currentFilter || '', epicId),
     onOpen: (item, parentEpic) => {
       if (parentEpic) {
         // 週次計画と同じ: 子タスクはEPICボード(ミニボード)を開き、その子をハイライト
