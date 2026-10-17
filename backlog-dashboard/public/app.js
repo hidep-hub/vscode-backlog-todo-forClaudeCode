@@ -69,11 +69,13 @@ function isTopmostDialog(el) {
 }
 
 // capture で消費することで、背後にある詳細モーダルへ Escape が届かないようにする。
+let parentFieldListOpen = false; // BT-432: 親タスク選択コンボボックスの候補リストが開いているか
 function closeOnEscape(el, visibleClass, close) {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !el.classList.contains(visibleClass) || !isTopmostDialog(el)) return;
     if (dueDatePickerEl) return; // 期日カレンダー表示中は、カレンダー側のEscで先に閉じる（BT-354）
     if (wsFilterMenuOpen) return; // BM-029: ワークスペース絞り込みドロップダウン表示中は、そちら側のEscで先に閉じる
+    if (parentFieldListOpen) return; // BT-432: 親タスク候補リスト表示中は、リスト側のEscで先に閉じる
     e.preventDefault();
     e.stopImmediatePropagation();
     close();
@@ -4731,7 +4733,8 @@ function renderDueQuickButtonsHtml(extraClass = '') {
   const btns = getDueQuickOptions()
     .map(o => `<button type="button" class="due-quick-btn${extraClass}" data-date="${o.date}" title="${o.date}">${o.label}</button>`)
     .join('');
-  return `${btns}<button type="button" class="due-quick-btn${extraClass} due-quick-clear" data-date="">クリア</button>`;
+  // BT-432: 狭い右カラムでも1段に収まるよう、クリアは「C」1文字にする（意味はtitle/aria-labelで補う）
+  return `${btns}<button type="button" class="due-quick-btn${extraClass} due-quick-clear" data-date="" title="クリア" aria-label="クリア">C</button>`;
 }
 
 let dueDatePickerEl = null;
@@ -6487,6 +6490,10 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
             <select id="edit-task-project">${projectOptions}</select>
           </div>
           <div class="settings-group">
+            <label>親タスク（任意）</label>
+            ${renderParentFieldHtml('edit-task')}
+          </div>
+          <div class="settings-group">
             <label>ステータス</label>
             <select id="edit-task-status">
               <option value="todo"${item.statusCode === 'todo' ? ' selected' : ''}>TODO</option>
@@ -6531,12 +6538,25 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
 
   cancelBtn.addEventListener('click', () => renderFn(item));
 
+  // BT-432: 親タスク。現在の親を初期値にし、子を持つタスクは2階層制約のため設定不可にする
+  const initialParentId = item.parentId || findParentIdOf(item.id);
+  let savedParentId = initialParentId; // サーバー上の現在の親（保存の途中経過に合わせて更新する）
+  const hasChildren = (item.children && item.children.length > 0) || item.childrenTotal > 0;
+  const parentField = setupParentField(body.querySelector('#edit-task-parent-field'), {
+    getProject: () => projectInput.value,
+    excludeId: item.id,
+    onChange: () => updateSaveState(),
+  });
+  parentField.setValue(initialParentId, item.parentTitle || '');
+  if (hasChildren) parentField.setDisabled(true, '子タスクを持つタスクは親を設定できないよ');
+
   // BT-367: 開いた時点の値を覚え、現在値と比較して差分がある時だけ保存ボタンを有効にする
   // （元に戻したら無効に戻る）。入力イベントは再判定のきっかけにだけ使う。
   const readFormValues = () => ({
     title: titleInput.value.trim(),
     description: descInput ? descInput.value : '',
     project: projectInput.value,
+    parentId: parentField.getValue(),
     status: statusInput.value,
     assignee: assigneeInput.value.trim(),
     startDate: startDateInput.value,
@@ -6554,6 +6574,13 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
   }
   [titleInput, descInput, assigneeInput].forEach(el => { if (el) el.addEventListener('input', updateSaveState); });
   [projectInput, statusInput, startDateInput, dueDateInput].forEach(el => el.addEventListener('change', updateSaveState));
+  // BT-432: 親は同じワークスペースの中から選ぶため、ワークスペースを変えたら他ワークスペースの親は外す
+  projectInput.addEventListener('change', () => {
+    const current = parentField.getValue();
+    const parent = current ? findItemById(current) : null;
+    if (current && (!parent || parent.project !== projectInput.value)) parentField.clear();
+    updateSaveState();
+  });
   updateSaveState();
 
   // 期日クイック選択（BT-354）: 入力欄に反映するだけで、保存は「保存」ボタンで行う
@@ -6597,6 +6624,42 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
         errorEl.textContent = `保存に失敗したよ: ${data.error || ''}`;
         errorEl.style.display = 'block';
         return;
+      }
+      // BT-432: 親の変更は update-task では扱えないため、detach/attach で反映する（付け替えは外してから付ける）。
+      // 完了済みは親を付けられないので、ステータス更新より先に行う
+      const newParentId = parentField.getValue();
+      if (newParentId !== savedParentId) {
+        if (savedParentId) {
+          const detachResp = await fetch('/api/detach-from-parent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId: item.id }),
+          });
+          const detachData = await detachResp.json();
+          if (!detachResp.ok) {
+            errorEl.textContent = `親から外すのに失敗したよ: ${detachData.error || ''}`;
+            errorEl.style.display = 'block';
+            return;
+          }
+          savedParentId = ''; // 外せた時点で状態を進め、付け直しだけが失敗した場合の再試行で二重に外さないようにする
+        }
+        if (newParentId) {
+          const attachResp = await fetch('/api/attach-to-parent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskIds: [item.id], parentId: newParentId }),
+          });
+          const attachData = await attachResp.json();
+          if (!attachResp.ok || (attachData.failed && attachData.failed.length > 0)) {
+            errorEl.textContent = `親の設定に失敗したよ: ${attachData.error || (attachData.failed && attachData.failed[0] && attachData.failed[0].error) || ''}`;
+            errorEl.style.display = 'block';
+            return;
+          }
+        }
+        savedParentId = newParentId;
+        const newParent = newParentId ? findItemById(newParentId) : null;
+        item.parentId = newParentId || undefined;
+        item.parentTitle = newParent ? newParent.title : undefined;
       }
       if (statusInput.value !== item.statusCode) {
         const statusResp = await fetch('/api/update-status', {
@@ -8258,6 +8321,142 @@ async function confirmAttach(parentId) {
   }
 }
 
+// --- 親タスク選択コンボボックス (BT-432: 追加ダイアログ・編集画面で共用) ---
+const PARENT_FIELD_MAX_ROWS = 50;
+
+function renderParentFieldHtml(idPrefix) {
+  return `<div class="parent-field" id="${idPrefix}-parent-field">
+    <div class="parent-field-row">
+      <input type="text" id="${idPrefix}-parent" class="parent-field-input" autocomplete="off" placeholder="なし（ID・タイトルで検索）">
+      <button type="button" class="parent-field-clear" title="親をなしにする" aria-label="親をなしにする">&times;</button>
+    </div>
+    <div class="parent-field-list" role="listbox" style="display:none;"></div>
+    <div class="parent-field-title"></div>
+    <div class="parent-field-note"></div>
+  </div>`;
+}
+
+// 親になれるのは、指定ワークスペースのトップレベルで未完了のタスク（EPICと単発）。子は2階層制約で除外する
+function collectParentCandidates(project, excludeId) {
+  const candidates = [];
+  if (!currentBoardData) return candidates;
+  for (const col of currentBoardData.columns) {
+    if (col.compact || col.id === 'done') continue;
+    for (const item of col.items) {
+      if (!item.id || item.id === '-' || item.parentId) continue;
+      if (item.project !== project || item.id === excludeId) continue;
+      candidates.push(item);
+    }
+  }
+  return candidates;
+}
+
+// taskIdの現在の親IDを返す（詳細取得したitemにはparentIdが無いため、ボード上のitemから辿る）
+function findParentIdOf(taskId) {
+  if (!currentBoardData) return '';
+  for (const col of currentBoardData.columns) {
+    for (const item of col.items) {
+      if (item.id === taskId && item.parentId) return item.parentId;
+      if (item.children && item.children.some(c => c.id === taskId)) return item.id;
+    }
+  }
+  return '';
+}
+
+/**
+ * @param {HTMLElement} root - renderParentFieldHtmlで作った .parent-field 要素
+ * @param {{getProject: () => string, excludeId?: string, onChange?: () => void}} opts
+ * onChangeはユーザー操作で値が変わった時だけ呼ぶ（setValue/clearでは呼ばない）
+ */
+function setupParentField(root, { getProject, excludeId = '', onChange = () => {} }) {
+  const input = root.querySelector('.parent-field-input');
+  const clearBtn = root.querySelector('.parent-field-clear');
+  const listEl = root.querySelector('.parent-field-list');
+  const titleEl = root.querySelector('.parent-field-title');
+  const noteEl = root.querySelector('.parent-field-note');
+  let value = '';
+  let fallbackTitle = '';
+  let disabled = false;
+
+  const showSelected = () => {
+    input.value = value;
+    const found = value ? findItemById(value) : null;
+    const title = found ? found.title : fallbackTitle;
+    titleEl.textContent = value ? `親: ${title || ''}` : '';
+    clearBtn.style.display = value && !disabled ? '' : 'none';
+  };
+  const openList = () => { listEl.style.display = ''; parentFieldListOpen = true; };
+  const closeList = () => { listEl.style.display = 'none'; parentFieldListOpen = false; };
+  const matches = (query) => {
+    const q = query.trim().toLowerCase();
+    return collectParentCandidates(getProject(), excludeId)
+      .filter(it => !q || it.id.toLowerCase().includes(q) || it.title.toLowerCase().includes(q));
+  };
+  const renderList = (query) => {
+    const all = matches(query);
+    const rows = all.slice(0, PARENT_FIELD_MAX_ROWS);
+    if (rows.length === 0) {
+      listEl.innerHTML = '<div class="parent-field-empty">候補がないよ</div>';
+      return;
+    }
+    // EPIC（子を持つタスク）にはアイコンを付け、単発タスクと見分けられるようにする。単発は同幅の空きで揃える
+    listEl.innerHTML = rows.map(it => `<div class="parent-field-item${it.id === value ? ' is-selected' : ''}" role="option" data-id="${escapeHtml(it.id)}">
+      ${(it.children && it.children.length > 0) || it.childrenTotal > 0
+        ? '<span class="parent-field-item-icon material-icon icon-stacks" title="EPIC"></span>'
+        : '<span class="parent-field-item-icon" aria-hidden="true"></span>'}
+      <span class="parent-field-item-id">${escapeHtml(it.id)}</span>
+      <span class="parent-field-item-title">${escapeHtml(it.title)}</span>
+    </div>`).join('') + (all.length > rows.length
+      ? `<div class="parent-field-more">ほか${all.length - rows.length}件。絞り込んでね</div>`
+      : '');
+  };
+  const pick = (id) => {
+    value = id;
+    fallbackTitle = '';
+    showSelected();
+    closeList();
+    onChange();
+  };
+
+  input.addEventListener('focus', () => { input.select(); renderList(''); openList(); });
+  input.addEventListener('input', () => { renderList(input.value); openList(); });
+  input.addEventListener('blur', () => { closeList(); showSelected(); }); // 入力途中の文字は捨てて、選択中の値に戻す
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && parentFieldListOpen) {
+      e.preventDefault();
+      e.stopPropagation();
+      input.blur();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      const first = matches(input.value)[0];
+      if (first) { pick(first.id); input.blur(); }
+    }
+  });
+  // blurより先に選択を確定させるため、mousedownで処理する
+  listEl.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const row = e.target.closest('.parent-field-item');
+    if (!row) return;
+    pick(row.dataset.id);
+    input.blur();
+  });
+  clearBtn.addEventListener('click', () => { pick(''); });
+
+  showSelected();
+  return {
+    getValue: () => value,
+    setValue: (id, title = '') => { value = id || ''; fallbackTitle = title; showSelected(); },
+    clear: () => { value = ''; fallbackTitle = ''; showSelected(); },
+    setDisabled: (isDisabled, note = '') => {
+      disabled = !!isDisabled;
+      input.disabled = disabled;
+      noteEl.textContent = disabled ? note : '';
+      showSelected();
+    },
+  };
+}
+
 // --- Add Task Form ---
 let addFormEl = null;
 
@@ -8286,6 +8485,10 @@ function getOrCreateAddForm() {
             <select id="add-task-project">
               <option value="inbox">未ワークスペース (Inbox)</option>
             </select>
+          </div>
+          <div class="settings-group">
+            <label>親タスク（任意）</label>
+            ${renderParentFieldHtml('add-task')}
           </div>
           <div class="settings-group">
             <label>ステータス</label>
@@ -8342,6 +8545,11 @@ function getOrCreateAddForm() {
   addFormEl.querySelector('#add-task-submit').addEventListener('click', submitAddTask);
   // BT-395: タグはワークスペース単位のため、ワークスペースを変えたら選択済みタグをクリアする
   addFormEl.querySelector('#add-task-project').addEventListener('change', () => resetAddFormTags(addFormEl));
+  // BT-432: 親タスクの候補は選択中ワークスペースのもの。親を選んだらワークスペースを親に合わせて固定する
+  addFormEl._parentField = setupParentField(addFormEl.querySelector('#add-task-parent-field'), {
+    getProject: () => addFormEl.querySelector('#add-task-project').value,
+    onChange: syncAddFormParent,
+  });
   addFormEl.querySelector('#add-task-status').addEventListener('change', syncAddFormCompletedFields);
 
   // Enterキーで送信（タイトル未入力時はsubmitAddTask側で弾かれる）
@@ -8360,6 +8568,7 @@ function readAddFormValues() {
     title: form.querySelector('#add-task-title').value.trim(),
     description: form.querySelector('#add-task-description').value,
     project: form.querySelector('#add-task-project').value,
+    parentId: form._parentField.getValue(),
     status: form.querySelector('#add-task-status').value,
     assignee: form.querySelector('#add-task-assignee').value.trim(),
     startDate: form.querySelector('#add-task-start-date').value,
@@ -8390,6 +8599,22 @@ function updateAddSubmitState() {
   form.querySelector('#add-task-submit').disabled = !form.querySelector('#add-task-title').value.trim();
 }
 
+// BT-432: 親タスク欄の値に合わせて、見出し・ワークスペース選択（親があれば親のワークスペースに固定）を更新する
+function syncAddFormParent() {
+  const form = getOrCreateAddForm();
+  const parentId = form._parentField.getValue();
+  const projectSelect = form.querySelector('#add-task-project');
+  if (parentId) {
+    const parent = findItemById(parentId);
+    if (parent && parent.project && parent.project !== projectSelect.value) {
+      projectSelect.value = parent.project;
+      resetAddFormTags(form); // タグはワークスペース単位のため、ワークスペースが変わったら選択済みタグを外す
+    }
+  }
+  form.querySelector('.add-form-title').textContent = parentId ? `子タスク追加 (${parentId})` : 'タスク追加';
+  projectSelect.disabled = !!parentId;
+}
+
 function openAddTaskForm(defaultStatus, defaultProject, parentId, defaults) {
   const form = getOrCreateAddForm();
   // 同じz-index(1000)の他モーダル(EPIC詳細など)より必ず手前に出すため、
@@ -8413,18 +8638,10 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId, defaults) {
     projectSelect.value = defaultProject;
   }
 
-  // 親ID保持（子タスク追加用）
-  form.dataset.parentId = parentId || '';
-
-  // 子タスク追加時はラベルを変える
-  const titleLabel = form.querySelector('.add-form-title');
-  if (parentId) {
-    titleLabel.textContent = `子タスク追加 (${parentId})`;
-    projectSelect.disabled = true;
-  } else {
-    titleLabel.textContent = 'タスク追加';
-    projectSelect.disabled = false;
-  }
+  // BT-432: 親IDは親タスク欄が保持する。EPIC画面・ガント・列フッターから開いた時は自動セットされ、
+  // 子タスク追加時はラベル変更・ワークスペース固定を行う
+  form._parentField.setValue(parentId || '');
+  syncAddFormParent();
 
   // ステータスのデフォルト値
   if (defaultStatus) {
@@ -8470,7 +8687,7 @@ async function submitAddTask() {
   const assignee = form.querySelector('#add-task-assignee').value.trim();
   const startDate = form.querySelector('#add-task-start-date').value;
   const dueDate = form.querySelector('#add-task-due-date').value;
-  const parentId = form.dataset.parentId || '';
+  const parentId = form._parentField.getValue();
   const errorEl = form.querySelector('#add-task-error');
   errorEl.style.display = 'none';
 

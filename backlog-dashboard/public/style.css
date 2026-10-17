@@ -4252,13 +4252,13 @@ body {
 .due-quick-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 3px;
 }
 
 .due-quick-row { margin-top: 6px; }
 
 .due-quick-btn {
-  padding: 3px 8px;
+  padding: 3px 5px;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--card);
@@ -7019,3 +7019,58 @@ mark.activity-hit {
   flex: 0 0 84px;
   width: 84px;
 }
+
+/* --- 親タスク選択コンボボックス (BT-432) --- */
+.parent-field { position: relative; }
+.parent-field-row { display: flex; align-items: center; gap: 4px; }
+.parent-field-clear {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.parent-field-clear:hover { background: var(--card-hover); color: var(--text); }
+.parent-field-list {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 20;
+  width: 340px;
+  max-width: 80vw;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+}
+.parent-field-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.parent-field-item:hover, .parent-field-item.is-selected { background: var(--card-hover); }
+.parent-field-item-id { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; color: var(--accent); }
+.parent-field-item-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.parent-field-empty, .parent-field-more { padding: 6px 8px; font-size: 0.72rem; color: var(--text-muted); }
+/* 選択した親のタイトル。ラベル（ワークスペース/ステータス）と同じ文字サイズで、テーマのアクセント色 */
+.parent-field-title { margin-top: 3px; font-size: 0.68rem; font-weight: 600; color: var(--accent); overflow-wrap: anywhere; }
+.parent-field-title:empty, .parent-field-note:empty { display: none; }
+.parent-field-note { margin-top: 3px; font-size: 0.68rem; color: var(--text-muted); }
+.parent-field-item-icon { flex-shrink: 0; width: 1em; height: 1em; font-size: 0.85rem; color: var(--accent); align-self: center; }
