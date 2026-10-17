@@ -137,6 +137,7 @@ button.gantt-stat { cursor: pointer; }
 }
 
 .gantt-grid {
+  --gantt-state-w: 78px; /* BT-424: ステータス欄の幅 */
   position: relative;
   min-height: 100%;
 }
@@ -365,7 +366,51 @@ button.gantt-stat { cursor: pointer; }
 @keyframes gantt-spin { to { transform: rotate(360deg); } }
 
 /* BT-365: 行頭の [スピナー][ステータス文字] */
-.gantt-state { flex: none; display: inline-flex; align-items: center; gap: 3px; }
+/* BT-424: ステータス欄(タイトルの右・期日の左)。固定幅のボタンで、ヘッダの「ステータス」と縦に揃える */
+.gantt-state {
+  flex: none;
+  width: var(--gantt-state-w);
+  box-sizing: border-box;
+  height: 20px;
+  margin: 0;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.gantt-state:hover { border-color: var(--accent); background: var(--surface); }
+.gantt-status-menu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 96px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+.gantt-status-menu-item {
+  padding: 5px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-align: left;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.gantt-status-menu-item:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.gantt-status-menu-item.st-ready, .gantt-status-menu-item.st-do { color: var(--accent); }
+.gantt-status-menu-item.is-current { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .gantt-running-slot { flex: none; width: 10px; height: 8px; } /* スピナー無しでも文字位置を揃える */
 .gantt-status-text { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.02em; color: var(--text-muted); min-width: 3.3em; }
 .gantt-status-text.st-ready { color: var(--accent); }
@@ -616,6 +661,8 @@ body.gantt-dragging, body.gantt-dragging * { cursor: grabbing !important; user-s
 /* ---- 期日欄 / タスク列の幅変更 ---- */
 /* BT-383: 期日の見出しを期日欄の中央に置き、左の境界線(幅変更のつかみ)に文字が掛からないようにする */
 .gantt-corner-due { width: 92px; flex: none; text-align: center; }
+/* BT-424: ステータスの見出しも期日の左に固定幅で置く(行のステータス欄と縦に揃える) */
+.gantt-corner-status { width: var(--gantt-state-w); flex: none; margin-left: auto; text-align: center; }
 
 .gantt-resizer {
   position: absolute;
@@ -661,6 +708,12 @@ body.gantt-resizing, body.gantt-resizing * { cursor: col-resize !important; user
 /* 期日欄の左側の薄い線(こちらでも幅変更できる)。label右端のpadding(10px)+期日欄(92px)の分だけ内側 */
 .gantt-resizer-due {
   right: 102px;
+  width: 9px;
+  border-right: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+}
+/* BT-424: ステータス欄の左側の線(ここでも幅変更できる)。期日欄の線から、ステータス欄の幅だけさらに内側 */
+.gantt-resizer-state {
+  right: calc(102px + var(--gantt-state-w));
   width: 9px;
   border-right: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
 }
