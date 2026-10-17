@@ -1940,6 +1940,15 @@ body {
   color: var(--accent);
 }
 
+/* BT-425: 列末尾の「＋ 追加」。「他N件」と同じ破線カードだが、追加の入口として文字色をアクセントにする */
+.card-summary.card-add-footer {
+  border-left-color: var(--border); /* 子カード(.card-child)の左線色を引き継がない(タスクではないため色付け不要) */
+}
+
+.card-add-footer .summary-label {
+  color: var(--accent);
+}
+
 /* --- Epic Card & Badge (GitHub-style pill) --- */
 .card-epic {
   border-left-color: var(--accent);
@@ -3217,6 +3226,13 @@ body {
   border-radius: 3px;
   cursor: grab;
   background: var(--card);
+}
+
+/* BT-425: ミニボード末尾の「＋」はタスクではないため、子カードの左線色・grabカーソルを打ち消す */
+.mini-col-body .card-child.card-add-footer-mini {
+  border-left: 1px dashed var(--border);
+  cursor: pointer;
+  background: transparent;
 }
 
 .mini-col-body .card-child .card-id {

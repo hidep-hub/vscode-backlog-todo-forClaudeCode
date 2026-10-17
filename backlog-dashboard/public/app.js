@@ -3603,7 +3603,7 @@ function renderBoard(data) {
           ${doneTodayToggleHtml}
           ${!isCompact ? columnSortSelectHtml(col.id) : ''}
           ${countAreaHtml}
-          <button class="add-task-btn" data-col-id="${col.id}" data-col-status="${col.match[0]}" title="${isCompact ? '完了済みタスクを追加' : 'タスク追加'}">+</button>
+          <button class="add-task-btn" data-col-id="${col.id}" data-col-status="${col.match[0]}" data-lane="${escapeHtml(laneKey || '')}" title="${isCompact ? '完了済みタスクを追加' : 'タスク追加'}">+</button>
         </div>
       </div>
       <div class="column-body" data-col-id="${col.id}"></div>
@@ -3767,6 +3767,18 @@ function renderBoard(data) {
       }
     }
 
+    // BT-425: 完了以外の列は末尾にも「＋」を置く(「他N件」カードと同じ破線の見た目)。
+    // 完了カラムは過去分の登録用途のためヘッダーの+だけにする。
+    if (!isCompact) {
+      const addFooter = document.createElement('div');
+      addFooter.className = 'card card-compact card-summary card-add-footer';
+      addFooter.dataset.colStatus = col.match[0];
+      addFooter.dataset.lane = laneKey || '';
+      addFooter.title = 'タスク追加';
+      addFooter.innerHTML = '<span class="summary-label">＋</span>';
+      body.appendChild(addFooter);
+    }
+
     // scrollTopはDOM接続後でないと反映されない(接続前は高さが確定せず0にクランプされる)
     if (scrollPositions[col.id] != null) body.scrollTop = scrollPositions[col.id];
     columnBodyEls[col.id] = body;
@@ -3895,10 +3907,11 @@ function renderBoard(data) {
   }
 
   // +ボタンのイベントリスナーを設定
-  boardEl.querySelectorAll('.add-task-btn').forEach(btn => {
+  // BT-425: ヘッダーの+と列末尾の「＋」は同じ判定。レーン表示中はそのレーンのワークスペースに追加する
+  boardEl.querySelectorAll('.add-task-btn, .card-add-footer').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      openAddTaskForm(btn.dataset.colStatus, currentFilter || '', '');
+      openAddTaskForm(btn.dataset.colStatus, btn.dataset.lane || currentFilter || '', '');
     });
   });
 
@@ -7420,6 +7433,18 @@ function buildMiniBoard(epic) {
       }
     }
 
+    // BT-425: 完了以外の列は末尾にも「＋」を置く(親Epic固定の子タスク追加)
+    if (!isDoneCol) {
+      const addFooter = document.createElement('div');
+      addFooter.className = 'card card-child card-summary card-add-footer card-add-footer-mini';
+      addFooter.dataset.colStatus = col.match[0];
+      addFooter.dataset.parentId = epic.id;
+      addFooter.dataset.project = epic.project;
+      addFooter.title = '子タスク追加';
+      addFooter.innerHTML = '<span class="summary-label">＋</span>';
+      body.appendChild(addFooter);
+    }
+
     container.appendChild(colEl);
   }
 
@@ -7455,7 +7480,7 @@ function buildMiniBoard(epic) {
   });
 
   // ミニボード内の+ボタンにイベント設定
-  container.querySelectorAll('.add-task-btn-mini').forEach(btn => {
+  container.querySelectorAll('.add-task-btn-mini, .card-add-footer-mini').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       openAddTaskForm(btn.dataset.colStatus, btn.dataset.project, btn.dataset.parentId);
