@@ -5647,6 +5647,9 @@ function renderPlanGantt() {
         // 週次計画と同じ: 子タスクはEPICボード(ミニボード)を開き、その子をハイライト
         expandedMiniCols.add('done');
         pendingHighlightChildId = item.id;
+        // BT-427: パルスは短く、ミニボードの再描画でも消えるため、どの子か分かるよう
+        // 履歴からの遷移と同じ常時ハイライト(モーダルを閉じるまで維持)も付ける
+        activityHighlightTaskIds = new Set([item.id]);
         openCardDetail(parentEpic);
       } else {
         openCardDetail(item);
