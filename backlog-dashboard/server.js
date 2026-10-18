@@ -17,6 +17,7 @@ const weeklyReport = require('./db/weekly-report');
 const { createTagsApi } = require('./tags-api');
 const { createItsSettingsApi } = require('./its-settings-api');
 const { createItsImportApi } = require('./its-import-api');
+const { createRulesApi } = require('./rules-sync-api');
 const { version: API_VERSION } = require('./package.json');
 
 // --- Config ---
@@ -767,6 +768,9 @@ const handleItsSettingsApi = createItsSettingsApi({
   },
 });
 
+// エージェント運用ルールの同期状況の確認・同期API(BT-439。画面専用)。
+const handleRulesApi = createRulesApi({ repoRoot: REPO_ROOT, apiVersion: API_VERSION });
+
 // 外部ITS(現時点ではRedmineのみ)の取り込みAPI(BM-072)。
 const handleItsImportApi = createItsImportApi({
   config,
@@ -959,6 +963,9 @@ function serveStatic(req, res) {
 
   // API: 外部ITS(現時点ではRedmineのみ)の取り込み(BM-072)
   if (handleItsImportApi(req, res)) return;
+
+  // API: エージェント運用ルールの同期状況の確認・同期(BT-439)
+  if (handleRulesApi(req, res)) return;
 
   // API: GET /api/health
   if (req.url === '/api/health' && req.method === 'GET') {
