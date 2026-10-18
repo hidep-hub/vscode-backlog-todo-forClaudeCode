@@ -7,7 +7,7 @@
 //   GET  /api/its-preview?prefix=&source=redmine|gitlab&trackerId=(redmineのみ必須)&status=open|all&offset=0
 //     -> { issues:[{key,title,url,state,statusName,startDate,dueDate,alreadyImported,importedTaskId,parentKey,childKeys,
 //                    assignee,version,description}], total, nextOffset }
-//          ※assignee/version/description はRedmineのみ(BM-099)。GitLabは常にnull/''。
+//          ※assignee/version/description はRedmineのみ(BM-099)。GitLabはassignee/versionが常にnull(descriptionはBT-422で対応)。
 //   POST /api/its-import {prefix, source, keys:[...]}
 //     -> { ok, added, skipped, errors }
 //
@@ -90,11 +90,11 @@ function toGitlabPreviewItem(issue, { importedMap }) {
     statusName: closed ? 'closed' : 'opened',
     startDate: null, // GitLab issueに開始日フィールドは無い
     dueDate: issue.due_date || null,
-    // BM-099: GitLabは対象外(担当者/バージョン表示はRedmineタブのみ)。フィールドの有無で
-    // フロント側の分岐を増やさないよう、形だけ揃えて空にしておく。
+    // BM-099: 担当者/バージョン表示はRedmineタブのみのため、形だけ揃えてnullにしておく。
+    // BT-422: 説明欄は件名ホバーのツールチップ用に、一覧APIが標準で返すdescriptionを使う
     assignee: null,
     version: null,
-    description: '',
+    description: issue.description || '',
     alreadyImported: importedMap.has(String(issue.iid)),
     importedTaskId: importedMap.get(String(issue.iid)) || null,
     parentKey: null,

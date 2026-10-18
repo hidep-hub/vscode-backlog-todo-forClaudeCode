@@ -960,8 +960,11 @@ function getOrCreateGithubImportModal() {
     if (e.target.closest('#redmine-import-load-more-btn')) loadRedmineImportList({ reset: false });
   });
   // BM-099: 件名ホバーで説明欄をツールチップ表示(ガントの.gantt-tipと同じ見た目を流用)
-  githubImportEl.querySelector('#redmine-import-body').addEventListener('mouseover', onImportTitleMouseOver);
-  githubImportEl.querySelector('#redmine-import-body').addEventListener('mouseout', onImportTitleMouseOut);
+  // BT-422: GitHub/GitLabタブにも同じツールチップを適用する
+  for (const bodyId of ['#github-import-body', '#redmine-import-body', '#gitlab-import-body']) {
+    githubImportEl.querySelector(bodyId).addEventListener('mouseover', onImportTitleMouseOver);
+    githubImportEl.querySelector(bodyId).addEventListener('mouseout', onImportTitleMouseOut);
+  }
   githubImportEl.querySelector('#redmine-import-body').addEventListener('change', (e) => {
     if (!e.target.classList.contains('redmine-issue-checkbox')) return;
     // BM-069決定事項: 親を選ぶと、読み込み済みの子も自動で取り込み対象に含める
@@ -1191,6 +1194,16 @@ function renderImportTitleHtml(markSvg, title, badgeHtml) {
   return `${markSvg}<span class="import-title-text">${escapeHtml(title)}</span>${badgeHtml || ''}`;
 }
 
+// BM-099/BT-422: 取り込み一覧の番号・件名を元issueへのリンク(新規タブ)にする。3タブ共通。
+// 件名リンクのdata-import-source/data-issue-keyは、ホバーのツールチップがissueを引くために使う
+function renderImportIdLinkHtml(key, url) {
+  return `<a class="import-id-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">#${escapeHtml(key)}</a>`;
+}
+
+function renderImportTitleLinkHtml(source, key, url, innerHtml) {
+  return `<a class="import-title-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" data-import-source="${source}" data-issue-key="${escapeHtml(key)}">${innerHtml}</a>`;
+}
+
 // BT-415: メインボードで絞り込み中のワークスペースのprefix。All Projects(または未連携)なら空文字
 function getImportDefaultPrefix() {
   const prefixMap = (currentBoardData && currentBoardData.projectPrefixMap) || {};
@@ -1362,8 +1375,8 @@ function renderGithubImportIssueCard(issue, issueByNumber) {
     .filter(Boolean);
   const parentRow = renderImportRow({ epic: children.length > 0, imported: issue.alreadyImported }, [
     ['check', checkboxHtml],
-    ['id', `#${issue.number}`],
-    ['title', renderImportTitleHtml(GITHUB_MARK_SVG, issue.title, children.length > 0 ? renderImportChildBadge(children) : ''), issue.title],
+    ['id', renderImportIdLinkHtml(String(issue.number), issue.url)],
+    ['title', renderImportTitleLinkHtml('github', String(issue.number), issue.url, renderImportTitleHtml(GITHUB_MARK_SVG, issue.title, children.length > 0 ? renderImportChildBadge(children) : ''))],
     ['state', issue.state === 'closed' ? '<span class="card-tag github-issue-closed">closed</span>' : 'open'],
     ['imported', issue.alreadyImported ? renderGithubImportedTag(issue.importedTaskId) : ''],
   ]);
@@ -1373,8 +1386,8 @@ function renderGithubImportIssueCard(issue, issueByNumber) {
 function renderGithubImportChildCard(issue) {
   return renderImportRow({ child: true, imported: issue.alreadyImported }, [
     ['check', ''], // 子は単独で選択できない(親を取り込むと一括で追従する)
-    ['id', `#${issue.number}`],
-    ['title', renderImportTitleHtml(GITHUB_MARK_SVG, issue.title), issue.title],
+    ['id', renderImportIdLinkHtml(String(issue.number), issue.url)],
+    ['title', renderImportTitleLinkHtml('github', String(issue.number), issue.url, renderImportTitleHtml(GITHUB_MARK_SVG, issue.title))],
     ['state', issue.state === 'closed' ? '<span class="card-tag github-issue-closed">closed</span>' : 'open'],
     ['imported', issue.alreadyImported ? renderGithubImportedTag(issue.importedTaskId) : ''],
   ]);
@@ -1741,8 +1754,8 @@ function renderGitlabImportRow(issue) {
     : escapeHtml(issue.statusName);
   return renderImportRow({ imported: issue.alreadyImported }, [
     ['check', checkboxHtml],
-    ['id', `#${escapeHtml(issue.key)}`],
-    ['title', renderImportTitleHtml(GITLAB_MARK_SVG, issue.title, ''), issue.title],
+    ['id', renderImportIdLinkHtml(issue.key, issue.url)],
+    ['title', renderImportTitleLinkHtml('gitlab', issue.key, issue.url, renderImportTitleHtml(GITLAB_MARK_SVG, issue.title, ''))],
     ['state', stateHtml],
     ['due', issue.dueDate ? escapeHtml(issue.dueDate) : ''],
     ['imported', issue.alreadyImported ? renderGitlabImportedTag(issue.importedTaskId) : ''],
@@ -1828,8 +1841,8 @@ function renderRedmineImportRow(issue, { epic = false, child = false, parentKey,
   const stateHtml = issue.state === 'closed'
     ? '<span class="card-tag github-issue-closed">closed</span>'
     : escapeHtml(issue.statusName);
-  const idHtml = `<a class="import-id-link" href="${escapeHtml(issue.url)}" target="_blank" rel="noopener noreferrer">#${escapeHtml(issue.key)}</a>`;
-  const titleHtml = `<a class="import-title-link" href="${escapeHtml(issue.url)}" target="_blank" rel="noopener noreferrer" data-issue-key="${escapeHtml(issue.key)}">${renderImportTitleHtml(REDMINE_MARK_SVG, issue.title, badgeHtml)}</a>`;
+  const idHtml = renderImportIdLinkHtml(issue.key, issue.url);
+  const titleHtml = renderImportTitleLinkHtml('redmine', issue.key, issue.url, renderImportTitleHtml(REDMINE_MARK_SVG, issue.title, badgeHtml));
   return renderImportRow({ epic, child, imported: issue.alreadyImported }, [
     ['check', checkboxHtml],
     ['id', idHtml],
@@ -1888,10 +1901,21 @@ function positionImportTip(tip, x, y) {
   tip.style.top = `${top}px`;
 }
 
+// BT-422: タブ(source)ごとの読み込み済みissueからツールチップ用のitem({key,title,description})を引く。
+// GitHubはnumber/bodyなので、Redmine/GitLabのkey/descriptionの形に正規化して渡す
+function findImportTipIssue(source, key) {
+  if (source === 'github') {
+    const issue = githubImportAllIssues.find((i) => String(i.number) === key);
+    return issue && { key: String(issue.number), title: issue.title, description: issue.body };
+  }
+  const list = source === 'gitlab' ? gitlabImportAllIssues : redmineImportAllIssues;
+  return list.find((i) => i.key === key);
+}
+
 function onImportTitleMouseOver(e) {
   const el = e.target.closest('.import-title-link');
   if (!el) return;
-  const issue = redmineImportAllIssues.find((i) => i.key === el.dataset.issueKey);
+  const issue = findImportTipIssue(el.dataset.importSource, el.dataset.issueKey);
   if (!issue) return;
   clearTimeout(importTipHideTimer);
   clearTimeout(importTipShowTimer);
