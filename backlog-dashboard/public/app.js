@@ -5240,13 +5240,27 @@ function planBucketForDueDate(dueDate) {
   return 'later';
 }
 
-// ドロップ先バケットに対応する期日（週の日曜日）。TODO(=クリア)/遅延(非対応)はnull。
-// 「それ以降」は境界がないため、暫定でPLAN_WEEKS_OFFSET.later週の日曜日に固定する。
-function planDueDateForBucket(bucketId) {
-  if (!(bucketId in PLAN_WEEKS_OFFSET)) return null;
+// ドロップ先バケットに対応する開始日(週の月曜)・期日(週の金曜)。BT-434: 週のいつやるか分からないため開始日も置く。
+// 既存の開始日が対象週(月〜金)の範囲内なら、本人が決めた着手日として維持する。範囲外(前倒し・後ろ倒し)・未設定は月曜に寄せる。
+// TODO(=保留。後で計画し直す)は開始日・期日とも null(=クリア)。遅延(非対応)も同様。
+// 「それ以降」は境界がないため、暫定でPLAN_WEEKS_OFFSET.later週に固定する。
+function planScheduleForBucket(bucketId, currentStart = null) {
+  if (!(bucketId in PLAN_WEEKS_OFFSET)) return { startDate: null, dueDate: null };
   const todayMonday = planGetMonday(getTodayJST());
-  const monday = planAddDays(todayMonday, PLAN_WEEKS_OFFSET[bucketId] * 7);
-  return planFormatYmd(planAddDays(monday, 6));
+  const monday = planFormatYmd(planAddDays(todayMonday, PLAN_WEEKS_OFFSET[bucketId] * 7));
+  const friday = planFormatYmd(planAddDays(planGetMonday(monday), 4));
+  const keep = currentStart && currentStart >= monday && currentStart <= friday;
+  return { startDate: keep ? currentStart : monday, dueDate: friday };
+}
+
+// 週次計画に出ているタスク(トップレベル・子)をIDで探す
+function planFindItem(id) {
+  for (const item of planCollectItems()) {
+    if (item.id === id) return item;
+    const child = (item.children || []).find((c) => c.id === id);
+    if (child) return child;
+  }
+  return null;
 }
 
 // メインボードの全カラムからトップレベルitemを収集（parentId付き=完了子タスクの重複表示はスキップ、フィルタはヘッダーのワークスペース選択に追従）
@@ -5337,6 +5351,23 @@ function planBuildBuckets(bucketDefs) {
     }
   }
   return buckets;
+}
+
+// BT-434: 週バケットへのドロップ用。開始日と期日を同時に更新する（nullは空文字=クリア）
+async function planUpdateSchedule(taskId, { startDate, dueDate }) {
+  try {
+    const resp = await fetch('/api/update-task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId, startDate: startDate || '', dueDate: dueDate || '' }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      console.error('[plan] update-task failed:', err.error);
+    }
+  } catch (e) {
+    console.error('[plan] Network error:', e);
+  }
 }
 
 async function planUpdateDueDate(taskId, dueDate) {
@@ -5507,14 +5538,15 @@ function planSetupDropZone(bodyEl, bucketId) {
     bodyEl.classList.remove('drop-over');
     if (!planDragData || !canDrop) { planDragData = null; return; }
 
-    const newDue = planDueDateForBucket(bucketId); // TODO列はnull(=クリア)
     const drag = planDragData;
     planDragData = null;
 
+    // 開始日の維持判定はタスクごとに行う(EPICグループ一括でも子の開始日はそれぞれ違う)。TODO列は開始日・期日ともクリア
+    const scheduleOf = (id) => planScheduleForBucket(bucketId, (planFindItem(id) || {}).startDate || null);
     if (drag.kind === 'single') {
-      await planUpdateDueDate(drag.id, newDue);
+      await planUpdateSchedule(drag.id, scheduleOf(drag.id));
     } else if (drag.kind === 'group') {
-      await Promise.all(drag.childIds.map(id => planUpdateDueDate(id, newDue)));
+      await Promise.all(drag.childIds.map(id => planUpdateSchedule(id, scheduleOf(id))));
     }
     renderPlanBoard();
   });
