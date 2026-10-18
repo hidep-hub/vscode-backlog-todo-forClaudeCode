@@ -5548,6 +5548,7 @@ mark.activity-hit {
 }
 
 .selection-bar-pin,
+.selection-bar-tag,
 .selection-bar-due {
   background: transparent;
   color: var(--accent);
@@ -5555,6 +5556,7 @@ mark.activity-hit {
 }
 
 .selection-bar-pin:hover,
+.selection-bar-tag:hover,
 .selection-bar-due:hover {
   background: var(--accent);
   color: #fff;

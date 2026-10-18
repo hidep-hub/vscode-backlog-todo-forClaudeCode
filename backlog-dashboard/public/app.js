@@ -3710,6 +3710,7 @@ function renderBoard(data) {
       if (!isCompact && item.id && item.id !== '-') {
         cardActionsHtml = `<div class="card-actions">
           <button class="card-action-btn card-due-btn" data-task-id="${item.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
+          <button class="card-action-btn card-tag-btn" data-task-id="${item.id}" title="タグを付け外し"><span class="material-icon icon-tag"></span></button>
           <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集"><span class="material-icon icon-edit"></span></button>
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
@@ -3964,6 +3965,15 @@ function renderBoard(data) {
       e.preventDefault();
       const item = findItemById(btn.dataset.taskId);
       if (item) openDueDatePicker(btn, item.dueDate, (date) => planUpdateDueDate(item.id, date));
+    });
+  });
+
+  // カードのタグボタン（BT-423）
+  boardEl.querySelectorAll('.card-tag-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      openCardTagPicker(btn);
     });
   });
 
@@ -7892,6 +7902,7 @@ function getOrCreateSelectionBar() {
     <button class="selection-bar-btn selection-bar-pin" id="selection-pin"><span class="material-icon icon-keep"></span> ピン留め</button>
     <button class="selection-bar-btn selection-bar-pin" id="selection-unpin"><span class="material-icon icon-keep"></span> ピン解除</button>
     <button class="selection-bar-btn selection-bar-due" id="selection-set-due"><span class="material-icon icon-calendar-month"></span> 期日を設定</button>
+    <button class="selection-bar-btn selection-bar-tag" id="selection-tag"><span class="material-icon icon-tag"></span> タグ</button>
     <button class="selection-bar-btn selection-bar-github" id="selection-github-create"><span class="material-icon icon-upload"></span> GitHub登録</button>
     <button class="selection-bar-btn selection-bar-delete danger" id="selection-delete"><span class="material-icon icon-delete"></span> 削除</button>
     <button class="selection-bar-btn selection-bar-cancel" id="selection-cancel">キャンセル</button>
@@ -7905,6 +7916,7 @@ function getOrCreateSelectionBar() {
     // currentDueは空にして、選択中のタスクの期日が混在していても今日を起点に選べるようにする。
     openDueDatePicker(event.currentTarget, '', (dueDate) => applySelectedDueDate(dueDate));
   });
+  selectionBarEl.querySelector('#selection-tag').addEventListener('click', (event) => openBulkTagPicker(event.currentTarget));
   selectionBarEl.querySelector('#selection-github-create').addEventListener('click', () => openBulkGithubCreateConfirm());
   selectionBarEl.querySelector('#selection-delete').addEventListener('click', () => openBulkDeleteConfirm());
   selectionBarEl.querySelector('#selection-cancel').addEventListener('click', () => {
