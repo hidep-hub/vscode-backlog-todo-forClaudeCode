@@ -2591,6 +2591,20 @@ body {
   font-weight: 600;
 }
 
+/* 期日の変更の向き（BT-435）: 延期=赤、前倒し=青。変更日時は文字色を継承 */
+.due-postponed {
+  color: #c62828;
+}
+
+.due-advanced {
+  color: #3b82f6;
+}
+
+.due-changed-at {
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
 /* --- Artifacts Section --- */
 /* 右カラムで情報(更新者など)の下に来る想定のため、区切り線を上に引く（BT-261） */
 .detail-artifacts-block {
