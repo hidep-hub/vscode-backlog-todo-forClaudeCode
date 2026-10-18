@@ -13,6 +13,7 @@ const { buildActivity, buildRecentEvents } = require('./db/activity');
 const tasksRepo = require('./db/tasks-repo');
 const { createBackupManager } = require('./db/backup');
 const { buildTaskCsv } = require('./db/csv-export');
+const weeklyReport = require('./db/weekly-report');
 const { createTagsApi } = require('./tags-api');
 const { createItsSettingsApi } = require('./its-settings-api');
 const { createItsImportApi } = require('./its-import-api');
@@ -825,6 +826,81 @@ function serveStatic(req, res) {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'Invalid JSON body' }));
     });
+    return;
+  }
+
+  // API: 週報 (BT-291)。履歴(task_events)と期日(tasks)から期間内の作業をMarkdown表にする。
+  //   GET  /api/weekly-report-template        保存済みの書式・列・プレースホルダー説明
+  //   POST /api/weekly-report-template        {template, columns} を保存 / {reset:true} で既定に戻す
+  //   POST /api/weekly-report-preview         編集中の書式でプレビュー(読み取りのみ。書式は保存しない)
+  //   GET  /api/weekly-report?range=this|last|from=&to=&workspaces=a,b&statuses=done,do&format=md|json
+  //                                           保存済みの書式で生成(format=mdはダウンロード)
+  const weeklyPath = req.url.split('?')[0];
+  if (weeklyPath === '/api/weekly-report-template' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({
+      ...weeklyReport.loadTemplate(BACKLOG_DIR),
+      defaults: { template: weeklyReport.DEFAULT_TEMPLATE, columns: weeklyReport.DEFAULT_COLUMNS },
+      placeholders: weeklyReport.PLACEHOLDERS,
+      columnDefs: weeklyReport.COLUMN_DEFS,
+      workspaces: (config.projects || []).map(p => ({ file: p.file, prefix: p.prefix || '', name: p.name || p.file })),
+    }));
+    return;
+  }
+  if (weeklyPath === '/api/weekly-report-template' && req.method === 'POST') {
+    readRequestBody(req).then(body => {
+      const result = body.reset ? weeklyReport.resetTemplate(BACKLOG_DIR) : weeklyReport.saveTemplate(BACKLOG_DIR, body);
+      res.writeHead(result.error ? 400 : 200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(result));
+    }).catch(() => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+  if (weeklyPath === '/api/weekly-report-preview' && req.method === 'POST') {
+    readRequestBody(req).then(body => {
+      const saved = weeklyReport.loadTemplate(BACKLOG_DIR);
+      const result = weeklyReport.buildWeeklyReport(getDb(BACKLOG_DIR), config, body, {
+        template: typeof body.template === 'string' ? body.template : saved.template,
+        columns: body.columns || saved.columns,
+      });
+      res.writeHead(result.error ? 400 : 200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(result));
+    }).catch(() => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+  if (weeklyPath === '/api/weekly-report' && req.method === 'GET') {
+    const q = new URL(req.url, 'http://localhost').searchParams;
+    const list = name => (q.get(name) ? q.get(name).split(',').filter(Boolean) : undefined);
+    try {
+      const saved = weeklyReport.loadTemplate(BACKLOG_DIR);
+      const result = weeklyReport.buildWeeklyReport(getDb(BACKLOG_DIR), config, {
+        range: q.get('range'), from: q.get('from'), to: q.get('to'), workspaces: list('workspaces'), statuses: list('statuses'),
+      }, saved);
+      if (result.error) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(result));
+        return;
+      }
+      if (q.get('format') === 'md') {
+        res.writeHead(200, {
+          'Content-Type': 'text/markdown; charset=utf-8',
+          'Content-Disposition': `attachment; filename="weekly-report-${result.from}_${result.to}.md"`,
+          'Cache-Control': 'no-store',
+        });
+        res.end(result.markdown);
+      } else {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(result));
+      }
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'internal_error', message: e.message }));
+    }
     return;
   }
 

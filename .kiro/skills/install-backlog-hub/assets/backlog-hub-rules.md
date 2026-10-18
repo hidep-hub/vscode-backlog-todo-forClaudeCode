@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.10.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.11.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099、BT-291。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## ルール正本と配布方式
 
@@ -87,6 +87,10 @@ AGENTS.md.sample（Git管理の唯一の正本）
     - `POST /api/its-import {prefix, source:"gitlab", keys:[...]}` → `{ok, added, skipped, errors}`。階層化しないため、選択したissueはすべてトップレベルのタスクとして作成される
     - `its-meta`はRedmine専用のため、GitLabでは呼ばない（呼ぶと400）
     - **AIが取り込む場合の作法**: Redmineと同じく、先に`its-preview`で対象を確認してユーザーに示し、承認を得てから`its-import`を実行する
+  - **週報（BT-291、API 2.11.0）**: 履歴（`task_events`）と期日（`tasks`）から、期間内にやったことをワークスペース別のMarkdown表にする。すべて読み取りで、書式の保存だけが書き込み（バックアップ中は409の対象）。画面は履歴ダイアログの「週報」ボタン
+    - `GET /api/weekly-report?range=this|last（またはfrom=&to=YYYY-MM-DD）&workspaces=<projects[].file,...>&statuses=done,do&format=md|json` — 保存済みの書式で生成。`format=md`はダウンロード、省略はJSON（`markdown`/`warnings`/`data`）。期間は月曜〜日曜（JST）。不正な期間・ワークスペース・ステータスは400
+    - `POST /api/weekly-report-preview {range|from,to, workspaces?, statuses?, template?, columns?}`（編集中の書式でプレビュー。書式は保存しない）/ `GET|POST /api/weekly-report-template`（書式と列の取得・保存。`{reset:true}`で既定に戻す。保存先は`<backlogDir>/weekly-report-template.json`）
+    - 出力対象は、期間内に選択ステータスへ変わったタスク＋期日が期間内（または期間より前で未完了）のタスク（ステータス不問）。EPICは見出しにして「完了N/全M件・残りK件」を付け、子はその下の表にまとめる
   - **タスク一覧のCSVエクスポート（BT-221、API 2.8.0）**: `GET /api/export-csv?workspace=<projects[].file>` — 外部のガントチャート等へ転送するためのCSVをダウンロード形式（`Content-Disposition: attachment`、BOM付きUTF-8）で返す。読み取り専用で、バックアップ中の全体ロック（409）の対象外。`workspace`省略で全ワークスペース、未登録の`workspace`は400（`unknown_workspace`）
     - 1行1タスクで、EPICの直後にその子が続く。列は`workspace, id, parent_id, type, board_order, title, status, assignee, start_date, due_date, completed_at, tags, category, description, description_truncated, deliverables, its_source, its_issue, its_url`。`workspace`は常に先頭、`board_order`はボード上の並び順（親ごと。トップレベルは同じ実効ステータス内）、`deliverables`はパスではなくファイル名のみ
     - 論理削除済みは含まない。履歴（`task_events`）は含めない（完全な保全は`/api/backup`で行う）。説明欄は3万文字超で切り詰め`description_truncated=1`になる。応答ヘッダ`X-Export-Row-Count`/`X-Export-Truncated-Count`で件数を確認できる。画面からはバックアップのモーダル内「CSVエクスポート」欄で取得できる
