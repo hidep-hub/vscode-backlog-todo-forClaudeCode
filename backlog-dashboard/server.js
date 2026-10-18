@@ -833,6 +833,7 @@ function serveStatic(req, res) {
   //   GET  /api/weekly-report-template        保存済みの書式・列・プレースホルダー説明
   //   POST /api/weekly-report-template        {template, columns} を保存 / {reset:true} で既定に戻す
   //   POST /api/weekly-report-preview         編集中の書式でプレビュー(読み取りのみ。書式は保存しない)
+  //   GET  /api/weekly-report-counts?range=this|last|from=&to=  ワークスペース別のステータス別件数(画面専用)
   //   GET  /api/weekly-report?range=this|last|from=&to=&workspaces=a,b&statuses=done,do&format=md|json
   //                                           保存済みの書式で生成(format=mdはダウンロード)
   const weeklyPath = req.url.split('?')[0];
@@ -871,6 +872,22 @@ function serveStatic(req, res) {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'Invalid JSON body' }));
     });
+    return;
+  }
+  // 画面の対象ワークスペース横に出す、期間内のステータス別件数(BT-438。画面専用)
+  if (weeklyPath === '/api/weekly-report-counts' && req.method === 'GET') {
+    const q = new URL(req.url, 'http://localhost').searchParams;
+    const list = name => (q.get(name) ? q.get(name).split(',').filter(Boolean) : undefined);
+    try {
+      const result = weeklyReport.buildWeeklyCounts(getDb(BACKLOG_DIR), config, {
+        range: q.get('range'), from: q.get('from'), to: q.get('to'), workspaces: list('workspaces'),
+      });
+      res.writeHead(result.error ? 400 : 200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(result));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'internal_error', message: e.message }));
+    }
     return;
   }
   if (weeklyPath === '/api/weekly-report' && req.method === 'GET') {
