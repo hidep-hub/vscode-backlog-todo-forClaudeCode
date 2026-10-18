@@ -2508,6 +2508,16 @@ body {
   text-decoration: underline;
 }
 
+/* BT-421: 説明本文の下の閉じるボタン（展開中のみ表示） */
+.description-toggle-btn-bottom {
+  display: block;
+  margin-top: 6px;
+}
+
+.description-toggle-btn-bottom[hidden] {
+  display: none;
+}
+
 /* BM-083: 詳細モーダルがdescriptionを非同期取得している間の表示(board用軽量データで開いた直後) */
 .description-loading {
   color: var(--text-muted);
