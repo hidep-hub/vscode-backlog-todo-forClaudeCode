@@ -83,6 +83,7 @@ function getOrCreateWeeklyPane(container) {
         </details>
       </section>
     </div>
+    <div class="weekly-resizer" id="weekly-resizer" role="separator" aria-orientation="vertical" tabindex="0" title="ドラッグで左右の幅を調整（ダブルクリックで元に戻す）"></div>
     <div class="weekly-right">
       <div class="weekly-right-bar">
         <div class="weekly-tabs" id="weekly-tabs">
@@ -102,6 +103,8 @@ function getOrCreateWeeklyPane(container) {
       <div class="weekly-source-note" id="weekly-source-note" hidden>ここは自由に書き換えられますが、編集内容は保存されません。残したいときは「コピー」か「mdをダウンロード」を使ってください。</div>
       <textarea class="weekly-source" id="weekly-source" spellcheck="false" aria-label="生Markdown(編集できます)" hidden></textarea>
     </div>`;
+
+  initWeeklyResizer(container);
 
   const $ = sel => container.querySelector(sel);
   // 設定が変わったら少し待ってプレビューを更新する(日付はカレンダーで選ぶと change が飛ぶ)
@@ -134,6 +137,63 @@ function getOrCreateWeeklyPane(container) {
   $('#weekly-save-format').addEventListener('click', saveWeeklyFormat);
   $('#weekly-reset-format').addEventListener('click', resetWeeklyFormat);
   return weeklyPaneEl;
+}
+
+// --- 左右ペインの仕切り(BT-437) ---
+// 幅の上下限はCSS(.weekly-leftのmin-width/max-width)が守る。ここは値の更新と保存だけを行う。
+const WEEKLY_LEFT_WIDTH_KEY = 'weeklyLeftWidth';
+const WEEKLY_LEFT_MIN = 260;
+const WEEKLY_RIGHT_MIN = 367; // 右ペイン360px＋仕切り7px。style.cssのmax-width: calc(100% - 367px)と合わせる
+
+function setWeeklyLeftWidth(container, px) {
+  if (px === null) container.style.removeProperty('--weekly-left-w');
+  else container.style.setProperty('--weekly-left-w', `${Math.round(px)}px`);
+}
+
+function initWeeklyResizer(container) {
+  try {
+    const saved = Number(localStorage.getItem(WEEKLY_LEFT_WIDTH_KEY));
+    if (saved >= WEEKLY_LEFT_MIN) setWeeklyLeftWidth(container, saved);
+  } catch { /* localStorageが使えなくても幅調整自体は動く */ }
+
+  const handle = container.querySelector('#weekly-resizer');
+  const left = container.querySelector('#weekly-left');
+  const persist = () => {
+    try { localStorage.setItem(WEEKLY_LEFT_WIDTH_KEY, String(Math.round(left.getBoundingClientRect().width))); } catch { /* 保存できなくても続行 */ }
+  };
+  const clamp = px => Math.max(WEEKLY_LEFT_MIN, Math.min(px, container.getBoundingClientRect().width - WEEKLY_RIGHT_MIN));
+
+  handle.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add('dragging');
+    document.body.classList.add('weekly-resizing'); // ドラッグ中はテキスト選択を止める
+  });
+  handle.addEventListener('pointermove', e => {
+    if (!handle.hasPointerCapture(e.pointerId)) return;
+    setWeeklyLeftWidth(container, clamp(e.clientX - container.getBoundingClientRect().left));
+  });
+  const end = e => {
+    if (!handle.classList.contains('dragging')) return;
+    handle.classList.remove('dragging');
+    document.body.classList.remove('weekly-resizing');
+    if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
+    persist();
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+  handle.addEventListener('dblclick', () => {
+    setWeeklyLeftWidth(container, null);
+    try { localStorage.removeItem(WEEKLY_LEFT_WIDTH_KEY); } catch { /* 無視 */ }
+  });
+  // キーボードでも調整できるようにする(左右キー、Shiftで大きく)
+  handle.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const step = (e.shiftKey ? 80 : 20) * (e.key === 'ArrowLeft' ? -1 : 1);
+    setWeeklyLeftWidth(container, clamp(left.getBoundingClientRect().width + step));
+    persist();
+  });
 }
 
 function showWeeklyView(view) {
