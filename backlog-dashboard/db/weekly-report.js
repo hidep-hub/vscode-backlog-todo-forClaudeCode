@@ -1,0 +1,378 @@
+'use strict';
+
+// 週報(BT-291)。task_events(履歴)とtasks(期日・現在のステータス)の両方を見て、期間内にやったこと・
+// 期日が絡むタスクをワークスペース単位のMarkdown表にする。読み取りのみ。
+// 日付はすべてJST基準(csv-export.jsと同じ)。
+
+const fs = require('node:fs');
+const path = require('node:path');
+const tagsRepo = require('./tags-repo');
+
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+// 表に出せる列。idとtitleは必須(外せない)。
+const COLUMN_DEFS = [
+  { key: 'id', label: 'ID', required: true },
+  { key: 'title', label: '件名', required: true },
+  { key: 'kind', label: '区分' },
+  { key: 'status', label: 'ステータス' },
+  { key: 'updatedAt', label: '最終ステータス更新' },
+  { key: 'dueDate', label: '期日' },
+  { key: 'assignee', label: '担当' },
+  { key: 'tags', label: 'タグ' },
+  { key: 'commit', label: 'コミット' },
+  { key: 'issue', label: 'GitHub Issue' },
+];
+const DEFAULT_COLUMNS = ['id', 'title', 'kind', 'status', 'updatedAt', 'dueDate'];
+
+const DEFAULT_TEMPLATE = `# 週報 {{period}}
+
+出力ステータス: {{statuses}} / 作成: {{generatedAt}}
+
+{{#workspace}}
+## {{workspaceId}} {{workspaceName}}
+
+{{summary}}
+
+{{table}}
+
+{{/workspace}}
+`;
+
+// 画面のプレースホルダー説明にも使う(name, 使える場所, 説明, 例)
+const PLACEHOLDERS = [
+  { name: 'period', scope: '全体', description: '集計期間(開始〜終了)', example: '2026-10-12 〜 2026-10-18' },
+  { name: 'from', scope: '全体', description: '期間の開始日', example: '2026-10-12' },
+  { name: 'to', scope: '全体', description: '期間の終了日', example: '2026-10-18' },
+  { name: 'statuses', scope: '全体', description: '出力対象に選んだステータス', example: 'DONE / DO' },
+  { name: 'generatedAt', scope: '全体', description: '週報を作った日時', example: '2026-10-18 20:30' },
+  { name: 'totalCount', scope: '全体', description: '出力したタスクの総数', example: '12' },
+  { name: '#workspace … /workspace', scope: '全体', description: 'この囲みの中身を、対象ワークスペースごとに繰り返す', example: '{{#workspace}}…{{/workspace}}' },
+  { name: 'workspaceId', scope: 'ワークスペースの囲み内', description: 'ワークスペースのプレフィクス', example: 'BT' },
+  { name: 'workspaceName', scope: 'ワークスペースの囲み内', description: 'ワークスペース名', example: 'backlog-todo' },
+  { name: 'workspaceFile', scope: 'ワークスペースの囲み内', description: 'ワークスペースの識別子(projects[].file)', example: 'backlog-todo' },
+  { name: 'summary', scope: 'ワークスペースの囲み内', description: '件数のまとめ(完了/継続中/期限超過/予定)', example: '完了 3件 / 継続中 2件 / 期限超過 1件' },
+  { name: 'doneCount', scope: 'ワークスペースの囲み内', description: '完了の件数', example: '3' },
+  { name: 'doingCount', scope: 'ワークスペースの囲み内', description: '継続中の件数', example: '2' },
+  { name: 'overdueCount', scope: 'ワークスペースの囲み内', description: '期限超過(未完了で期日が今日より前)の件数', example: '1' },
+  { name: 'count', scope: 'ワークスペースの囲み内', description: 'このワークスペースの出力件数', example: '6' },
+  { name: 'table', scope: 'ワークスペースの囲み内', description: 'タスクの表。EPIC配下の子は「EPICのID 件名(完了N/全M件・残りK件)」の見出しでまとめ、単発タスクは「単発タスク」にまとめる', example: '(表)' },
+];
+
+function jstParts(ms) {
+  const d = new Date(ms + JST_OFFSET_MS);
+  return d.toISOString(); // 先頭がJSTの壁時計
+}
+
+function toJstDate(value) {
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? '' : jstParts(ms).slice(0, 10);
+}
+
+function toJstDateTime(value) {
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? '' : jstParts(ms).slice(0, 16).replace('T', ' ');
+}
+
+function todayJst() {
+  return jstParts(Date.now()).slice(0, 10);
+}
+
+// JSTの日付文字列(YYYY-MM-DD)にn日足す
+function addDays(dateStr, n) {
+  const ms = Date.parse(`${dateStr}T00:00:00Z`) + n * 86400000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * 「今週」「先週」の期間(月曜〜日曜、JST)。
+ * @param {'this'|'last'} which
+ * @param {string} [today] YYYY-MM-DD(テスト用)
+ */
+function weekRange(which, today = todayJst()) {
+  const dow = new Date(`${today}T00:00:00Z`).getUTCDay(); // 0=日
+  const monday = addDays(today, -((dow + 6) % 7) - (which === 'last' ? 7 : 0));
+  return { from: monday, to: addDays(monday, 6) };
+}
+
+function isDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+}
+
+function normalizeColumns(columns) {
+  const known = new Set(COLUMN_DEFS.map(c => c.key));
+  const picked = Array.isArray(columns) ? columns.filter((k, i) => known.has(k) && columns.indexOf(k) === i) : [];
+  const list = picked.length ? picked : DEFAULT_COLUMNS.slice();
+  for (const required of ['title', 'id']) {
+    if (!list.includes(required)) list.unshift(required);
+  }
+  return list;
+}
+
+/**
+ * 週報の元データを集める。
+ * 対象になるタスク(論理削除済み・EPIC自身は除く):
+ *   A) 期間内に、選ばれたステータスへ変わった(task_eventsのstatus_changed)
+ *   B) 期日が期間内、または期日が期間より前で未完了(ステータス不問)
+ * 子タスクはEPICごとにまとめ、EPIC配下の完了件数/全件数も付ける。
+ * @returns {{from, to, today, statuses, workspaces: Array}}
+ */
+function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today = todayJst() }) {
+  // 表示ラベルは画面と同じ英語表記(BT-178)。DBのstatuses.labelは日本語なので使わない
+  const statusLabel = { todo: 'TODO', ready: 'READY', do: 'DO', done: 'DONE' };
+  const selected = new Set(statuses);
+
+  const projects = (config.projects || []).filter(p => workspaces.includes(p.file));
+  const result = [];
+  for (const project of projects) {
+    const rows = db.prepare('SELECT * FROM tasks WHERE workspace = ? AND deleted_at IS NULL ORDER BY sort_order').all(project.file);
+    const byId = new Map(rows.map(r => [r.id, r]));
+    const childrenOf = new Map();
+    for (const r of rows) {
+      if (r.parent_id !== null && byId.has(r.parent_id)) {
+        if (!childrenOf.has(r.parent_id)) childrenOf.set(r.parent_id, []);
+        childrenOf.get(r.parent_id).push(r);
+      }
+    }
+
+    // ステータス変更イベント: 期間内に選択ステータスへ変わったか / 最終の変更日時(全期間)
+    const lastChange = new Map();
+    const movedInPeriod = new Set();
+    const events = db.prepare(`
+      SELECT te.task_id, te.new_value, te.occurred_at
+      FROM task_events te JOIN tasks t ON t.id = te.task_id
+      WHERE t.workspace = ? AND te.event_type = 'status_changed' ORDER BY te.occurred_at, te.id
+    `).all(project.file);
+    for (const e of events) {
+      lastChange.set(e.task_id, e.occurred_at);
+      const day = toJstDate(e.occurred_at);
+      if (day >= from && day <= to && selected.has(e.new_value)) movedInPeriod.add(e.task_id);
+    }
+
+    const candidates = rows.filter(r => !childrenOf.has(r.id)); // EPIC自身は見出し側で扱う
+    const included = candidates.filter(r => {
+      if (movedInPeriod.has(r.id)) return true;
+      if (!r.due_date) return false;
+      if (r.due_date >= from && r.due_date <= to) return true;
+      return r.due_date < from && r.status !== 'done';
+    });
+
+    const tagsByTask = tagsRepo.listTagsForTasks(db, included.map(r => r.id));
+    const toItem = r => {
+      const overdue = Boolean(r.due_date) && r.status !== 'done' && r.due_date < today;
+      let kind;
+      if (r.status === 'done') kind = '完了';
+      else if (overdue) kind = '期限超過';
+      else if (r.status === 'do') kind = '継続中';
+      else kind = '予定';
+      const updated = lastChange.get(r.id) || r.created_at;
+      return {
+        id: r.display_id,
+        title: r.title,
+        status: r.status,
+        statusLabel: statusLabel[r.status] || r.status,
+        kind,
+        updatedAt: toJstDateTime(updated),
+        updatedAtRaw: updated,
+        dueDate: r.due_date || '',
+        assignee: r.assignee || '',
+        tags: (tagsByTask[r.id] || []).map(t => t.name).join(', '),
+        commit: r.commit_hash ? r.commit_hash.slice(0, 7) : '',
+        issue: r.github_issue_number ? `#${r.github_issue_number}` : '',
+        issueUrl: r.github_issue_url || '',
+      };
+    };
+
+    const kindOrder = { 期限超過: 0, 継続中: 1, 予定: 2, 完了: 3 };
+    const sortItems = items => items.sort((a, b) => (kindOrder[a.kind] - kindOrder[b.kind]) || (a.updatedAtRaw < b.updatedAtRaw ? 1 : -1));
+
+    const groups = [];
+    const standalone = included.filter(r => r.parent_id === null || !byId.has(r.parent_id));
+    if (standalone.length) groups.push({ type: 'standalone', items: sortItems(standalone.map(toItem)) });
+    const epicIds = [...new Set(included.filter(r => r.parent_id !== null && byId.has(r.parent_id)).map(r => r.parent_id))];
+    for (const epicId of epicIds) {
+      const epic = byId.get(epicId);
+      const kids = childrenOf.get(epicId);
+      const done = kids.filter(k => k.status === 'done').length;
+      groups.push({
+        type: 'epic',
+        id: epic.display_id,
+        title: epic.title,
+        dueDate: epic.due_date || '',
+        total: kids.length,
+        done,
+        remaining: kids.length - done,
+        items: sortItems(included.filter(r => r.parent_id === epicId).map(toItem)),
+      });
+    }
+    groups.sort((a, b) => (a.type === 'standalone' ? -1 : 0) - (b.type === 'standalone' ? -1 : 0));
+
+    const allItems = groups.flatMap(g => g.items);
+    result.push({
+      file: project.file,
+      prefix: project.prefix || '',
+      name: project.name || project.file,
+      groups,
+      count: allItems.length,
+      counts: {
+        done: allItems.filter(i => i.kind === '完了').length,
+        doing: allItems.filter(i => i.kind === '継続中').length,
+        overdue: allItems.filter(i => i.kind === '期限超過').length,
+        planned: allItems.filter(i => i.kind === '予定').length,
+      },
+    });
+  }
+  return { from, to, today, statuses: [...selected].map(c => statusLabel[c] || c), workspaces: result };
+}
+
+// Markdownの表セルに入れても崩れないようにする(パイプ・改行)
+function cell(value) {
+  return String(value ?? '').replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
+function renderTable(items, columns) {
+  const defs = columns.map(k => COLUMN_DEFS.find(c => c.key === k));
+  const header = `| ${defs.map(d => d.label).join(' | ')} |`;
+  const sep = `| ${defs.map(() => '---').join(' | ')} |`;
+  const lines = items.map(item => {
+    const cells = columns.map(k => {
+      if (k === 'status') return cell(item.statusLabel);
+      if (k === 'issue') return item.issueUrl ? `[${cell(item.issue)}](${item.issueUrl})` : cell(item.issue);
+      if (k === 'dueDate') return item.dueDate ? cell(item.kind === '期限超過' ? `${item.dueDate} ⚠` : item.dueDate) : '';
+      return cell(item[k]);
+    });
+    return `| ${cells.join(' | ')} |`;
+  });
+  return [header, sep, ...lines].join('\n');
+}
+
+function renderWorkspaceTable(ws, columns) {
+  if (ws.groups.length === 0) return '(該当するタスクはありません)';
+  return ws.groups.map(g => {
+    const heading = g.type === 'standalone'
+      ? '### 単発タスク'
+      : `### ${g.id} ${cell(g.title)}（完了 ${g.done}/全 ${g.total}件・残り ${g.remaining}件${g.dueDate ? `・期日 ${g.dueDate}` : ''}）`;
+    return `${heading}\n\n${renderTable(g.items, columns)}`;
+  }).join('\n\n');
+}
+
+function replaceVars(text, vars) {
+  return text.replace(/\{\{\s*([A-Za-z]+)\s*\}\}/g, (m, name) => (Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : m));
+}
+
+/**
+ * テンプレートにデータを流し込んでMarkdownを作る。
+ * 未知のプレースホルダーはそのまま残し、warningsで知らせる。
+ */
+function renderWeeklyReport(data, { template, columns }) {
+  const cols = normalizeColumns(columns);
+  const text = typeof template === 'string' && template.trim() ? template : DEFAULT_TEMPLATE;
+  const known = new Set(PLACEHOLDERS.map(p => p.name).filter(n => /^[A-Za-z]+$/.test(n)));
+  const warnings = [];
+  for (const m of text.matchAll(/\{\{\s*([^}]*?)\s*\}\}/g)) {
+    const n = m[1];
+    if (n !== '#workspace' && n !== '/workspace' && !known.has(n) && !warnings.includes(`未知のプレースホルダー: {{${n}}}`)) {
+      warnings.push(`未知のプレースホルダー: {{${n}}}`);
+    }
+  }
+  const opens = (text.match(/\{\{\s*#workspace\s*\}\}/g) || []).length;
+  const closes = (text.match(/\{\{\s*\/workspace\s*\}\}/g) || []).length;
+  if (opens !== closes || opens > 1) warnings.push('{{#workspace}}と{{/workspace}}は1組だけ、対で書いてください');
+
+  const totalCount = data.workspaces.reduce((n, w) => n + w.count, 0);
+  const global = {
+    period: `${data.from} 〜 ${data.to}`,
+    from: data.from,
+    to: data.to,
+    statuses: data.statuses.join(' / '),
+    generatedAt: toJstDateTime(new Date().toISOString()),
+    totalCount,
+  };
+
+  const block = /\{\{\s*#workspace\s*\}\}([\s\S]*?)\{\{\s*\/workspace\s*\}\}/;
+  // 全体のプレースホルダーを先に展開し、そのあとでワークスペースの表を差し込む(表の中身は再展開しない)
+  const rendered = replaceVars(text, global).replace(block, (m, inner) => data.workspaces.map(ws => {
+    const c = ws.counts;
+    const parts = [`完了 ${c.done}件`, `継続中 ${c.doing}件`];
+    if (c.overdue) parts.push(`期限超過 ${c.overdue}件`);
+    if (c.planned) parts.push(`予定 ${c.planned}件`);
+    // {{table}}の中身にプレースホルダー風の文字列(タスク件名など)が入っても再展開しないよう、最後に差し込む
+    const body = replaceVars(inner, {
+      workspaceId: ws.prefix, workspaceName: ws.name, workspaceFile: ws.file,
+      summary: parts.join(' / '), doneCount: c.done, doingCount: c.doing, overdueCount: c.overdue, count: ws.count,
+      table: '\u0000TABLE\u0000',
+    });
+    return body.replace('\u0000TABLE\u0000', () => renderWorkspaceTable(ws, cols));
+  }).join(''));
+  const markdown = rendered.replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  return { markdown, warnings, totalCount };
+}
+
+/**
+ * 入力(クエリ/ボディ)を検証して正規化する。不正なら { error } を返す。
+ */
+function parseReportOptions(input, config, db) {
+  const range = input.range === 'last' || input.range === 'this' ? weekRange(input.range) : null;
+  const from = range ? range.from : input.from;
+  const to = range ? range.to : input.to;
+  if (!isDate(from) || !isDate(to)) return { error: 'invalid_period', message: 'from/toはYYYY-MM-DD形式で指定してください' };
+  if (from > to) return { error: 'invalid_period', message: '開始日が終了日より後です' };
+  const known = (config.projects || []).map(p => p.file);
+  const workspaces = Array.isArray(input.workspaces) && input.workspaces.length ? input.workspaces : known;
+  const unknownWs = workspaces.find(w => !known.includes(w));
+  if (unknownWs) return { error: 'unknown_workspace', message: `未登録のワークスペースです: ${unknownWs}` };
+  const validStatuses = db.prepare('SELECT code FROM statuses').all().map(s => s.code);
+  const statuses = Array.isArray(input.statuses) ? input.statuses : ['done', 'do'];
+  const badStatus = statuses.find(s => !validStatuses.includes(s));
+  if (badStatus) return { error: 'invalid_status', message: `不正なステータスです: ${badStatus}` };
+  return { from, to, workspaces, statuses };
+}
+
+function buildWeeklyReport(db, config, input, { template, columns }) {
+  const opts = parseReportOptions(input, config, db);
+  if (opts.error) return opts;
+  const data = collectWeeklyReport(db, config, opts);
+  const { markdown, warnings, totalCount } = renderWeeklyReport(data, { template, columns });
+  return { ok: true, from: opts.from, to: opts.to, markdown, warnings, totalCount, data };
+}
+
+const TEMPLATE_FILE = 'weekly-report-template.json';
+const TEMPLATE_MAX_LENGTH = 20000;
+
+// 保存済みの書式(<backlogDir>配下のJSON)。無い/壊れている場合は既定にフォールバックする。
+function loadTemplate(backlogDir) {
+  const filePath = path.join(backlogDir, TEMPLATE_FILE);
+  try {
+    const saved = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return {
+      template: typeof saved.template === 'string' && saved.template.trim() ? saved.template : DEFAULT_TEMPLATE,
+      columns: normalizeColumns(saved.columns),
+      saved: true,
+    };
+  } catch {
+    return { template: DEFAULT_TEMPLATE, columns: DEFAULT_COLUMNS.slice(), saved: false };
+  }
+}
+
+function saveTemplate(backlogDir, { template, columns }) {
+  if (typeof template !== 'string' || !template.trim()) return { error: 'invalid_template', message: '書式が空です' };
+  if (template.length > TEMPLATE_MAX_LENGTH) return { error: 'invalid_template', message: `書式は${TEMPLATE_MAX_LENGTH}文字までです` };
+  const data = { template, columns: normalizeColumns(columns) };
+  const filePath = path.join(backlogDir, TEMPLATE_FILE);
+  fs.mkdirSync(backlogDir, { recursive: true });
+  const tmp = `${filePath}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+  fs.renameSync(tmp, filePath);
+  return { ok: true, ...data };
+}
+
+function resetTemplate(backlogDir) {
+  fs.rmSync(path.join(backlogDir, TEMPLATE_FILE), { force: true });
+  return { ok: true, template: DEFAULT_TEMPLATE, columns: DEFAULT_COLUMNS.slice() };
+}
+
+module.exports = {
+  loadTemplate, saveTemplate, resetTemplate, TEMPLATE_MAX_LENGTH,
+  COLUMN_DEFS, DEFAULT_COLUMNS, DEFAULT_TEMPLATE, PLACEHOLDERS,
+  weekRange, normalizeColumns, collectWeeklyReport, renderWeeklyReport, buildWeeklyReport, parseReportOptions,
+};

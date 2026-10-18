@@ -34,7 +34,8 @@ let activitySearching = false;    // 入力〜検索完了までtrue(検索欄�
 let activityLoadSeq = 0;          // 連続入力時に古い応答で上書きしないための通し番号
 let activitySearchTimer = null;
 let activityGranularity = localStorage.getItem('activityGranularity') || 'day'; // day | week | month
-let activityViewMode = localStorage.getItem('activityViewMode') || 'timeline';  // timeline | chart
+let activityViewMode = localStorage.getItem('activityViewMode') || 'timeline';  // timeline | chart | weekly(weeklyはlocalStorageに保存しない)
+let activityWeeklyShown = false; // 週報タブの中身を初期化済みか(renderActivityBodyが何度呼ばれても再初期化しないため)
 let activityChartType = localStorage.getItem('activityChartType') || 'heatmap'; // heatmap | throughput | composition
 
 // KT-187相当: 折りたたみ中のグループ。粒度切り替えでキーの意味が変わるため「<粒度>:<キー>」で保持する。
@@ -363,8 +364,7 @@ function getOrCreateActivityModal() {
             <button type="button" class="activity-gran-btn" data-level="task" title="タスク/EPICの一覧まで見せる">タスク</button>
             <button type="button" class="activity-gran-btn" data-level="all" title="イベント明細まですべて開く">すべて</button>
           </div>
-          <button type="button" class="activity-reload-btn" id="activity-reload-btn" title="最新の状態を読み込む">${activityIconHtml('autoAwesome')} 更新</button>
-        </div>
+          <button type="button" class="activity-reload-btn" id="activity-reload-btn" title="最新の状態を読み込む">${activityIconHtml('autoAwesome')} 更新</button>        </div>
         <button type="button" class="activity-modal-close" id="activity-modal-close" title="閉じる">&times;</button>
       </div>
       <div class="activity-filters">
@@ -377,6 +377,7 @@ function getOrCreateActivityModal() {
         <div class="activity-loading">読み込み中...</div>
       </div>
       <div class="activity-chart-body" id="activity-chart-body" hidden></div>
+      <div class="activity-weekly-body" id="activity-weekly-body" hidden></div>
       <div class="activity-footer">
         <span class="activity-search-status" id="activity-search-status"></span>
         <span class="activity-count-label" id="activity-count-label"></span>
@@ -451,6 +452,7 @@ function openActivityView() {
   activityAppliedQuery = '';
   setActivitySearching(false);
   activityTaskDefaultOpen = null; // 開閉レベルの一括指定は開き直したら既定(今日のみ展開)に戻す
+  activityWeeklyShown = false;
   modal.querySelector('#activity-date-from').value = '';
   modal.querySelector('#activity-date-to').value = '';
   modal.querySelector('#activity-search').value = '';
@@ -567,11 +569,14 @@ function renderActivityControls() {
   viewModeEl.innerHTML = [
     { key: 'timeline', label: 'タイムライン' },
     { key: 'chart', label: 'グラフ' },
+    { key: 'weekly', label: '週報' },
   ].map(v => `<button type="button" class="activity-gran-btn${activityViewMode === v.key ? ' active' : ''}" data-viewmode="${v.key}">${v.label}</button>`).join('');
   viewModeEl.querySelectorAll('[data-viewmode]').forEach(btn => {
     btn.addEventListener('click', () => {
       activityViewMode = btn.dataset.viewmode;
-      localStorage.setItem('activityViewMode', activityViewMode);
+      activityWeeklyShown = false; // 週報タブは入り直すたびに設定を読み直す
+      // 週報(BT-291)は期間などの入力を持つ作業画面なので、次回起動時の既定にはしない
+      if (activityViewMode !== 'weekly') localStorage.setItem('activityViewMode', activityViewMode);
       renderActivityControls();
       renderActivityBody();
     });
@@ -594,6 +599,12 @@ function renderActivityControls() {
 
   // 一括開閉ボタンはタイムライン専用
   modal.querySelector('#activity-level').style.display = (activityViewMode === 'timeline') ? '' : 'none';
+
+  // 週報タブは自前の期間・ワークスペース指定を持つため、履歴の期間・絞り込み・フッターは隠す
+  const isWeekly = activityViewMode === 'weekly';
+  modal.querySelector('.activity-date-range').hidden = isWeekly;
+  modal.querySelector('.activity-filters').hidden = isWeekly;
+  modal.querySelector('.activity-footer').hidden = isWeekly;
 
   // 種別タブ(件数バッジ付き。type以外のフィルタを反映した件数にする)
   const tabsEl = modal.querySelector('#activity-tabs');
@@ -975,6 +986,19 @@ function renderActivityBody() {
   if (!modal) return;
   const body = modal.querySelector('#activity-body');
   const chartBody = modal.querySelector('#activity-chart-body');
+  const weeklyBody = modal.querySelector('#activity-weekly-body');
+
+  // 週報タブ(BT-291): 履歴の再描画(WS更新など)で作り直さないよう、初回だけ初期化する
+  weeklyBody.hidden = activityViewMode !== 'weekly';
+  if (activityViewMode === 'weekly') {
+    body.hidden = true;
+    chartBody.hidden = true;
+    if (!activityWeeklyShown) {
+      activityWeeklyShown = true;
+      showWeeklyPane(weeklyBody);
+    }
+    return;
+  }
 
   const events = filterActivityEvents();
   // BT-380: 母数は選択中のワークスペースの件数(未選択なら全体)
