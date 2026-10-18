@@ -4336,17 +4336,22 @@ function isDueOverdue(dueDate, statusCode) {
 // 期日の表示（BT-336）。「期日: 現在 (←直前)」の1行を基本とし、変更が2回以上なら
 // 「▶変更履歴(n件)」を折り畳みで添える（開くと当初→現在を縦積み、新しいものが上）。
 function buildDueDateTrailHtml(item) {
-  const history = item.dueDateHistory || [];
-  const values = history.length > 0 ? [history[0].from, ...history.map(h => h.to)] : [];
-  while (values.length > 0 && !values[0]) values.shift(); // 先頭の「未設定」は経緯に含めない
-  if (!item.dueDate && values.length < 2) return '';
+  const entries = dueTrail.buildDueTrail(item.dueDateHistory);
+  if (!item.dueDate && entries.length < 2) return '';
   const label = v => (v ? escapeHtml(v) : '未設定');
+  // 変更日時(BT-435)。延期=赤・前倒し=青の色クラスを、変更の向きに応じて付ける
+  const changedAt = e => (e.at ? ` <span class="due-changed-at">(変更日：${escapeHtml(formatDateTimeJst(e.at))})</span>` : '');
   const currentCls = isDueOverdue(item.dueDate, item.statusCode) ? ' class="due-overdue"' : '';
-  const changes = values.length - 1;
-  const prev = changes >= 1 ? ` <span class="due-prev">(←${label(values[values.length - 2])})</span>` : '';
+  const changes = entries.length - 1;
+  let prev = '';
+  if (changes >= 1) {
+    const last = entries[entries.length - 1];
+    const cls = ['due-prev', dueTrail.directionClass(last.direction)].filter(Boolean).join(' ');
+    prev = ` <span class="${cls}">(←${label(entries[entries.length - 2].value)})${changedAt(last)}</span>`;
+  }
   let trailHtml = '';
   if (changes >= 2) {
-    const rows = values.slice().reverse().map(v => `<div>${label(v)}</div>`).join('<div class="due-arrow">↑</div>');
+    const rows = entries.slice().reverse().map(e => `<div class="${dueTrail.directionClass(e.direction)}">${label(e.value)}${changedAt(e)}</div>`).join('<div class="due-arrow">↑</div>');
     trailHtml = `<details class="due-mid"><summary>変更履歴（${changes}件）</summary><div class="due-trail">${rows}</div></details>`;
   }
   return `<li class="detail-due"><strong>期日:</strong> <span${currentCls}>${label(item.dueDate)}</span>${prev}${trailHtml}</li>`;
