@@ -293,10 +293,12 @@ test('its-preview/its-import work end to end against a mocked GitLab (no hierarc
     assert.equal(issue12.parentKey, null);
     assert.deepEqual(issue12.childKeys, []);
     assert.equal(issue12.alreadyImported, false);
-    // BM-099: 担当者・バージョン表示はRedmineタブのみの対象。GitLabは常にnull/''になる
+    // BM-099: 担当者・バージョン表示はRedmineタブのみの対象。GitLabは常にnull
     assert.equal(issue12.assignee, null);
     assert.equal(issue12.version, null);
-    assert.equal(issue12.description, '');
+    assert.equal(issue12.description, ''); // 説明が無いissueは空文字
+    // BT-422: 説明欄は件名ホバーのツールチップ用に一覧のdescriptionがそのまま返る
+    assert.equal(previewOpen.body.issues.find((i) => i.key === '10').description, 'Aの説明');
 
     // its-preview: status=all -> closed(iid:11)も含めて3件
     const previewAll = await get(baseUrl, '/api/its-preview?prefix=TS&source=gitlab&status=all');
