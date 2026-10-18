@@ -3322,6 +3322,85 @@ body {
   color: var(--text);
 }
 
+/* --- Settings Panel タブ (BT-428) --- */
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-tab {
+  padding: 8px 14px;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-tab:hover {
+  color: var(--text);
+}
+
+.settings-tab.is-active {
+  color: var(--text);
+  border-bottom-color: var(--brand-fg, var(--text));
+}
+
+.settings-tab-panel[hidden] {
+  display: none;
+}
+
+/* 列の並び替えリスト (BT-428) */
+.column-order-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.column-order-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+}
+
+.column-order-label {
+  flex: 1;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.column-order-btn {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.column-order-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* バッジ行右端の全体設定ボタン (BT-428)。見た目は左端のbadge-mode-btnと揃える */
+.global-settings-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 /* --- Settings Panel ワークスペース選択バー (BT-362) --- */
 .settings-workspace-bar {
   display: flex;
@@ -3557,12 +3636,14 @@ body {
 
 /* BM-092: ウェルカムメッセージ設定モーダルの保存ボタン・ステータス表示。
    既存の#settings-github-save/#settings-github-footerと同じ見た目に揃える。 */
-#heatmap-intro-settings-status {
+#heatmap-intro-settings-status,
+#settings-column-order-status {
   font-size: 0.75rem;
   color: var(--text-muted);
 }
 
-#heatmap-intro-settings-save {
+#heatmap-intro-settings-save,
+#settings-column-order-save {
   padding: 6px 16px;
   border-radius: 6px;
   border: none;
@@ -3574,8 +3655,14 @@ body {
   transition: opacity 0.15s;
 }
 
-#heatmap-intro-settings-save:hover {
+#heatmap-intro-settings-save:hover,
+#settings-column-order-save:hover:not(:disabled) {
   opacity: 0.85;
+}
+
+#settings-column-order-save:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .settings-close {

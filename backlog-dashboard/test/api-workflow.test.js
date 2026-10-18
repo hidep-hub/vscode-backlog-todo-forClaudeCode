@@ -65,6 +65,15 @@ test('serves the core task workflow through the REST API', async () => {
     assert.equal(fs.existsSync(path.join(fixtureRoot, 'config.json.bak')), true);
     // 同じfile/prefixでの再作成は400で拒否される
     assert.equal((await request(baseUrl, '/api/create-workspace', { file: 'extra2', prefix: 'EX' })).status, 400);
+    // BT-428: 列の並び替え。idの集合が一致しない/重複/配列でない指定は400、成功時はボードの列順とconfig.jsonに反映される
+    assert.equal((await request(baseUrl, '/api/update-column-order', { orderedIds: ['do', 'ready', 'todo'] })).status, 400);
+    assert.equal((await request(baseUrl, '/api/update-column-order', { orderedIds: ['do', 'do', 'todo', 'done'] })).status, 400);
+    assert.equal((await request(baseUrl, '/api/update-column-order', { orderedIds: ['do', 'ready', 'todo', 'unknown'] })).status, 400);
+    assert.equal((await request(baseUrl, '/api/update-column-order', { orderedIds: 'todo' })).status, 400);
+    const reordered = await request(baseUrl, '/api/update-column-order', { orderedIds: ['todo', 'ready', 'do', 'done'] });
+    assert.equal(reordered.body.ok, true);
+    assert.deepEqual((await request(baseUrl, '/api/board')).body.columns.map(c => c.id), ['todo', 'ready', 'do', 'done']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(fixtureRoot, 'config.json'), 'utf8')).columns.map(c => c.id), ['todo', 'ready', 'do', 'done']);
     const added = await request(baseUrl, '/api/add-task', { title: 'API workflow', project: 'extra', status: 'todo' });
     assert.equal(added.body.ok, true);
     const taskId = added.body.id;
