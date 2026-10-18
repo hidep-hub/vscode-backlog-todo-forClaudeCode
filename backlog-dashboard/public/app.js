@@ -4907,7 +4907,7 @@ function buildDescriptionSectionHtml(item) {
   }
   const description = item.description;
   if (!description) return '';
-  return `<div class="detail-section detail-description-section"><div class="detail-section-heading"><h4>説明</h4><button type="button" class="description-toggle-btn" hidden aria-expanded="false">▼ もっと見る</button></div><div class="description-collapsible"><p class="description-text">${formatDescription(description)}</p></div></div>`;
+  return `<div class="detail-section detail-description-section"><div class="detail-section-heading"><h4>説明</h4><button type="button" class="description-toggle-btn" hidden aria-expanded="false">▼ もっと見る</button></div><div class="description-collapsible"><p class="description-text">${formatDescription(description)}</p></div><button type="button" class="description-toggle-btn description-toggle-btn-bottom" hidden aria-expanded="true">▲ 閉じる</button></div>`;
 }
 
 // 説明欄の折りたたみトグルを初期化する（BT-080）。2行に収まる場合はボタンを出さない
@@ -4918,28 +4918,31 @@ function setupDescriptionToggle(container, { expanded = false } = {}) {
   container.querySelectorAll('.description-collapsible').forEach((wrap) => {
     const text = wrap.querySelector('.description-text');
     const section = wrap.closest('.detail-description-section');
-    const btn = section?.querySelector('.description-toggle-btn');
+    const btn = section?.querySelector('.description-toggle-btn:not(.description-toggle-btn-bottom)');
+    const bottomBtn = section?.querySelector('.description-toggle-btn-bottom');
     if (!text || !btn) return;
     if (text.scrollHeight <= text.clientHeight + 1) return;
     btn.hidden = false;
-    btn.addEventListener('click', () => {
-      const expanded = wrap.classList.toggle('expanded');
-      btn.textContent = expanded ? '▲ 閉じる' : '▼ もっと見る';
-      btn.setAttribute('aria-expanded', String(expanded));
+    // BT-421: 上下のボタンのラベル・aria-expandedを同期する。下ボタンは展開中だけ表示する
+    const applyExpanded = (isExpanded) => {
+      wrap.classList.toggle('expanded', isExpanded);
+      btn.textContent = isExpanded ? '▲ 閉じる' : '▼ もっと見る';
+      btn.setAttribute('aria-expanded', String(isExpanded));
+      if (bottomBtn) bottomBtn.hidden = !isExpanded;
+    };
+    btn.addEventListener('click', () => applyExpanded(!wrap.classList.contains('expanded')));
+    // BT-421: 下ボタンで閉じたら、画面外に出た説明欄の先頭が見える位置までスクロールを戻す
+    bottomBtn?.addEventListener('click', () => {
+      applyExpanded(false);
+      section.scrollIntoView({ block: 'nearest' });
     });
     // BM-021: 省略表示（...）されている本文クリックでも展開できるようにする。
     // ただし読んでいる途中の誤クリックで閉じてしまうと困るため、本文クリックは展開のみ（閉じない）。閉じるのはボタンのみ。
     text.addEventListener('click', () => {
       if (wrap.classList.contains('expanded')) return;
-      wrap.classList.add('expanded');
-      btn.textContent = '▲ 閉じる';
-      btn.setAttribute('aria-expanded', 'true');
+      applyExpanded(true);
     });
-    if (expanded) {
-      wrap.classList.add('expanded');
-      btn.textContent = '▲ 閉じる';
-      btn.setAttribute('aria-expanded', 'true');
-    }
+    if (expanded) applyExpanded(true);
   });
 }
 

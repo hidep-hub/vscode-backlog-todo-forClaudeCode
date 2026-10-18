@@ -26,6 +26,15 @@ test('説明欄「もっと見る」の展開状態は、WS再描画(renderModal
   assert.equal(restoreCallCount, 2, 'renderModalContent/openChildModalの両方で復元しているはず');
 });
 
+test('BT-421: 説明本文の下にも閉じるボタンがあり、上下のトグルは同じ状態で同期される', () => {
+  // 下ボタンは初期hiddenで、本文(.description-collapsible)の直後に出力される
+  assert.match(app, /<\/p><\/div><button type="button" class="description-toggle-btn description-toggle-btn-bottom" hidden/);
+  // 上下のラベル・aria-expanded・下ボタンの表示をapplyExpandedに集約している
+  assert.match(app, /const applyExpanded = \(isExpanded\) => \{[\s\S]*?bottomBtn\.hidden = !isExpanded;/);
+  // 下ボタンで閉じた時はスクロールを説明欄の先頭へ戻す
+  assert.match(app, /bottomBtn\?\.addEventListener\('click', \(\) => \{\s*applyExpanded\(false\);\s*section\.scrollIntoView/);
+});
+
 test('親タスク詳細モーダルは、編集フォーム表示中はWS再描画(refreshModalIfOpen)をスキップする(子モーダルのBT-366と同じガード)', () => {
   assert.match(
     app,
