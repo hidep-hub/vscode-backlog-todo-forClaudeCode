@@ -7,6 +7,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const tagsRepo = require('./tags-repo');
+const externalLinksRepo = require('./external-links-repo');
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -22,6 +23,7 @@ const COLUMN_DEFS = [
   { key: 'tags', label: 'タグ' },
   { key: 'commit', label: 'コミット' },
   { key: 'issue', label: 'GitHub Issue' },
+  { key: 'external', label: '外部ITS Issue' }, // Redmine/GitLab(BT-438)
 ];
 const DEFAULT_COLUMNS = ['id', 'title', 'kind', 'status', 'updatedAt', 'dueDate'];
 
@@ -30,7 +32,7 @@ const DEFAULT_TEMPLATE = `# 週報 {{period}}
 出力ステータス: {{statuses}} / 作成: {{generatedAt}}
 
 {{#workspace}}
-## {{workspaceId}} {{workspaceName}}
+## {{workspaceId}} {{workspaceName}} {{statusCounts}}
 
 {{summary}}
 
@@ -51,12 +53,13 @@ const PLACEHOLDERS = [
   { name: 'workspaceId', scope: 'ワークスペースの囲み内', description: 'ワークスペースのプレフィクス', example: 'BT' },
   { name: 'workspaceName', scope: 'ワークスペースの囲み内', description: 'ワークスペース名', example: 'backlog-todo' },
   { name: 'workspaceFile', scope: 'ワークスペースの囲み内', description: 'ワークスペースの識別子(projects[].file)', example: 'backlog-todo' },
-  { name: 'summary', scope: 'ワークスペースの囲み内', description: '件数のまとめ(完了/継続中/期限超過/予定)', example: '完了 3件 / 継続中 2件 / 期限超過 1件' },
+  { name: 'statusCounts', scope: 'ワークスペースの囲み内', description: 'ステータス別の件数バッジ(TODO/READY/DO/DONE)。出力ステータスの選択に関わらず4つとも数える。期間内にそのステータスへ変わった(TODOは新規作成を含む)タスクがある数字は太字', example: '`TODO 3` `READY 2` **`DO 1`** `DONE 5`' },
+  { name: 'summary', scope: 'ワークスペースの囲み内', description: '件数のまとめ(完了/対応中/期限超過/未着手)', example: '完了 3件 / 対応中 2件 / 期限超過 1件' },
   { name: 'doneCount', scope: 'ワークスペースの囲み内', description: '完了の件数', example: '3' },
-  { name: 'doingCount', scope: 'ワークスペースの囲み内', description: '継続中の件数', example: '2' },
+  { name: 'doingCount', scope: 'ワークスペースの囲み内', description: '対応中(DO/READY)の件数', example: '2' },
   { name: 'overdueCount', scope: 'ワークスペースの囲み内', description: '期限超過(未完了で期日が今日より前)の件数', example: '1' },
   { name: 'count', scope: 'ワークスペースの囲み内', description: 'このワークスペースの出力件数', example: '6' },
-  { name: 'table', scope: 'ワークスペースの囲み内', description: 'タスクの表。EPIC配下の子は「EPICのID 件名(完了N/全M件・残りK件)」の見出しでまとめ、単発タスクは「単発タスク」にまとめる', example: '(表)' },
+  { name: 'table', scope: 'ワークスペースの囲み内', description: 'タスクの表。期限超過 → 完了 → 対応中(DO/READY) → 未着手(TODO)の順に見出しを分け、該当が無い見出しは出さない。子タスクは件名の頭に親のIDと件名を小さく付ける', example: '(表)' },
 ];
 
 function jstParts(ms) {
@@ -109,68 +112,114 @@ function normalizeColumns(columns) {
   return list;
 }
 
+// 表示ラベルは画面と同じ英語表記(BT-178)。DBのstatuses.labelは日本語なので使わない
+const STATUS_LABEL = { todo: 'TODO', ready: 'READY', do: 'DO', done: 'DONE' };
+const STATUS_CODES = ['todo', 'ready', 'do', 'done'];
+
+// 表の見出しの並び(BT-438)。単発/EPICの区分けはせず、区分ごとに1つの表にする。
+const SECTIONS = [
+  { kind: '期限超過', heading: '期限超過' },
+  { kind: '完了', heading: '完了（DONE）' },
+  { kind: '対応中', heading: '対応中（DO/READY）' },
+  { kind: '未着手', heading: '未着手（TODO）' },
+];
+
 /**
- * 週報の元データを集める。
- * 対象になるタスク(論理削除済み・EPIC自身は除く):
+ * ワークスペース1つ分の、週報の元になる集計素材を読む(論理削除済みは除く)。
+ *  movedTo: task_id -> 期間内に変わったステータスの集合 / lastChange: task_id -> 最終のステータス変更日時(全期間)
+ */
+function analyzeWorkspace(db, project, from, to) {
+  const rows = db.prepare('SELECT * FROM tasks WHERE workspace = ? AND deleted_at IS NULL ORDER BY sort_order').all(project.file);
+  const byId = new Map(rows.map(r => [r.id, r]));
+  const childIds = new Set();
+  for (const r of rows) {
+    if (r.parent_id !== null && byId.has(r.parent_id)) childIds.add(r.parent_id);
+  }
+
+  const lastChange = new Map();
+  const movedTo = new Map();
+  const events = db.prepare(`
+    SELECT te.task_id, te.new_value, te.occurred_at
+    FROM task_events te JOIN tasks t ON t.id = te.task_id
+    WHERE t.workspace = ? AND te.event_type = 'status_changed' ORDER BY te.occurred_at, te.id
+  `).all(project.file);
+  for (const e of events) {
+    lastChange.set(e.task_id, e.occurred_at);
+    const day = toJstDate(e.occurred_at);
+    if (day >= from && day <= to) {
+      if (!movedTo.has(e.task_id)) movedTo.set(e.task_id, new Set());
+      movedTo.get(e.task_id).add(e.new_value);
+    }
+  }
+  const candidates = rows.filter(r => !childIds.has(r.id)); // EPIC自身は対象にしない
+  return { rows, byId, lastChange, movedTo, candidates };
+}
+
+/**
+ * 週報に出すタスクを選ぶ。
  *   A) 期間内に、選ばれたステータスへ変わった(task_eventsのstatus_changed)
  *   B) 期日が期間内、または期日が期間より前で未完了(ステータス不問)
- * 子タスクはEPICごとにまとめ、EPIC配下の完了件数/全件数も付ける。
+ */
+function pickIncluded(analysis, selected, from, to) {
+  return analysis.candidates.filter(r => {
+    const moved = analysis.movedTo.get(r.id);
+    if (moved && [...moved].some(s => selected.has(s))) return true;
+    if (!r.due_date) return false;
+    if (r.due_date >= from && r.due_date <= to) return true;
+    return r.due_date < from && r.status !== 'done';
+  });
+}
+
+/**
+ * ステータス別の件数。出力ステータスの選択には依存せず、4ステータスすべてを選んだ前提で対象を選ぶ。
+ * active[s]は「現在sのタスクのうち、期間内にsへ変わった(todoは期間内の新規作成を含む)ものがある」か。
+ */
+function statusCountsFor(analysis, from, to) {
+  const included = pickIncluded(analysis, new Set(STATUS_CODES), from, to);
+  const counts = { todo: 0, ready: 0, do: 0, done: 0 };
+  const active = { todo: false, ready: false, do: false, done: false };
+  for (const r of included) {
+    if (!(r.status in counts)) continue;
+    counts[r.status] += 1;
+    const created = r.status === 'todo' && toJstDate(r.created_at) >= from && toJstDate(r.created_at) <= to;
+    if (created || (analysis.movedTo.get(r.id) || new Set()).has(r.status)) active[r.status] = true;
+  }
+  return { counts, active };
+}
+
+/**
+ * 週報の元データを集める。対象になるタスクの選び方はpickIncluded()を参照(EPIC自身は含めない)。
+ * 子タスクは親のIDと件名を持つ(表示側で件名の頭に付ける)。
  * @returns {{from, to, today, statuses, workspaces: Array}}
  */
 function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today = todayJst() }) {
-  // 表示ラベルは画面と同じ英語表記(BT-178)。DBのstatuses.labelは日本語なので使わない
-  const statusLabel = { todo: 'TODO', ready: 'READY', do: 'DO', done: 'DONE' };
   const selected = new Set(statuses);
 
   const projects = (config.projects || []).filter(p => workspaces.includes(p.file));
   const result = [];
   for (const project of projects) {
-    const rows = db.prepare('SELECT * FROM tasks WHERE workspace = ? AND deleted_at IS NULL ORDER BY sort_order').all(project.file);
-    const byId = new Map(rows.map(r => [r.id, r]));
-    const childrenOf = new Map();
-    for (const r of rows) {
-      if (r.parent_id !== null && byId.has(r.parent_id)) {
-        if (!childrenOf.has(r.parent_id)) childrenOf.set(r.parent_id, []);
-        childrenOf.get(r.parent_id).push(r);
-      }
-    }
-
-    // ステータス変更イベント: 期間内に選択ステータスへ変わったか / 最終の変更日時(全期間)
-    const lastChange = new Map();
-    const movedInPeriod = new Set();
-    const events = db.prepare(`
-      SELECT te.task_id, te.new_value, te.occurred_at
-      FROM task_events te JOIN tasks t ON t.id = te.task_id
-      WHERE t.workspace = ? AND te.event_type = 'status_changed' ORDER BY te.occurred_at, te.id
-    `).all(project.file);
-    for (const e of events) {
-      lastChange.set(e.task_id, e.occurred_at);
-      const day = toJstDate(e.occurred_at);
-      if (day >= from && day <= to && selected.has(e.new_value)) movedInPeriod.add(e.task_id);
-    }
-
-    const candidates = rows.filter(r => !childrenOf.has(r.id)); // EPIC自身は見出し側で扱う
-    const included = candidates.filter(r => {
-      if (movedInPeriod.has(r.id)) return true;
-      if (!r.due_date) return false;
-      if (r.due_date >= from && r.due_date <= to) return true;
-      return r.due_date < from && r.status !== 'done';
-    });
+    const analysis = analyzeWorkspace(db, project, from, to);
+    const { byId, lastChange } = analysis;
+    const included = pickIncluded(analysis, selected, from, to);
 
     const tagsByTask = tagsRepo.listTagsForTasks(db, included.map(r => r.id));
+    const linksByTask = externalLinksRepo.listLinksForTasks(db, included.map(r => r.id));
     const toItem = r => {
       const overdue = Boolean(r.due_date) && r.status !== 'done' && r.due_date < today;
       let kind;
       if (r.status === 'done') kind = '完了';
       else if (overdue) kind = '期限超過';
-      else if (r.status === 'do') kind = '継続中';
-      else kind = '予定';
+      else if (r.status === 'todo') kind = '未着手';
+      else kind = '対応中'; // do / ready
       const updated = lastChange.get(r.id) || r.created_at;
+      const parent = r.parent_id !== null ? byId.get(r.parent_id) : null;
       return {
         id: r.display_id,
         title: r.title,
+        parentId: parent ? parent.display_id : '',
+        parentTitle: parent ? parent.title : '',
         status: r.status,
-        statusLabel: statusLabel[r.status] || r.status,
+        statusLabel: STATUS_LABEL[r.status] || r.status,
         kind,
         updatedAt: toJstDateTime(updated),
         updatedAtRaw: updated,
@@ -180,54 +229,72 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
         commit: r.commit_hash ? r.commit_hash.slice(0, 7) : '',
         issue: r.github_issue_number ? `#${r.github_issue_number}` : '',
         issueUrl: r.github_issue_url || '',
+        externalLinks: (linksByTask[r.id] || []).map(l => ({ source: l.source, key: l.key, url: l.url })),
       };
     };
 
-    const kindOrder = { 期限超過: 0, 継続中: 1, 予定: 2, 完了: 3 };
-    const sortItems = items => items.sort((a, b) => (kindOrder[a.kind] - kindOrder[b.kind]) || (a.updatedAtRaw < b.updatedAtRaw ? 1 : -1));
+    const items = included.map(toItem).sort((a, b) => (a.updatedAtRaw < b.updatedAtRaw ? 1 : -1));
+    const sections = SECTIONS
+      .map(s => ({ kind: s.kind, heading: s.heading, items: items.filter(i => i.kind === s.kind) }))
+      .filter(s => s.items.length > 0);
 
-    const groups = [];
-    const standalone = included.filter(r => r.parent_id === null || !byId.has(r.parent_id));
-    if (standalone.length) groups.push({ type: 'standalone', items: sortItems(standalone.map(toItem)) });
-    const epicIds = [...new Set(included.filter(r => r.parent_id !== null && byId.has(r.parent_id)).map(r => r.parent_id))];
-    for (const epicId of epicIds) {
-      const epic = byId.get(epicId);
-      const kids = childrenOf.get(epicId);
-      const done = kids.filter(k => k.status === 'done').length;
-      groups.push({
-        type: 'epic',
-        id: epic.display_id,
-        title: epic.title,
-        dueDate: epic.due_date || '',
-        total: kids.length,
-        done,
-        remaining: kids.length - done,
-        items: sortItems(included.filter(r => r.parent_id === epicId).map(toItem)),
-      });
-    }
-    groups.sort((a, b) => (a.type === 'standalone' ? -1 : 0) - (b.type === 'standalone' ? -1 : 0));
-
-    const allItems = groups.flatMap(g => g.items);
     result.push({
       file: project.file,
       prefix: project.prefix || '',
       name: project.name || project.file,
-      groups,
-      count: allItems.length,
+      sections,
+      count: items.length,
       counts: {
-        done: allItems.filter(i => i.kind === '完了').length,
-        doing: allItems.filter(i => i.kind === '継続中').length,
-        overdue: allItems.filter(i => i.kind === '期限超過').length,
-        planned: allItems.filter(i => i.kind === '予定').length,
+        done: items.filter(i => i.kind === '完了').length,
+        doing: items.filter(i => i.kind === '対応中').length,
+        overdue: items.filter(i => i.kind === '期限超過').length,
+        planned: items.filter(i => i.kind === '未着手').length, // 未着手(TODO)
       },
+      statusCounts: statusCountsFor(analysis, from, to),
     });
   }
-  return { from, to, today, statuses: [...selected].map(c => statusLabel[c] || c), workspaces: result };
+  return { from, to, today, statuses: [...selected].map(c => STATUS_LABEL[c] || c), workspaces: result };
+}
+
+/**
+ * 画面の対象ワークスペース横に出す、ステータス別の件数(期間のみで決まる)。
+ */
+function buildWeeklyCounts(db, config, input) {
+  const opts = parseReportOptions(input, config, db);
+  if (opts.error) return opts;
+  const workspaces = (config.projects || []).filter(p => opts.workspaces.includes(p.file)).map(project => ({
+    file: project.file,
+    ...statusCountsFor(analyzeWorkspace(db, project, opts.from, opts.to), opts.from, opts.to),
+  }));
+  return { ok: true, from: opts.from, to: opts.to, workspaces };
 }
 
 // Markdownの表セルに入れても崩れないようにする(パイプ・改行)
 function cell(value) {
   return String(value ?? '').replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
+// 件数バッジ(コードスパン風)。動きがあった数字は太字。
+function renderStatusCounts({ counts, active }) {
+  return STATUS_CODES.map(code => {
+    const badge = `\`${STATUS_LABEL[code]} ${counts[code]}\``;
+    return active[code] ? `**${badge}**` : badge;
+  }).join(' ');
+}
+
+const EXTERNAL_SOURCE_LABEL = { redmine: 'Redmine', gitlab: 'GitLab' };
+
+function renderTitleCell(item) {
+  if (!item.parentId) return cell(item.title);
+  // 親は小さく、子は次の行に「└」でぶら下げる(<small>と<br/>はプレビューでも許可している)
+  return `<small>${cell(item.parentId)} ${cell(item.parentTitle)}</small><br/>└ ${cell(item.title)}`;
+}
+
+function renderExternal(item) {
+  return item.externalLinks.map(l => {
+    const text = cell(`${EXTERNAL_SOURCE_LABEL[l.source] || l.source} #${l.key}`);
+    return l.url ? `[${text}](${l.url})` : text;
+  }).join(', ');
 }
 
 function renderTable(items, columns) {
@@ -236,8 +303,10 @@ function renderTable(items, columns) {
   const sep = `| ${defs.map(() => '---').join(' | ')} |`;
   const lines = items.map(item => {
     const cells = columns.map(k => {
+      if (k === 'title') return renderTitleCell(item);
       if (k === 'status') return cell(item.statusLabel);
       if (k === 'issue') return item.issueUrl ? `[${cell(item.issue)}](${item.issueUrl})` : cell(item.issue);
+      if (k === 'external') return renderExternal(item);
       if (k === 'dueDate') return item.dueDate ? cell(item.kind === '期限超過' ? `${item.dueDate} ⚠` : item.dueDate) : '';
       return cell(item[k]);
     });
@@ -247,13 +316,8 @@ function renderTable(items, columns) {
 }
 
 function renderWorkspaceTable(ws, columns) {
-  if (ws.groups.length === 0) return '(該当するタスクはありません)';
-  return ws.groups.map(g => {
-    const heading = g.type === 'standalone'
-      ? '### 単発タスク'
-      : `### ${g.id} ${cell(g.title)}（完了 ${g.done}/全 ${g.total}件・残り ${g.remaining}件${g.dueDate ? `・期日 ${g.dueDate}` : ''}）`;
-    return `${heading}\n\n${renderTable(g.items, columns)}`;
-  }).join('\n\n');
+  if (ws.sections.length === 0) return '(該当するタスクはありません)';
+  return ws.sections.map(s => `### ${s.heading}\n\n${renderTable(s.items, columns)}`).join('\n\n');
 }
 
 function replaceVars(text, vars) {
@@ -293,13 +357,13 @@ function renderWeeklyReport(data, { template, columns }) {
   // 全体のプレースホルダーを先に展開し、そのあとでワークスペースの表を差し込む(表の中身は再展開しない)
   const rendered = replaceVars(text, global).replace(block, (m, inner) => data.workspaces.map(ws => {
     const c = ws.counts;
-    const parts = [`完了 ${c.done}件`, `継続中 ${c.doing}件`];
+    const parts = [`完了 ${c.done}件`, `対応中 ${c.doing}件`];
     if (c.overdue) parts.push(`期限超過 ${c.overdue}件`);
-    if (c.planned) parts.push(`予定 ${c.planned}件`);
+    if (c.planned) parts.push(`未着手 ${c.planned}件`);
     // {{table}}の中身にプレースホルダー風の文字列(タスク件名など)が入っても再展開しないよう、最後に差し込む
     const body = replaceVars(inner, {
       workspaceId: ws.prefix, workspaceName: ws.name, workspaceFile: ws.file,
-      summary: parts.join(' / '), doneCount: c.done, doingCount: c.doing, overdueCount: c.overdue, count: ws.count,
+      summary: parts.join(' / '), statusCounts: renderStatusCounts(ws.statusCounts), doneCount: c.done, doingCount: c.doing, overdueCount: c.overdue, count: ws.count,
       table: '\u0000TABLE\u0000',
     });
     return body.replace('\u0000TABLE\u0000', () => renderWorkspaceTable(ws, cols));
@@ -374,5 +438,5 @@ function resetTemplate(backlogDir) {
 module.exports = {
   loadTemplate, saveTemplate, resetTemplate, TEMPLATE_MAX_LENGTH,
   COLUMN_DEFS, DEFAULT_COLUMNS, DEFAULT_TEMPLATE, PLACEHOLDERS,
-  weekRange, normalizeColumns, collectWeeklyReport, renderWeeklyReport, buildWeeklyReport, parseReportOptions,
+  weekRange, normalizeColumns, collectWeeklyReport, buildWeeklyCounts, renderWeeklyReport, buildWeeklyReport, parseReportOptions,
 };

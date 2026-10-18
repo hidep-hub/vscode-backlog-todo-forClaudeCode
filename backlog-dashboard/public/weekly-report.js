@@ -20,7 +20,8 @@ function getWeeklyMarked() {
     gfm: true,
     breaks: false,
     renderer: {
-      html(token) { return escapeHtml(token.text); },
+      // 子タスクの件名セルで使う<small>と<br>だけは通し、それ以外のHTMLは文字として表示する
+      html(token) { return /^\s*(<\/?small>|<br\s*\/?>)\s*$/i.test(token.text) ? token.text.trim() : escapeHtml(token.text); },
       image(token) { return escapeHtml(token.text || ''); },
       link(token) {
         const inner = this.parser.parseInline(token.tokens);
@@ -76,9 +77,10 @@ function getOrCreateWeeklyPane(container) {
           </span>
         </h4>
         <textarea id="weekly-template" class="weekly-template" spellcheck="false" aria-label="出力フォーマット"></textarea>
+        <div class="weekly-hint">編集すると、少し待ってから自動でプレビューに反映されます（反映の操作は不要です）。「保存」すると次回以降もこの書式を使います。</div>
         <div class="weekly-hint" id="weekly-format-status"></div>
         <details class="weekly-placeholders">
-          <summary>使えるプレースホルダー（クリックで挿入）</summary>
+          <summary>使えるプレースホルダー</summary>
           <table class="weekly-ph-table" id="weekly-ph-table"></table>
         </details>
       </section>
@@ -108,11 +110,18 @@ function getOrCreateWeeklyPane(container) {
 
   const $ = sel => container.querySelector(sel);
   // 設定が変わったら少し待ってプレビューを更新する(日付はカレンダーで選ぶと change が飛ぶ)
-  const schedule = () => { renderWeeklyRangeLabel(); clearTimeout(weeklyPreviewTimer); weeklyPreviewTimer = setTimeout(refreshWeeklyPreview, 250); };
+  // 期間(今週/先週/任意と日付)が変わった時は、ワークスペース横の件数も取り直す
+  const schedule = e => {
+    renderWeeklyRangeLabel();
+    if (e && e.target.closest('input[name="weekly-range"], #weekly-from, #weekly-to')) refreshWeeklyCounts();
+    clearTimeout(weeklyPreviewTimer);
+    weeklyPreviewTimer = setTimeout(refreshWeeklyPreview, 250);
+  };
   $('#weekly-left').addEventListener('input', schedule);
   $('#weekly-left').addEventListener('change', e => {
     if (e.target.name === 'weekly-range') $('#weekly-custom-range').hidden = e.target.value !== 'custom';
-    schedule();
+    if (e.target.closest('#weekly-workspaces, #weekly-statuses')) saveWeeklySettings();
+    schedule(e);
   });
   $('#weekly-tabs').addEventListener('click', e => {
     const btn = e.target.closest('.weekly-tab');
@@ -137,6 +146,33 @@ function getOrCreateWeeklyPane(container) {
   $('#weekly-save-format').addEventListener('click', saveWeeklyFormat);
   $('#weekly-reset-format').addEventListener('click', resetWeeklyFormat);
   return weeklyPaneEl;
+}
+
+// --- 選択の記憶(BT-438) ---
+// 対象ワークスペースと出力ステータスはこのブラウザだけの便宜として保存し、次に開いた時に復元する。
+// 期間は開くたびに今週へ戻す。書式と列は「保存」ボタン(サーバー側)の担当。
+const WEEKLY_SETTINGS_KEY = 'weeklySettings';
+
+function loadWeeklySettings() {
+  try {
+    const v = JSON.parse(localStorage.getItem(WEEKLY_SETTINGS_KEY) || '{}');
+    return {
+      workspaces: Array.isArray(v.workspaces) ? v.workspaces.filter(x => typeof x === 'string') : [],
+      statuses: Array.isArray(v.statuses) ? v.statuses.filter(x => typeof x === 'string') : [],
+    };
+  } catch { return { workspaces: [], statuses: [] }; }
+}
+
+function saveWeeklySettings() {
+  const sel = weeklySelection();
+  try {
+    // 何も選んでいない状態は復元しても意味がないので、その時は前回の保存を残す
+    const prev = loadWeeklySettings();
+    localStorage.setItem(WEEKLY_SETTINGS_KEY, JSON.stringify({
+      workspaces: sel.workspaces.length ? sel.workspaces : prev.workspaces,
+      statuses: sel.statuses.length ? sel.statuses : prev.statuses,
+    }));
+  } catch { /* localStorageが使えなくても動作に支障はない */ }
 }
 
 // --- 左右ペインの仕切り(BT-437) ---
@@ -354,23 +390,39 @@ function setWeeklyColumns(selected) {
     <label><input type="checkbox" value="${escapeHtml(c.key)}"${selected.includes(c.key) || c.required ? ' checked' : ''}${c.required ? ' disabled' : ''}> ${escapeHtml(c.label)}</label>`).join('');
 }
 
+// 説明の表示だけ(書式への挿入はしない。選択してコピーして使う)
 function renderWeeklyPlaceholders() {
   const table = weeklyPaneEl.querySelector('#weekly-ph-table');
   table.innerHTML = `<thead><tr><th>プレースホルダー</th><th>使える場所</th><th>説明</th><th>例</th></tr></thead><tbody>${
     weeklyMeta.placeholders.map(p => {
-      const token = p.name.startsWith('#') ? '{{#workspace}}\n\n{{/workspace}}' : `{{${p.name}}}`;
-      return `<tr><td><button type="button" class="weekly-ph-btn" data-token="${escapeHtml(token)}">${escapeHtml(p.name.startsWith('#') ? '{{#workspace}} … {{/workspace}}' : `{{${p.name}}}`)}</button></td><td>${escapeHtml(p.scope)}</td><td>${escapeHtml(p.description)}</td><td>${escapeHtml(p.example)}</td></tr>`;
+      const label = p.name.startsWith('#') ? '{{#workspace}} … {{/workspace}}' : `{{${p.name}}}`;
+      return `<tr><td><code class="weekly-ph-name">${escapeHtml(label)}</code></td><td>${escapeHtml(p.scope)}</td><td>${escapeHtml(p.description)}</td><td>${escapeHtml(p.example)}</td></tr>`;
     }).join('')}</tbody>`;
-  table.onclick = e => {
-    const btn = e.target.closest('.weekly-ph-btn');
-    if (!btn) return;
-    const ta = weeklyPaneEl.querySelector('#weekly-template');
-    const { selectionStart: s, selectionEnd: en } = ta;
-    ta.value = ta.value.slice(0, s) + btn.dataset.token + ta.value.slice(en);
-    ta.focus();
-    ta.selectionStart = ta.selectionEnd = s + btn.dataset.token.length;
-    ta.dispatchEvent(new Event('input', { bubbles: true }));
-  };
+}
+
+// 対象ワークスペース横の、期間内ステータス別の件数バッジ(BT-438)。動きがあった数字は太字、0件は薄く。
+let weeklyCountsSeq = 0;
+async function refreshWeeklyCounts() {
+  const sel = weeklySelection();
+  const seq = ++weeklyCountsSeq;
+  const boxes = weeklyPaneEl.querySelectorAll('.weekly-ws-badges');
+  if (sel.range === 'custom' && (!sel.from || !sel.to)) { for (const b of boxes) b.innerHTML = ''; return; }
+  try {
+    const q = new URLSearchParams(weeklyPeriodParams(sel));
+    const res = await fetch(`/api/weekly-report-counts?${q}`);
+    const data = await res.json();
+    if (seq !== weeklyCountsSeq) return; // 古い応答は捨てる
+    const byFile = new Map((data.workspaces || []).map(w => [w.file, w]));
+    for (const box of boxes) {
+      const w = byFile.get(box.dataset.ws);
+      box.innerHTML = w ? WEEKLY_STATUSES.map(([code, label]) => {
+        const n = w.counts[code];
+        return `<code class="weekly-badge${n === 0 ? ' zero' : ''}${w.active[code] ? ' active' : ''}">${label} ${n}</code>`;
+      }).join('') : '';
+    }
+  } catch {
+    if (seq === weeklyCountsSeq) for (const b of boxes) b.innerHTML = '';
+  }
 }
 
 // 履歴ダイアログの「週報」タブを開いた時に呼ぶ(タブに入るたびに設定を読み直して今週に戻す)
@@ -390,11 +442,18 @@ async function showWeeklyPane(container) {
   // 履歴画面・メイン画面で絞り込み中のワークスペースがあればそれを初期選択、無ければ全ワークスペース
   const preferred = (typeof activityProjectFilter === 'string' && activityProjectFilter) || (typeof currentFilter === 'string' && currentFilter) || '';
   const files = weeklyMeta.workspaces.map(w => w.file);
-  const initial = files.includes(preferred) ? [preferred] : files;
+  const saved = loadWeeklySettings();
+  const savedWorkspaces = saved.workspaces.filter(f => files.includes(f));
+  const initial = savedWorkspaces.length ? savedWorkspaces : (files.includes(preferred) ? [preferred] : files);
+  const savedStatuses = saved.statuses.filter(c => WEEKLY_STATUSES.some(([code]) => code === c));
+  const initialStatuses = savedStatuses.length ? savedStatuses : ['done', 'do'];
   $('#weekly-workspaces').innerHTML = weeklyMeta.workspaces.map(w => `
-    <label><input type="checkbox" value="${escapeHtml(w.file)}"${initial.includes(w.file) ? ' checked' : ''}> ${escapeHtml(w.prefix ? `${w.prefix} ` : '')}${escapeHtml(w.name)}</label>`).join('');
+    <div class="weekly-ws-item">
+      <label title="${escapeHtml(`${w.prefix ? `${w.prefix} ` : ''}${w.name}`)}"><input type="checkbox" value="${escapeHtml(w.file)}"${initial.includes(w.file) ? ' checked' : ''}><span class="weekly-ws-name">${escapeHtml(w.prefix ? `${w.prefix} ` : '')}${escapeHtml(w.name)}</span></label>
+      <div class="weekly-ws-badges" data-ws="${escapeHtml(w.file)}"></div>
+    </div>`).join('');
   $('#weekly-statuses').innerHTML = WEEKLY_STATUSES.map(([code, label]) => `
-    <label><input type="checkbox" value="${code}"${code === 'done' || code === 'do' ? ' checked' : ''}> ${label}</label>`).join('');
+    <label><input type="checkbox" value="${code}"${initialStatuses.includes(code) ? ' checked' : ''}> ${label}</label>`).join('');
   setWeeklyColumns(weeklyMeta.columns);
   $('#weekly-template').value = weeklyMeta.template;
   $('#weekly-format-status').textContent = weeklyMeta.saved ? '保存済みの書式を使っています' : '既定の書式です(編集して「保存」できます)';
@@ -404,5 +463,6 @@ async function showWeeklyPane(container) {
   $('#weekly-custom-range').hidden = true;
   renderWeeklyRangeLabel();
   showWeeklyView('preview');
+  refreshWeeklyCounts();
   refreshWeeklyPreview();
 }
