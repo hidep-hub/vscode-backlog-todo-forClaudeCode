@@ -418,6 +418,26 @@ function updateWorkspaceSummary(projectName, summary) {
   return { success: true, project: project.name, summary: project.summary };
 }
 
+// メインボードの列の並び順 (BT-428)。config.columns[]の順番がそのままボードの列順になる。
+// 列の追加・削除・match変更は対象外で、idの集合が現行と完全一致する並べ替えだけを受け付ける。
+function updateColumnOrder(orderedIds) {
+  const current = config.columns || [];
+  if (!Array.isArray(orderedIds) || orderedIds.some(id => typeof id !== 'string')) {
+    return { success: false, error: 'orderedIds must be an array of strings' };
+  }
+  const currentIds = current.map(c => c.id);
+  const sameSet = orderedIds.length === currentIds.length
+    && new Set(orderedIds).size === orderedIds.length
+    && orderedIds.every(id => currentIds.includes(id));
+  if (!sameSet) {
+    return { success: false, error: 'orderedIds must contain exactly the current column ids without duplicates' };
+  }
+  fs.copyFileSync(CONFIG_PATH, `${CONFIG_PATH}.bak`);
+  config.columns = orderedIds.map(id => current.find(c => c.id === id));
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  return { success: true, columns: orderedIds };
+}
+
 // ============================================================
 // ヘッダーヒートマップ ウェルカムメッセージ設定 (BM-092)
 // ============================================================
@@ -1226,6 +1246,25 @@ function serveStatic(req, res) {
         res.end(JSON.stringify({ error: result.error }));
       }
     }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: POST /api/update-column-order (BT-428。内部API: 設定画面の列並べ替え用)
+  if (req.url === '/api/update-column-order' && req.method === 'POST') {
+    readRequestBody(req).then(({ orderedIds }) => {
+      const result = updateColumnOrder(orderedIds);
+      if (!result.success) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: result.error }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: true, columns: result.columns }));
+      broadcast(buildBoard());
+    }).catch(() => {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'Invalid JSON body' }));
     });

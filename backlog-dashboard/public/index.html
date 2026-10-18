@@ -75,6 +75,7 @@
         <div class="badge-mode-menu" id="badge-mode-menu" role="menu" hidden></div>
       </div>
       <span id="project-badges" class="project-badges"></span>
+      <button type="button" class="badge-mode-btn global-settings-btn" id="global-settings-btn" title="全体設定（列の並び・ウェルカムメッセージなど）" aria-label="全体設定を開く"><span class="material-icon icon-settings" aria-hidden="true"></span></button>
     </div>
   </header>
   <div class="running-strip" id="running-strip">
@@ -120,6 +121,11 @@
     <div class="settings-panel">
       <button class="settings-close" id="settings-close">&times;</button>
       <h3>Settings</h3>
+      <div class="settings-tabs" role="tablist" aria-label="設定の種類">
+        <button type="button" class="settings-tab is-active" id="settings-tab-btn-workspace" role="tab" aria-selected="true" data-tab="workspace">ワークスペース</button>
+        <button type="button" class="settings-tab" id="settings-tab-btn-global" role="tab" aria-selected="false" data-tab="global">全体設定</button>
+      </div>
+      <div class="settings-tab-panel" id="settings-tab-workspace" role="tabpanel">
       <div class="settings-workspace-bar">
         <label for="settings-workspace">Workspace</label>
         <select id="settings-workspace"></select>
@@ -145,14 +151,6 @@
       </div>
       <div class="settings-columns" id="settings-columns">
         <div class="settings-column settings-column-theme">
-          <div class="settings-group">
-            <label>Theme</label>
-            <select id="settings-theme">
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-              <option value="system">System</option>
-            </select>
-          </div>
           <div class="settings-group workspace-theme-settings" id="settings-workspace-theme" hidden>
             <label id="settings-workspace-theme-label">Workspace Theme</label>
             <p class="settings-theme-hint">プリセットまたはカスタム色を選ぶと、その場でプレビューされます。「保存」を押すとこのワークスペースに適用されます。</p>
@@ -195,16 +193,29 @@
           </div>
         </div>
       </div>
-    </div>
-  </div>
-
-  <!-- Header Heatmap Welcome Message Settings (BM-092) -->
-  <div class="settings-overlay" id="heatmap-intro-settings-overlay">
-    <div class="settings-panel">
-      <button class="settings-close" id="heatmap-intro-settings-close">&times;</button>
-      <h3>ウェルカムメッセージ設定</h3>
+      </div>
+      <!-- BT-428: 全体設定タブ。旧ウェルカムメッセージ設定モーダル(BM-092)を統合 -->
+      <div class="settings-tab-panel" id="settings-tab-global" role="tabpanel" hidden>
       <div class="settings-columns">
         <div class="settings-column">
+          <div class="settings-group">
+            <label>Theme</label>
+            <select id="settings-theme">
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="system">System</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label>メインボードの列の並び</label>
+            <ol class="column-order-list" id="settings-column-order"></ol>
+            <div class="settings-github-footer">
+              <span id="settings-column-order-status"></span>
+              <button id="settings-column-order-save" disabled>保存</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-column settings-column-github">
           <div class="settings-group">
             <label for="settings-ticker-default-mode">起動時のヘッダー表示</label>
             <select id="settings-ticker-default-mode">
@@ -238,6 +249,7 @@
             <button id="heatmap-intro-settings-save">保存</button>
           </div>
         </div>
+      </div>
       </div>
     </div>
   </div>

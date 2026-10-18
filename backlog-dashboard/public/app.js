@@ -494,13 +494,33 @@ function closeSettings() {
   applySettings();
 }
 
+// BT-428: 設定パネルのタブ切替（workspace=ワークスペース単位 / global=全体設定）
+function setSettingsTab(tab) {
+  const active = tab === 'global' ? 'global' : 'workspace';
+  for (const name of ['workspace', 'global']) {
+    document.getElementById(`settings-tab-${name}`).hidden = name !== active;
+    const btn = document.getElementById(`settings-tab-btn-${name}`);
+    btn.classList.toggle('is-active', name === active);
+    btn.setAttribute('aria-selected', String(name === active));
+  }
+  if (active === 'global') populateGlobalSettings();
+}
+
+document.querySelectorAll('.settings-tab').forEach(btn => {
+  btn.addEventListener('click', () => setSettingsTab(btn.dataset.tab));
+});
+
 // BT-362: 設定パネルを開く。workspaceを渡すとその選択状態で、省略時は現在開いているワークスペース（なければ未選択）で開く
-function openSettingsPanel(workspace = activeWorkspace()) {
+// BT-428: tabで開くタブを指定する（省略時はワークスペースタブ）
+function openSettingsPanel(workspace = activeWorkspace(), tab = 'workspace') {
   workspaceThemeDraft = null;
   settingsOverlay.classList.add('settings-visible');
   populateSettingsWorkspaceSelect(workspace);
   onSettingsWorkspaceChanged();
+  setSettingsTab(tab);
 }
+
+document.getElementById('global-settings-btn').addEventListener('click', () => openSettingsPanel(activeWorkspace(), 'global'));
 
 
 settingsClose.addEventListener('click', () => {
@@ -3160,12 +3180,9 @@ window.addEventListener('resize', () => {
   headerHeatmapResizeTimer = setTimeout(() => { if (tickerShowsHeatmap()) scheduleHeaderHeatmapRender(); }, 200);
 });
 
-// --- ウェルカムメッセージ設定モーダル (BM-092) ---
-// ヒートマップ(#header-heatmap)をクリックすると開く。既存のSettings Panelと同じ
-// .settings-overlay/.settings-visible/closeOnEscapeの型に合わせているため、
-// isTopmostDialog()のセレクタ(.settings-overlay.settings-visible)は変更不要。
-const heatmapIntroSettingsOverlay = document.getElementById('heatmap-intro-settings-overlay');
-const heatmapIntroSettingsClose = document.getElementById('heatmap-intro-settings-close');
+// --- ウェルカムメッセージ設定 (BM-092 / BT-428で全体設定タブへ統合) ---
+// 旧モーダルはBT-428で廃止し、設定パネルの「全体設定」タブに移した。
+// ヒートマップ(#header-heatmap)のクリックは従来どおり、このタブを開く近道として残す。
 const heatmapIntroSettingsSave = document.getElementById('heatmap-intro-settings-save');
 const heatmapIntroSettingsStatus = document.getElementById('heatmap-intro-settings-status');
 const settingsTickerDefaultModeEl = document.getElementById('settings-ticker-default-mode');
@@ -3173,12 +3190,13 @@ const heatmapIntroTextEl = document.getElementById('heatmap-intro-text');
 const heatmapIntroSpeedEl = document.getElementById('heatmap-intro-speed');
 const heatmapIntroLitLevelEl = document.getElementById('heatmap-intro-lit-level');
 
-function closeHeatmapIntroSettings() {
-  heatmapIntroSettingsOverlay.classList.remove('settings-visible');
+// 全体設定タブを開いた時に、各欄へ現在値を反映する（BT-428）
+function populateGlobalSettings() {
+  populateColumnOrder();
+  populateHeatmapIntroSettings();
 }
 
-async function openHeatmapIntroSettings() {
-  heatmapIntroSettingsOverlay.classList.add('settings-visible');
+async function populateHeatmapIntroSettings() {
   heatmapIntroSettingsStatus.textContent = '';
   // 起動時のヘッダー表示は個人のブラウザ設定(tickerMode)なので、サーバー取得と無関係にその場の値を反映する。
   // 保存済みの値がoffの場合は(モーダル上の選択肢がログ/マップの2つしかないため)heatmapを初期選択にしておく。
@@ -3191,15 +3209,68 @@ async function openHeatmapIntroSettings() {
 
 if (headerHeatmapEl) {
   headerHeatmapEl.style.cursor = 'pointer';
-  headerHeatmapEl.title = 'クリックしてウェルカムメッセージ設定を開く';
-  headerHeatmapEl.addEventListener('click', () => openHeatmapIntroSettings());
+  headerHeatmapEl.title = 'クリックして全体設定（ウェルカムメッセージ）を開く';
+  headerHeatmapEl.addEventListener('click', () => openSettingsPanel(activeWorkspace(), 'global'));
 }
 
-heatmapIntroSettingsClose.addEventListener('click', () => closeHeatmapIntroSettings());
-heatmapIntroSettingsOverlay.addEventListener('click', (e) => {
-  if (e.target === heatmapIntroSettingsOverlay) closeHeatmapIntroSettings();
+// --- メインボードの列の並び替え (BT-428) ---
+// 現在のボードの列順(currentBoardData.columns)を上下ボタンで編集し、保存でPOST /api/update-column-order。
+// 保存後はサーバーのboard broadcastでメインボードが並び替わる。
+const columnOrderListEl = document.getElementById('settings-column-order');
+const columnOrderSaveEl = document.getElementById('settings-column-order-save');
+const columnOrderStatusEl = document.getElementById('settings-column-order-status');
+let columnOrderDraft = []; // [{id,label}]
+let columnOrderBaseline = []; // 保存済みの並び(id配列)
+
+function populateColumnOrder() {
+  const cols = (currentBoardData && currentBoardData.columns) || [];
+  columnOrderDraft = cols.map(c => ({ id: c.id, label: c.label || c.id }));
+  columnOrderBaseline = columnOrderDraft.map(c => c.id);
+  columnOrderStatusEl.textContent = '';
+  renderColumnOrder();
+}
+
+function renderColumnOrder() {
+  columnOrderListEl.innerHTML = columnOrderDraft.map((c, i) => `
+    <li class="column-order-item" data-id="${escapeHtml(c.id)}">
+      <span class="column-order-label">${escapeHtml(c.label)}</span>
+      <button type="button" class="column-order-btn" data-move="top" title="先頭へ" aria-label="${escapeHtml(c.label)}を先頭へ"${i === 0 ? ' disabled' : ''}>⤒</button>
+      <button type="button" class="column-order-btn" data-move="-1" title="上へ" aria-label="${escapeHtml(c.label)}を上へ"${i === 0 ? ' disabled' : ''}>↑</button>
+      <button type="button" class="column-order-btn" data-move="1" title="下へ" aria-label="${escapeHtml(c.label)}を下へ"${i === columnOrderDraft.length - 1 ? ' disabled' : ''}>↓</button>
+    </li>`).join('');
+  columnOrderListEl.querySelectorAll('.column-order-btn').forEach(btn => btn.addEventListener('click', () => {
+    const idx = columnOrderDraft.findIndex(c => c.id === btn.closest('.column-order-item').dataset.id);
+    if (btn.dataset.move === 'top') {
+      if (idx <= 0) return;
+      columnOrderDraft.unshift(columnOrderDraft.splice(idx, 1)[0]);
+    } else {
+      const next = idx + Number(btn.dataset.move);
+      if (idx < 0 || next < 0 || next >= columnOrderDraft.length) return;
+      [columnOrderDraft[idx], columnOrderDraft[next]] = [columnOrderDraft[next], columnOrderDraft[idx]];
+    }
+    columnOrderStatusEl.textContent = '';
+    renderColumnOrder();
+  }));
+  columnOrderSaveEl.disabled = columnOrderDraft.map(c => c.id).join() === columnOrderBaseline.join();
+}
+
+columnOrderSaveEl.addEventListener('click', async () => {
+  columnOrderStatusEl.textContent = '保存中...';
+  try {
+    const res = await fetch('/api/update-column-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderedIds: columnOrderDraft.map(c => c.id) }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '保存に失敗しました');
+    columnOrderBaseline = columnOrderDraft.map(c => c.id);
+    renderColumnOrder();
+    columnOrderStatusEl.textContent = '保存したよ';
+  } catch (e) {
+    columnOrderStatusEl.textContent = `エラー: ${e.message}`;
+  }
 });
-closeOnEscape(heatmapIntroSettingsOverlay, 'settings-visible', closeHeatmapIntroSettings);
 
 heatmapIntroSettingsSave.addEventListener('click', async () => {
   // 起動時のヘッダー表示(個人のブラウザ設定)は即時にlocalStorageへ反映する(既存のtickerToggleBtnと同じキー)
@@ -3222,7 +3293,7 @@ heatmapIntroSettingsSave.addEventListener('click', async () => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || '保存に失敗しました');
     headerHeatmapIntroSettings = { ...HEADER_HEATMAP_INTRO_DEFAULTS, ...data.settings };
-    closeHeatmapIntroSettings();
+    heatmapIntroSettingsStatus.textContent = '保存したよ';
   } catch (e) {
     heatmapIntroSettingsStatus.textContent = `エラー: ${e.message}`;
   }
