@@ -159,6 +159,13 @@ function openTagModal(workspaceFile) {
 
 function closeTagModal() {
   if (tagModalEl) tagModalEl.classList.remove('modal-visible');
+  // BT-423: ピッカーの「タグ管理を開く」から来た場合は、閉じたら元のピッカーへ戻る(新しいタグも選択肢に出る)
+  const back = tagPickerReturnCtx;
+  tagPickerReturnCtx = null;
+  if (back) {
+    if (!back.anchor.isConnected && back.reanchor) back.anchor = back.reanchor() || back.anchor;
+    if (back.anchor.isConnected) openTagPicker(back);
+  }
 }
 
 async function loadTags() {
@@ -375,6 +382,7 @@ async function submitTagCreate(confirmSimilar) {
 
 let tagPickerEl = null;
 let tagPickerCtx = null;
+let tagPickerReturnCtx = null; // タグ管理を閉じた時に開き直すピッカーのctx(BT-423)
 
 function tagWorkspaceForProject(projectName) {
   const map = (currentBoardData && currentBoardData.projectFileMap) || {};
@@ -404,6 +412,9 @@ function positionTagPicker(el, anchor) {
  * 既存タグから選んで付け外しするポップオーバーを開く。
  * ctx: { anchor, workspace, selectedIds:Set, onToggle(tag, checked) => Promise<boolean> }
  * onToggleがfalseを返したら(失敗)チェック状態を元に戻す。
+ * 一括モード(BT-423): workspaces:[file,...] を渡すと複数ワークスペースのタグを名前単位で集約し、
+ * 各行は {key,name,color,byWs:{file:tag}} になる。stateOf(row)が'all'|'some'|'none'を返し、'some'は中間表示。
+ * reanchor: 再描画でanchorが外れた時に付け直す関数。
  */
 async function openTagPicker(ctx) {
   closeTagPicker();
@@ -430,8 +441,12 @@ async function openTagPicker(ctx) {
     } else if (tags.length === 0) {
       listEl.innerHTML = '<div class="tag-picker-empty">一致するタグがありません。</div>';
     } else {
-      listEl.innerHTML = tags.map(t => `<label class="tag-picker-row">
-        <input type="checkbox" data-tag-id="${t.id}"${ctx.selectedIds.has(t.id) ? ' checked' : ''}>${tagLogic.buildTagChipHtml(t)}</label>`).join('');
+      listEl.innerHTML = tags.map(t => {
+        const state = ctx.stateOf ? ctx.stateOf(t) : (ctx.selectedIds.has(t.id) ? 'all' : 'none');
+        return `<label class="tag-picker-row">
+        <input type="checkbox" data-tag-key="${escapeHtml(String(t.key !== undefined ? t.key : t.id))}"${state === 'all' ? ' checked' : ''}${state === 'some' ? ' data-indeterminate="1"' : ''}>${tagLogic.buildTagChipHtml(t)}</label>`;
+      }).join('');
+      listEl.querySelectorAll('input[data-indeterminate]').forEach(box => { box.indeterminate = true; });
     }
     positionTagPicker(el, ctx.anchor);
   };
@@ -439,21 +454,39 @@ async function openTagPicker(ctx) {
   listEl.addEventListener('change', async (e) => {
     const box = e.target.closest('input[type="checkbox"]');
     if (!box) return;
-    const tag = tagPickerCtx.tags.find(t => t.id === Number(box.dataset.tagId));
+    const tag = tagPickerCtx.tags.find(t => String(t.key !== undefined ? t.key : t.id) === box.dataset.tagKey);
     if (!tag) return;
     box.disabled = true;
     let ok = false;
     try { ok = await ctx.onToggle(tag, box.checked); } catch (err) { ok = false; }
     if (!ok) box.checked = !box.checked;
     box.disabled = false;
+    if (ctx.stateOf && tagPickerEl === el) renderList(); // 一括モード: 全員ON/中間/OFFの表示を最新にする
   });
   el.querySelector('.tag-picker-manage').addEventListener('click', () => {
     closeTagPicker();
-    openTagModal(ctx.workspace);
+    tagPickerReturnCtx = ctx;
+    openTagModal(ctx.workspaces ? ctx.workspaces[0] : ctx.workspace);
   });
   searchEl.focus();
 
   try {
+    if (ctx.workspaces) {
+      const rows = new Map();
+      for (const ws of ctx.workspaces) {
+        const res = await tagFetchJson(`/api/tags?workspace=${encodeURIComponent(ws)}`);
+        if (res.status !== 200) throw new Error(res.body.error || `HTTP ${res.status}`);
+        for (const t of res.body.tags || []) {
+          const key = tagLogic.tagNameKey(t.name);
+          if (!rows.has(key)) rows.set(key, { key, name: t.name, color: t.color, byWs: {} });
+          rows.get(key).byWs[ws] = t;
+        }
+      }
+      if (tagPickerEl !== el) return;
+      tagPickerCtx.tags = [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, 'ja', { sensitivity: 'base' }));
+      renderList();
+      return;
+    }
     const res = await tagFetchJson(`/api/tags?workspace=${encodeURIComponent(ctx.workspace)}`);
     if (res.status !== 200) throw new Error(res.body.error || `HTTP ${res.status}`);
     if (tagPickerEl !== el) return; // 取得中に閉じられた
@@ -520,6 +553,66 @@ document.addEventListener('click', async (e) => {
     if (!tags) removeBtn.disabled = false; // 成功時はboardの再描画でタグ欄ごと更新される
   }
 });
+
+// --- カードのタグボタン(BT-423) ---
+function openCardTagPicker(anchor) {
+  const taskId = anchor.dataset.taskId;
+  const item = findItemById(taskId);
+  if (!item) return;
+  const selectedIds = new Set((item.tags || []).map(t => t.id));
+  openTagPicker({
+    anchor,
+    reanchor: () => document.querySelector(`.card-tag-btn[data-task-id="${taskId}"]`),
+    workspace: tagWorkspaceForProject(item.project),
+    selectedIds,
+    onToggle: async (tag, checked) => {
+      const tags = await updateTaskTagsApi(taskId, checked ? { add: [tag.id] } : { remove: [tag.id] });
+      if (!tags) return false;
+      selectedIds.clear();
+      tags.forEach(t => selectedIds.add(t.id));
+      return true;
+    },
+  });
+}
+
+// --- 複数選択バーの一括タグ付け/解除(BT-423) ---
+// タグはワークスペース単位なので、ピッカーはタグ名で集約して出す。ONにする時、そのタスクの
+// ワークスペースに同名タグが無ければ静かに作ってから付ける。選択タスクのうち一部だけが持つタグは中間表示。
+function openBulkTagPicker(anchor) {
+  const items = [...selectedIds].map(findItemById).filter(Boolean);
+  if (items.length === 0) return;
+  const wsOf = (item) => tagWorkspaceForProject(item.project);
+  const workspaces = [...new Set(items.map(wsOf))];
+  const have = new Map(items.map(item => [item.id, new Set((item.tags || []).map(t => tagLogic.tagNameKey(t.name)))]));
+  openTagPicker({
+    anchor,
+    workspaces,
+    workspace: workspaces[0],
+    stateOf: (row) => {
+      const n = items.filter(item => have.get(item.id).has(row.key)).length;
+      return n === 0 ? 'none' : n === items.length ? 'all' : 'some';
+    },
+    onToggle: async (row, checked) => {
+      const targets = items.filter(item => have.get(item.id).has(row.key) !== checked);
+      const failed = [];
+      for (const item of targets) {
+        const ws = wsOf(item);
+        let tag = row.byWs[ws];
+        if (!tag && checked) {
+          const created = await tagPost('/api/create-tag', { workspace: ws, name: row.name, color: row.color, confirmSimilar: true });
+          if (created.status !== 200 || !created.body.tag) { failed.push(item.id); continue; }
+          tag = row.byWs[ws] = created.body.tag;
+        }
+        if (!tag) continue; // 解除対象のワークスペースに同名タグが無い(=付いていない)
+        const res = await tagPost('/api/update-task-tags', { taskId: item.id, ...(checked ? { add: [tag.id] } : { remove: [tag.id] }) });
+        if (res.status !== 200) { failed.push(item.id); continue; }
+        if (checked) have.get(item.id).add(row.key); else have.get(item.id).delete(row.key);
+      }
+      if (failed.length) alert(`タグを${checked ? '付け' : '外し'}られなかったタスクがあるよ: ${failed.join(', ')}`);
+      return failed.length === 0;
+    },
+  });
+}
 
 // --- 登録フォームのタグ選択(app.jsのgetOrCreateAddFormが #add-task-tags を用意する) ---
 let addFormTags = []; // 選択中のタグ [{id,name,color}]
