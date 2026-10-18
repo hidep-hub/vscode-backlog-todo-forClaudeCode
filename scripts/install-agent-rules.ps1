@@ -70,9 +70,17 @@ function Install-AgentRules {
         throw "$Name installer was not found: $scriptPath"
     }
     Write-Host "Synchronizing $Name rules..."
+    # When a child installer finishes without an explicit exit (for example a first-time install),
+    # $LASTEXITCODE is $null, which used to be misread as "not 0" and reported as a failure.
+    # Judge by whether the call succeeded ($?) and by a non-zero integer exit code only.
+    # Keep comments in this file ASCII: it has no BOM, so Windows PowerShell 5.1 reads it as the
+    # ANSI code page and multibyte text can swallow the line break and merge the next line into the comment.
     & $scriptPath
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Name rule synchronization failed with exit code $LASTEXITCODE."
+    $succeeded = $?
+    $exitCode = $LASTEXITCODE
+    if (-not $succeeded -or ($exitCode -is [int] -and $exitCode -ne 0)) {
+        $shown = if ($exitCode -is [int]) { $exitCode } else { 'unknown' }
+        throw "$Name rule synchronization failed with exit code $shown."
     }
 }
 

@@ -4114,6 +4114,27 @@ body {
   text-align: left;
 }
 
+/* エージェント運用ルールの同期状況(BT-439) */
+.product-menu-rules {
+  margin: 12px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  text-align: left;
+}
+.product-menu-rules-title { font-weight: 600; margin-bottom: 6px; }
+.product-menu-rules-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.rules-chip { padding: 1px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); font-size: 0.78rem; }
+.rules-chip.rules-ok::before { content: "✓ "; color: #2e9e5b; }
+.rules-chip.rules-bad::before { content: "⚠ "; }
+.rules-bad { color: #d4591f; }
+.rules-ok { color: var(--text); }
+.product-menu-rules-line { color: var(--text-muted); font-size: 0.8rem; margin-top: 2px; }
+.product-menu-rules-line.rules-bad { color: #d4591f; }
+.product-menu-rules-line.rules-ok { color: #2e9e5b; }
+.product-menu-rules-actions { margin-top: 8px; }
+.product-menu-rules-actions button:disabled { opacity: 0.5; cursor: default; }
+
 .product-menu-github-icon {
   vertical-align: -3px;
   margin-right: 6px;

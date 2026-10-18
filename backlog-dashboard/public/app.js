@@ -2159,6 +2159,7 @@ function renderProductMenuDefault(content) {
       <dt>サーバー起動</dt><dd data-info="startedAt">-</dd>
     </dl>
     <div class="product-menu-stats" id="product-menu-stats"></div>
+    <div class="product-menu-rules" id="product-menu-rules"></div>
     <div class="edit-form-actions product-menu-actions">
       <button class="add-child-btn btn-add" id="product-menu-check-update">更新を確認する</button>
       <button class="add-child-btn btn-add" id="product-menu-restart">サーバーを再起動する</button>
@@ -2166,6 +2167,7 @@ function renderProductMenuDefault(content) {
   `;
   fillProductMenuInfo(content);
   fillProductMenuStats(content);
+  fillProductMenuRules(content);
   content.querySelector('#product-menu-close').addEventListener('click', closeProductMenu);
   content.querySelector('#product-menu-open-github').addEventListener('click', async () => {
     try {
@@ -2182,6 +2184,70 @@ function renderProductMenuDefault(content) {
   });
   content.querySelector('#product-menu-restart').addEventListener('click', () => {
     renderProductMenuRestartConfirm(content);
+  });
+}
+
+/**
+ * メニュー初期画面の「エージェント運用ルール」欄 (BT-439)。開いた時に同期状況を確認して表示し、
+ * 要同期の時だけ「ルールを同期する」を有効にする。確認は読み取りのみ(同期は押した時だけ)。
+ * @param {string} [notice] 同期直後などに添える一言
+ */
+async function fillProductMenuRules(content, notice = '') {
+  const box = content.querySelector('#product-menu-rules');
+  if (!box) return;
+  box.innerHTML = '<div class="product-menu-rules-title">エージェント運用ルール</div><div class="product-menu-rules-line">確認中...</div>';
+  let data;
+  try {
+    const res = await fetch('/api/rules-status', { cache: 'no-store' });
+    data = await res.json();
+    if (!res.ok) data = { error: data.message || data.error || '確認に失敗しました' };
+  } catch (e) {
+    data = { error: '確認に失敗しました。サーバーに接続できません' };
+  }
+  if (!box.isConnected) return; // 確認中にメニューが閉じられた/描き直された
+  if (data.error) {
+    box.innerHTML = `<div class="product-menu-rules-title">エージェント運用ルール</div>
+      <div class="product-menu-rules-line rules-bad">${escapeHtml(data.error)}</div>
+      <div class="product-menu-rules-actions"><button class="add-child-btn" id="product-menu-rules-recheck">もう一度確認</button></div>`;
+    box.querySelector('#product-menu-rules-recheck').addEventListener('click', () => fillProductMenuRules(content));
+    return;
+  }
+  const chips = data.agents.map(a =>
+    `<span class="rules-chip ${a.current ? 'rules-ok' : 'rules-bad'}">${escapeHtml(a.name)} ${a.current ? '最新' : '要同期'}</span>`).join('');
+  const staleDist = data.distribution.filter(d => !d.current).length;
+  const versionLine = data.rulesVersion
+    ? `ルール v${escapeHtml(data.rulesVersion)} / サーバー v${escapeHtml(data.apiVersion)}`
+    : `サーバー v${escapeHtml(data.apiVersion)}`;
+  box.innerHTML = `
+    <div class="product-menu-rules-title">エージェント運用ルール</div>
+    <div class="product-menu-rules-chips">${chips}</div>
+    <div class="product-menu-rules-line">${versionLine}</div>
+    ${data.versionMismatch ? '<div class="product-menu-rules-line rules-bad">ルールとサーバーのバージョンが違います。更新後はサーバーの再起動が必要かもしれません</div>' : ''}
+    ${staleDist ? `<div class="product-menu-rules-line rules-bad">リポジトリ内の配布物（${staleDist}件）が正本と違います</div>` : ''}
+    ${notice ? `<div class="product-menu-rules-line rules-ok">${escapeHtml(notice)}</div>` : ''}
+    <div class="product-menu-rules-actions">
+      <button class="add-child-btn btn-add" id="product-menu-rules-sync"${data.needsSync ? '' : ' disabled'}>ルールを同期する</button>
+    </div>`;
+  box.querySelector('#product-menu-rules-sync').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = '同期中...';
+    try {
+      const res = await fetch('/api/rules-sync', { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok) {
+        const msg = body.error === 'rules_sync_in_progress' ? 'すでに同期中です。しばらくお待ちください' : `同期に失敗しました: ${body.message || body.error}`;
+        box.insertAdjacentHTML('beforeend', `<div class="product-menu-rules-line rules-bad">${escapeHtml(msg)}</div>`);
+        btn.disabled = false;
+        btn.textContent = 'ルールを同期する';
+        return;
+      }
+      fillProductMenuRules(content, body.changed ? '同期しました' : '最新でした（変更なし）');
+    } catch (err) {
+      box.insertAdjacentHTML('beforeend', '<div class="product-menu-rules-line rules-bad">同期に失敗しました。サーバーに接続できません</div>');
+      btn.disabled = false;
+      btn.textContent = 'ルールを同期する';
+    }
   });
 }
 
