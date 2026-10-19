@@ -37,6 +37,10 @@ function weeklyIsoDate(d) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+function weeklyIsoDateWithDow(d) {
+  return `${weeklyIsoDate(d)}（${'日月火水木金土'[d.getDay()]}）`;
+}
+
 function getOrCreateWeeklyPane(container) {
   if (weeklyPaneEl === container) return weeklyPaneEl;
   weeklyPaneEl = container;
@@ -266,11 +270,17 @@ function renderWeeklyRangeLabel() {
     el.textContent = sel.from && sel.to ? '' : '開始日と終了日をカレンダーから選ぶと、自動で反映されます';
     return;
   }
+  const { monday, sunday } = weeklyPresetRange(sel.range);
+  el.textContent = `${weeklyIsoDateWithDow(monday)} 〜 ${weeklyIsoDateWithDow(sunday)}`;
+}
+
+// 今週/先週の月曜〜日曜(ローカル日付)
+function weeklyPresetRange(range) {
   const today = new Date();
   const dow = (today.getDay() + 6) % 7; // 月=0
-  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow - (sel.range === 'last' ? 7 : 0));
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow - (range === 'last' ? 7 : 0));
   const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
-  el.textContent = `${weeklyIsoDate(monday)} 〜 ${weeklyIsoDate(sunday)}（月〜日）`;
+  return { monday, sunday };
 }
 
 function setWeeklyStatus(text, isError = false) {
@@ -334,7 +344,11 @@ async function copyWeeklyMarkdown() {
 // 画面の内容(手編集を含む)をそのままブラウザ側でファイルとして保存する
 function downloadWeeklyMarkdown() {
   const sel = weeklySelection();
-  const stamp = sel.range === 'custom' ? `${sel.from}_${sel.to}` : weeklyPaneEl.querySelector('#weekly-range-label').textContent.replace(/（.*$/, '').replace(' 〜 ', '_');
+  let stamp = `${sel.from}_${sel.to}`;
+  if (sel.range !== 'custom') {
+    const { monday, sunday } = weeklyPresetRange(sel.range);
+    stamp = `${weeklyIsoDate(monday)}_${weeklyIsoDate(sunday)}`;
+  }
   const blob = new Blob([weeklyLastMarkdown], { type: 'text/markdown;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);

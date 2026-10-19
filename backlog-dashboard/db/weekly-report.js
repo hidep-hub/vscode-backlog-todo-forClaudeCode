@@ -43,7 +43,7 @@ const DEFAULT_TEMPLATE = `# 週報 {{period}}
 
 // 画面のプレースホルダー説明にも使う(name, 使える場所, 説明, 例)
 const PLACEHOLDERS = [
-  { name: 'period', scope: '全体', description: '集計期間(開始〜終了)', example: '2026-10-12 〜 2026-10-18' },
+  { name: 'period', scope: '全体', description: '集計期間(開始〜終了)', example: '2026-10-12（月） 〜 2026-10-18（日）' },
   { name: 'from', scope: '全体', description: '期間の開始日', example: '2026-10-12' },
   { name: 'to', scope: '全体', description: '期間の終了日', example: '2026-10-18' },
   { name: 'statuses', scope: '全体', description: '出力対象に選んだステータス', example: 'DONE / DO' },
@@ -85,6 +85,11 @@ function todayJst() {
 function addDays(dateStr, n) {
   const ms = Date.parse(`${dateStr}T00:00:00Z`) + n * 86400000;
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+// YYYY-MM-DD → YYYY-MM-DD（曜）
+function withDow(dateStr) {
+  return `${dateStr}（${'日月火水木金土'[new Date(`${dateStr}T00:00:00Z`).getUTCDay()]}）`;
 }
 
 /**
@@ -345,7 +350,7 @@ function renderWeeklyReport(data, { template, columns }) {
 
   const totalCount = data.workspaces.reduce((n, w) => n + w.count, 0);
   const global = {
-    period: `${data.from} 〜 ${data.to}`,
+    period: `${withDow(data.from)} 〜 ${withDow(data.to)}`,
     from: data.from,
     to: data.to,
     statuses: data.statuses.join(' / '),
