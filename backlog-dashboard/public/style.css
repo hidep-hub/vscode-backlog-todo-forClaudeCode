@@ -4141,8 +4141,64 @@ body {
 }
 
 /* 件数表を載せる時だけ、6列が窮屈にならないようダイアログを少し広げる */
-.modal-content:has(.product-menu-stats-table) {
-  max-width: 520px;
+.modal-content:has(.product-menu-columns) {
+  max-width: min(880px, 94vw);
+  width: 100%;
+}
+
+/* BT-446: 上段=ブランド、中段=左(バージョン・更新ボタン・ルール) | 右(件数表)、下段=直近の更新コミット(全幅)。狭い画面では縦積み */
+.product-menu-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 20px;
+  align-items: start;
+}
+
+.product-menu-col-right .product-menu-stats {
+  margin-top: 14px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.product-menu-history {
+  margin: 12px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.product-menu-commit-list li.is-pending {
+  margin: 0 -6px;
+  padding-left: 6px;
+  padding-right: 6px;
+  border-left: 3px solid #d98a0b;
+  background: color-mix(in srgb, #d98a0b 16%, transparent);
+  border-radius: 4px;
+}
+
+.product-menu-pending-badge {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: #d98a0b;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  vertical-align: 1px;
+}
+
+.product-menu-history .product-menu-commit-list {
+  max-height: 24vh;
+  margin-bottom: 0;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 720px) {
+  .product-menu-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* ワークスペースが多い環境(20件超)向けに、表本体だけ縦スクロール。見出しとTOTAL行は固定 */

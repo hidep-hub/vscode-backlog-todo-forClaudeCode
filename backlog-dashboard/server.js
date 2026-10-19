@@ -20,6 +20,7 @@ const { createCategoriesApi } = require('./categories-api');
 const { createItsSettingsApi } = require('./its-settings-api');
 const { createItsImportApi } = require('./its-import-api');
 const { createRulesApi } = require('./rules-sync-api');
+const { createRecentCommitsApi } = require('./recent-commits-api');
 const { version: API_VERSION } = require('./package.json');
 
 // --- Config ---
@@ -179,7 +180,7 @@ function getPendingCommits() {
   return new Promise((resolve) => {
     execFile(
       'git',
-      ['log', 'HEAD..origin/main', '--no-merges', '--format=%h%x1f%cI%x1f%s'],
+      ['log', 'HEAD..origin/main', '--no-merges', '--format=%h%x1f%cI%x1f%s%x1f%b%x1e'],
       { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
       (err, stdout) => {
         if (err) {
@@ -188,9 +189,9 @@ function getPendingCommits() {
           return;
         }
         resolve(
-          stdout.split('\n').filter(Boolean).map((line) => {
-            const [shortHash, date, subject] = line.split('\u001f');
-            return { shortHash, date, subject };
+          stdout.split('\u001e').map((r) => r.replace(/^\n+/, '')).filter(Boolean).map((rec) => {
+            const [shortHash, date, subject, body = ''] = rec.split('\u001f');
+            return { shortHash, date, subject, body: body.trim() };
           })
         );
       }
@@ -823,6 +824,9 @@ const handleItsSettingsApi = createItsSettingsApi({
 // エージェント運用ルールの同期状況の確認・同期API(BT-439。画面専用)。
 const handleRulesApi = createRulesApi({ repoRoot: REPO_ROOT, apiVersion: API_VERSION });
 
+// ロゴメニューの「直近の更新コミット」(BT-446。保存せず都度git logを読む)。
+const handleRecentCommitsApi = createRecentCommitsApi({ repoRoot: REPO_ROOT });
+
 // 外部ITS(現時点ではRedmineのみ)の取り込みAPI(BM-072)。
 const handleItsImportApi = createItsImportApi({
   config,
@@ -1023,6 +1027,7 @@ function serveStatic(req, res) {
 
   // API: エージェント運用ルールの同期状況の確認・同期(BT-439)
   if (handleRulesApi(req, res)) return;
+  if (handleRecentCommitsApi(req, res)) return;
 
   // API: GET /api/health
   if (req.url === '/api/health' && req.method === 'GET') {
