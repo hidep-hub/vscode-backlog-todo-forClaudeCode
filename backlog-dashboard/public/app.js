@@ -54,7 +54,7 @@ const settingsGitlabSaveEl = document.getElementById('settings-gitlab-save');
 // z-index が同じ場合はDOM末尾の要素が前面になるCSSの規則にも従う。
 function isTopmostDialog(el) {
   const visible = document.querySelectorAll(
-    '.modal-overlay.modal-visible, .settings-overlay.settings-visible, .plan-board-overlay.active, .activity-modal-overlay.modal-visible, .backup-modal-overlay.modal-visible, .tag-modal-overlay.modal-visible'
+    '.modal-overlay.modal-visible, .settings-overlay.settings-visible, .plan-board-overlay.active, .activity-modal-overlay.modal-visible, .backup-modal-overlay.modal-visible, .tag-modal-overlay.modal-visible, .category-modal-overlay.modal-visible'
   );
   let top = null;
   let topLayer = -Infinity;
@@ -180,6 +180,10 @@ let planPinOnly = false; // BM-012: 📌ピンが付いたタスク（EPICは子
 // BT-396: タグ絞り込み。ボード・週次計画・ガントで共通。判定はtag-logic.js、操作UIはtags.js。
 // { mode: 'or'|'and', tags: [{key,name,color}] }（keyは表記ゆれを正規化したタグ名）
 let tagFilter = tagLogic.parseTagFilter((() => { try { return localStorage.getItem('tagFilter'); } catch (e) { return null; } })());
+// BM-106: カテゴリ絞り込み(ボードのみ対応)。カテゴリは1タスク1値のためand/or切替は持たず、
+// 選んだ候補のいずれかに一致するか(OR相当)のみ判定する。判定はcategory-logic.js、操作UIはcategories.js。
+// { keys: [key,...] }（keyは表記ゆれを正規化したカテゴリ名）
+let categoryFilter = categoryLogic.parseCategoryFilter((() => { try { return localStorage.getItem('categoryFilter'); } catch (e) { return null; } })());
 let planShowDone = true; // BT-315: 週次カンバンで完了タスクを(列内の折りたたみグループとして)出すか。選択はlocalStorageに保持
 let planExpandedDone = new Set(); // BT-315: 開いている完了グループのバケットID（既定は折りたたみ）
 try { if (localStorage.getItem('planShowDone') === '0') planShowDone = false; } catch { /* 無視 */ }
@@ -3710,6 +3714,10 @@ function renderBoard(data) {
       const tagKeys = tagFilter.tags.map(t => t.key);
       items = items.filter(item => tagLogic.matchesTagFilterForBoardItem(item, tagKeys, tagFilter.mode));
     }
+    if (categoryFilter.keys.length > 0) {
+      // BM-106: カテゴリは1タスク1値のため、選んだ候補のいずれかに一致するかで判定する
+      items = items.filter(item => categoryLogic.matchesCategoryFilterForBoardItem(item, categoryFilter.keys));
+    }
     // 完了カラム「本日完了だけ」表示（達成感モード）: completedDateが今日(JST)のものだけ
     const doneTodayActive = isCompact && doneTodayOnly;
     if (doneTodayActive) {
@@ -6717,6 +6725,13 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
             </select>
           </div>
           <div class="settings-group">
+            <label>カテゴリ（任意）</label>
+            <div class="category-select-row">
+              <select id="edit-task-category"><option value="">カテゴリなし</option>${(item.category && item.category !== '-') ? `<option value="${escapeHtml(item.category)}" selected>${escapeHtml(item.category)}</option>` : ''}</select>
+              <button type="button" class="category-manage-link" data-form-kind="edit" title="カテゴリ管理を開く"><span class="material-icon icon-settings"></span></button>
+            </div>
+          </div>
+          <div class="settings-group">
             <label>担当（任意）</label>
             <input type="text" id="edit-task-assignee" placeholder="担当者" value="${escapeHtml(item.assignee || '')}">
           </div>
@@ -6743,6 +6758,7 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
   const descInput = body.querySelector('#edit-task-description');
   const projectInput = body.querySelector('#edit-task-project');
   const statusInput = body.querySelector('#edit-task-status');
+  const categoryInput = body.querySelector('#edit-task-category');
   const assigneeInput = body.querySelector('#edit-task-assignee');
   const startDateInput = body.querySelector('#edit-task-start-date');
   const dueDateInput = body.querySelector('#edit-task-due-date');
@@ -6751,6 +6767,9 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
   const cancelBtn = body.querySelector('#edit-task-cancel');
 
   cancelBtn.addEventListener('click', () => renderFn(item));
+
+  // BM-106: カテゴリはシステム全体で一意なため、ワークスペースに関わらず全件を読み込む
+  loadEditFormCategories(body, (item.category && item.category !== '-') ? item.category : '');
 
   // BT-432: 親タスク。現在の親を初期値にし、子を持つタスクは2階層制約のため設定不可にする
   const initialParentId = item.parentId || findParentIdOf(item.id);
@@ -6772,6 +6791,7 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
     project: projectInput.value,
     parentId: parentField.getValue(),
     status: statusInput.value,
+    category: categoryInput.value,
     assignee: assigneeInput.value.trim(),
     startDate: startDateInput.value,
     dueDate: dueDateInput.value,
@@ -6787,7 +6807,7 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
     overlayEl._hasUnsavedChanges = () => saveBtn.isConnected && hasFormChanged(initialValues, readFormValues());
   }
   [titleInput, descInput, assigneeInput].forEach(el => { if (el) el.addEventListener('input', updateSaveState); });
-  [projectInput, statusInput, startDateInput, dueDateInput].forEach(el => el.addEventListener('change', updateSaveState));
+  [projectInput, statusInput, categoryInput, startDateInput, dueDateInput].forEach(el => el.addEventListener('change', updateSaveState));
   // BT-432: 親は同じワークスペースの中から選ぶため、ワークスペースを変えたら他ワークスペースの親は外す
   projectInput.addEventListener('change', () => {
     const current = parentField.getValue();
@@ -6817,6 +6837,7 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
     const payload = {
       taskId: item.id,
       title: newTitle,
+      category: categoryInput.value,
       assignee: assigneeInput.value.trim(),
       startDate: startDateInput.value,
       dueDate: dueDateInput.value,
@@ -6907,6 +6928,7 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
       }
       item.title = newTitle;
       if (descInput) item.description = descInput.value;
+      item.category = categoryInput.value || '-';
       item.assignee = assigneeInput.value.trim() || null;
       item.startDate = startDateInput.value || null;
       item.dueDate = dueDateInput.value || null;
@@ -8727,6 +8749,13 @@ function getOrCreateAddForm() {
             <div class="add-task-tags" id="add-task-tags"></div>
           </div>
           <div class="settings-group">
+            <label>カテゴリ（任意）</label>
+            <div class="category-select-row">
+              <select id="add-task-category"><option value="">カテゴリなし</option></select>
+              <button type="button" class="category-manage-link" data-form-kind="add" title="カテゴリ管理を開く"><span class="material-icon icon-settings"></span></button>
+            </div>
+          </div>
+          <div class="settings-group">
             <label>担当（任意）</label>
             <input type="text" id="add-task-assignee" placeholder="担当者">
           </div>
@@ -8786,6 +8815,7 @@ function readAddFormValues() {
     project: form.querySelector('#add-task-project').value,
     parentId: form._parentField.getValue(),
     status: form.querySelector('#add-task-status').value,
+    category: form.querySelector('#add-task-category').value,
     assignee: form.querySelector('#add-task-assignee').value.trim(),
     startDate: form.querySelector('#add-task-start-date').value,
     dueDate: form.querySelector('#add-task-due-date').value,
@@ -8876,6 +8906,7 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId, defaults) {
   form.querySelector('#add-task-completed-time').value = '';
   syncAddFormCompletedFields(); // BT-377: DONE列の＋から開いた場合は完了日時を現在で埋める
   resetAddFormTags(form);
+  loadAddFormCategories(form, ''); // BM-106: カテゴリはシステム全体で一意なため、開くたびに全件を読み込む(選択はなしから)
 
   // 前回開いた時のエラー表示を引きずらないようリセット
   const errorEl = form.querySelector('#add-task-error');
@@ -8900,6 +8931,7 @@ async function submitAddTask() {
   const description = form.querySelector('#add-task-description').value.trim();
   const project = form.querySelector('#add-task-project').value;
   const status = form.querySelector('#add-task-status').value;
+  const category = form.querySelector('#add-task-category').value;
   const assignee = form.querySelector('#add-task-assignee').value.trim();
   const startDate = form.querySelector('#add-task-start-date').value;
   const dueDate = form.querySelector('#add-task-due-date').value;
@@ -8919,6 +8951,7 @@ async function submitAddTask() {
   try {
     const body = { title, project, status, origin: 'user' };
     if (description) body.description = description;
+    if (category) body.category = category;
     if (assignee) body.assignee = assignee;
     if (startDate) body.startDate = startDate;
     if (dueDate) body.dueDate = dueDate;

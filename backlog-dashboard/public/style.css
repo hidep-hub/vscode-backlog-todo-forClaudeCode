@@ -7107,6 +7107,79 @@ mark.activity-hit {
 .tag-filter-clear-sel:hover:not(:disabled) { background: var(--drop-highlight); }
 .tag-filter-clear-sel:disabled { color: var(--text-muted); opacity: 0.5; cursor: default; }
 
+/* --- カテゴリ管理・絞り込み (BM-106、EPIC BM-101) --- */
+.material-icon.icon-stacks { -webkit-mask-image: url('icons/stacks.svg'); mask-image: url('icons/stacks.svg'); }
+
+/* カテゴリ管理モーダルはタグ管理モーダル(.tag-modal-overlay)と同じ骨格のCSSを共有する。
+   z-indexも同じ階層(詳細モーダル・前面モーダルより手前、ピッカー・バックアップ進捗より後ろ)。 */
+.category-modal-overlay {
+  z-index: 1250;
+}
+
+.category-filter-btn {
+  position: relative;
+}
+
+.category-filter-btn.filter-active {
+  background: var(--today-accent);
+  color: #fff;
+  border-color: var(--today-accent);
+}
+
+.category-filter-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--btn-danger-fg);
+  color: #fff;
+  font-size: 0.6rem;
+  line-height: 14px;
+  text-align: center;
+}
+
+.category-filter-hint {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+/* 追加/編集フォームのカテゴリ<select>+「カテゴリ管理を開く」ボタン */
+.category-select-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.category-select-row select {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 0.85rem;
+  min-width: 0;
+}
+
+.category-manage-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.category-manage-link:hover { background: var(--drop-highlight); color: var(--text); }
+
 /* BT-377: 登録・編集フォームの右カラムは項目が増えた(タグ・完了日時)ため、文字と余白を詰めて
    モーダル内でスクロールバーが出ないようにする */
 .add-task-form-wide .detail-side,

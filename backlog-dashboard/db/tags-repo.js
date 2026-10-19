@@ -6,62 +6,8 @@
 // 呼び出し側が明示的に確認(confirmSimilar)しない限り拒否する。
 
 const tasksRepo = require('./tasks-repo');
-
-const MAX_NAME_LENGTH = 40;
-const COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
-
-function fail(code, message, extra) {
-  const err = new Error(message || code);
-  err.code = code;
-  if (extra) Object.assign(err, extra);
-  return err;
-}
-
-/**
- * 表示用のタグ名を整える。NFKC正規化(全角英数→半角、半角カナ→全角カナ等)・連続空白の圧縮・前後trim。
- * 大文字小文字は表示のため保持する。
- */
-function cleanName(name) {
-  if (typeof name !== 'string') throw fail('invalid_name', 'タグ名は文字列で指定してください');
-  const cleaned = name.normalize('NFKC').replace(/\s+/g, ' ').trim();
-  if (!cleaned) throw fail('invalid_name', 'タグ名が空です');
-  if ([...cleaned].length > MAX_NAME_LENGTH) throw fail('invalid_name', `タグ名は${MAX_NAME_LENGTH}文字以内にしてください`);
-  return cleaned;
-}
-
-/** 重複判定用キー。cleanName後の文字列を小文字化する。 */
-function toNameKey(cleanedName) {
-  return cleanedName.toLowerCase();
-}
-
-function normalizeColor(color) {
-  if (color === undefined || color === null || color === '') return null;
-  if (typeof color !== 'string' || !COLOR_PATTERN.test(color)) {
-    throw fail('invalid_color', 'colorは#rrggbb形式で指定してください');
-  }
-  return color.toLowerCase();
-}
-
-function levenshtein(a, b) {
-  const x = [...a];
-  const y = [...b];
-  let prev = Array.from({ length: y.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= x.length; i++) {
-    const cur = [i];
-    for (let j = 1; j <= y.length; j++) {
-      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1));
-    }
-    prev = cur;
-  }
-  return prev[y.length];
-}
-
-// 片方がもう片方を含む(2文字以上)か、4文字以上で編集距離1以内なら「似ている」とみなす。
-function isSimilarKey(a, b) {
-  const shorter = Math.min([...a].length, [...b].length);
-  if (shorter >= 2 && (a.includes(b) || b.includes(a))) return true;
-  return shorter >= 4 && levenshtein(a, b) <= 1;
-}
+// BM-105: 名前の正規化・重複判定ロジックはcategories-repoと共通化(db/name-normalizer.js)。
+const { fail, cleanName, toNameKey, normalizeColor, isSimilarKey } = require('./name-normalizer');
 
 function toTagItem(row) {
   return {

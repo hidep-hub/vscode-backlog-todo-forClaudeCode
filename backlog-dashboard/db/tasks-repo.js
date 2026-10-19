@@ -300,6 +300,7 @@ function setArtifacts(db, displayId, artifacts) {
  * assigneeが渡され、かつ実際に値が変化した場合のみtask_eventsにassignedを記録する
  * (title等だけの編集ではイベントを残さない、BT-241決定)。
  * dueDateが渡され、かつ実際に変化した場合(null/空文字は同一視)はdue_date_changedを記録する(BT-336)。
+ * categoryが渡され、かつ実際に変化した場合(null/空文字は同一視)はcategory_changedを記録する(BM-105)。
  */
 function updateFields(db, displayId, fields) {
   const allowed = { title: 'title', description: 'description', category: 'category', assignee: 'assignee', startDate: 'start_date', dueDate: 'due_date' };
@@ -318,6 +319,8 @@ function updateFields(db, displayId, fields) {
     && existing && existing.assignee !== fields.assignee;
   const dueDateChanged = Object.prototype.hasOwnProperty.call(fields, 'dueDate')
     && existing && (existing.due_date || null) !== (fields.dueDate || null);
+  const categoryChanged = Object.prototype.hasOwnProperty.call(fields, 'category')
+    && existing && (existing.category || null) !== (fields.category || null);
 
   sets.push('updated_at = ?', 'updated_by = ?');
   values.push(nowIso(), 'user');
@@ -335,6 +338,12 @@ function updateFields(db, displayId, fields) {
       insertEvent(db, {
         taskId: existing.id, taskDisplayId: displayId, eventType: 'due_date_changed',
         oldValue: existing.due_date || null, newValue: fields.dueDate || null, actor: 'user',
+      });
+    }
+    if (categoryChanged) {
+      insertEvent(db, {
+        taskId: existing.id, taskDisplayId: displayId, eventType: 'category_changed',
+        oldValue: existing.category || null, newValue: fields.category || null, actor: 'user',
       });
     }
     db.exec('COMMIT');

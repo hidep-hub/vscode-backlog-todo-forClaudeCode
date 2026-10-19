@@ -112,6 +112,22 @@ const DDL = [
     PRIMARY KEY (task_id, tag_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag_id)`,
+  // BM-105: カテゴリ機能(EPIC BM-101)。name_key正規化・重複/類似名チェック・sort_orderは
+  // tagsと同じ骨格だが、カテゴリは「システムで一意」(ヒデさんの運用認識)のためワークスペース
+  // 列を持たない(タグはワークスペース単位だが、カテゴリは全ワークスペース共通の名前空間)。
+  // 1タスク1カテゴリのため中間テーブルも持たず、tasks.category列(既存の非正規化列)に
+  // 名前文字列をそのまま保存する。UNIQUE(name_key)により、似た名前の乱立をDBレベルでも防ぐ。
+  `CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL UNIQUE,
+    color TEXT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT NOT NULL
+  )`,
   // BM-071: 外部ITS(Redmine/GitLab)連携の基盤。GitHubは既存のtasks.github_issue_*列のまま触らず、
   // Redmine/GitLabはこの新テーブルをsource列で共用する(1タスクにつきsourceごとに1件まで)。
   // 重複判定(同じチケットを二重取り込みしないか)はコード側(source/host/project_ref/issue_keyの
@@ -181,7 +197,74 @@ const EVENT_TYPE_SEED = [
   // BT-393: タグ付け外し。old_value/new_valueにはタグ名を記録する
   { code: 'tag_added', label: 'タグ追加', sort_order: 10 },
   { code: 'tag_removed', label: 'タグ解除', sort_order: 11 },
+  // BM-105: カテゴリ変更。old_value/new_valueにはカテゴリ名(無しはnull)を記録する
+  { code: 'category_changed', label: 'カテゴリ変更', sort_order: 12 },
 ];
+
+/**
+ * BM-105方針転換(workspace単位→システム全体で一意)の移行処理。
+ * 旧スキーマ(workspace列あり、UNIQUE(workspace, name_key))のcategoriesテーブルが
+ * 存在する場合、新スキーマ(workspace列なし、UNIQUE(name_key))へ安全に移行する。
+ * 新スキーマに対して呼んでも何もしない(CREATE TABLE IF NOT EXISTSより前に判定するため)。
+ *
+ * 移行手順:
+ * 1. 旧テーブルをリネームして退避する
+ * 2. 新スキーマで categories テーブルを作り直す
+ * 3. 旧データをname_keyでグルーピングし、各グループの先頭行(id昇順)を正本として1件だけ挿入する
+ *    (同名カテゴリが複数ワークスペースに存在した場合、tagsのmergeTagsと同じ考え方で1件に統合する)
+ * 4. 統合によって名前表記が変わった分(表記ゆれ違いの重複があった場合)は、該当する
+ *    tasks.category列を正本の名前に書き換える(name_keyが同じでも大文字小文字等が
+ *    異なれば別の文字列として保存されているため、統合後の表記に揃える必要がある)
+ * 5. 退避した旧テーブルを削除する
+ * @param {import('node:sqlite').DatabaseSync} db
+ */
+function migrateCategoriesWorkspaceScopeIfNeeded(db) {
+  const existing = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'categories'"
+  ).get();
+  if (!existing || !/\bworkspace\b/.test(existing.sql)) return; // 未作成、または既に新スキーマなら何もしない
+
+  db.exec('ALTER TABLE categories RENAME TO categories_bm105_migration_old;');
+  db.exec(`CREATE TABLE categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL UNIQUE,
+    color TEXT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT NOT NULL
+  )`);
+
+  const oldRows = db.prepare('SELECT * FROM categories_bm105_migration_old ORDER BY id').all();
+  const primaryByKey = new Map(); // name_key -> 正本として採用した旧行
+  const renamePairs = []; // 統合により表記が変わるタスク用 {from, to}
+  for (const row of oldRows) {
+    const primary = primaryByKey.get(row.name_key);
+    if (!primary) {
+      primaryByKey.set(row.name_key, row);
+    } else if (row.name !== primary.name) {
+      renamePairs.push({ from: row.name, to: primary.name });
+    }
+  }
+
+  const insertCategory = db.prepare(`INSERT INTO categories
+    (name, name_key, color, sort_order, created_at, created_by, updated_at, updated_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+  let sortOrder = 0;
+  for (const row of primaryByKey.values()) {
+    sortOrder += 1;
+    insertCategory.run(row.name, row.name_key, row.color, sortOrder, row.created_at, row.created_by, row.updated_at, row.updated_by);
+  }
+
+  const updateTaskCategory = db.prepare('UPDATE tasks SET category = ? WHERE category = ?');
+  for (const { from, to } of renamePairs) {
+    updateTaskCategory.run(to, from);
+  }
+
+  db.exec('DROP TABLE categories_bm105_migration_old;');
+}
 
 /**
  * DB接続に対しPRAGMAの設定とテーブル作成、マスターデータの初期投入を行う。
@@ -201,6 +284,10 @@ function createSchema(db) {
 
   db.exec('BEGIN');
   try {
+    // BM-105方針転換: DDL(CREATE TABLE IF NOT EXISTS)より前に、旧workspace単位スキーマからの
+    // 移行を行う(IF NOT EXISTSは「存在すれば何もしない」ため、ここで先に新スキーマへ揃えておく必要がある)。
+    migrateCategoriesWorkspaceScopeIfNeeded(db);
+
     for (const stmt of DDL) db.exec(stmt);
     for (const stmt of FTS_DDL) db.exec(stmt);
 
