@@ -206,7 +206,7 @@ test('Markdown: ワークスペースごとの見出し・表・サマリー、�
   const data = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, workspaces: ['alpha', 'beta'] });
   const { markdown, warnings } = wr.renderWeeklyReport(data, { template: wr.DEFAULT_TEMPLATE, columns: ['id', 'title', 'status', 'updatedAt'] });
   assert.deepEqual(warnings, []);
-  assert.match(markdown, /^# 週報 2026-10-12 〜 2026-10-18/);
+  assert.match(markdown, /^# 週報 2026-10-12（月） 〜 2026-10-18（日）/);
   assert.match(markdown, /## AL アルファ `TODO 0` `READY 0` `DO 0` \*\*`DONE 1`\*\*\n\n完了 1件 \/ 対応中 0件/);
   assert.match(markdown, /## BE ベータ/);
   assert.match(markdown, /\| ID \| 件名 \| ステータス \| 最終ステータス更新 \|\n\| --- \| --- \| --- \| --- \|/);
