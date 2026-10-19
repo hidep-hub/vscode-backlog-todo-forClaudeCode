@@ -3061,7 +3061,7 @@ if (tickerToggleBtn) {
 // ログ表示中は一切読み込まない。
 const HEATMAP_CELL = 6, HEATMAP_GAP = 2, HEATMAP_STEP = HEATMAP_CELL + HEATMAP_GAP;
 const HEATMAP_MONTH_GAP = 4; // 月の境目で広げる隙間(px)
-const HEATMAP_OPACITY = [0.12, 0.3, 0.5, 0.75, 1];
+const HEATMAP_OPACITY = [0.05, 0.3, 0.5, 0.75, 1]; // BT-443: 貢献なし(0)を薄くして、貢献の少ない日(1)が浮き出るようにする
 let headerHeatmapWorker = null;
 let headerHeatmapByProject = null; // 最後に受信した「プロジェクト→日別件数」。nullは未取得
 let headerHeatmapDirty = true;
