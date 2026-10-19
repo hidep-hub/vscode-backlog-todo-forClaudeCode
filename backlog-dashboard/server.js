@@ -11,10 +11,12 @@ const { getDb } = require('./db/connection');
 const { buildBoardFromDb, buildTaskDetail, buildSearchResults, buildWorkspaceCounts } = require('./db/board');
 const { buildActivity, buildRecentEvents } = require('./db/activity');
 const tasksRepo = require('./db/tasks-repo');
+const categoriesRepo = require('./db/categories-repo');
 const { createBackupManager } = require('./db/backup');
 const { buildTaskCsv } = require('./db/csv-export');
 const weeklyReport = require('./db/weekly-report');
 const { createTagsApi } = require('./tags-api');
+const { createCategoriesApi } = require('./categories-api');
 const { createItsSettingsApi } = require('./its-settings-api');
 const { createItsImportApi } = require('./its-import-api');
 const { createRulesApi } = require('./rules-sync-api');
@@ -756,6 +758,14 @@ const handleTagsApi = createTagsApi({
   onChange: () => broadcast(buildBoard()),
 });
 
+// カテゴリAPI(BM-105)。カテゴリ操作(改名/削除/統合)はtasks.categoryを書き換えboard表示に
+// 影響するため、tagsと同様に変更のたびにboardをbroadcastする。
+const handleCategoriesApi = createCategoriesApi({
+  getDb: () => getDb(BACKLOG_DIR),
+  readRequestBody,
+  onChange: () => broadcast(buildBoard()),
+});
+
 // 外部ITS(Redmine/GitLab)連携の設定API(BM-071)。GitHubの設定済み判定は既存のgetGithubSettings()
 // (repoUrl+token両方が揃っているか)に委譲する。
 const handleItsSettingsApi = createItsSettingsApi({
@@ -957,6 +967,9 @@ function serveStatic(req, res) {
 
   // API: タグ機能(BT-393)
   if (handleTagsApi(req, res)) return;
+
+  // API: カテゴリ機能(BM-105)
+  if (handleCategoriesApi(req, res)) return;
 
   // API: 外部ITS(Redmine/GitLab)連携の設定(BM-071)
   if (handleItsSettingsApi(req, res)) return;
@@ -1726,7 +1739,7 @@ function serveStatic(req, res) {
   // その場合workspaceは親のworkspaceに強制される(isChild廃止、BT-187)。
   // assignee/startDate/dueDateは任意(BT-263: 登録フォームで最初から入力できるようにするため追加))
   if (req.url === '/api/add-task' && req.method === 'POST') {
-    readRequestBody(req).then(({ title, project, status, origin, parentId, description, assignee, startDate, dueDate, completedAt }) => {
+    readRequestBody(req).then(({ title, project, status, origin, parentId, description, category, assignee, startDate, dueDate, completedAt }) => {
       if (!title || !title.trim()) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'title is required' }));
@@ -1769,10 +1782,15 @@ function serveStatic(req, res) {
         // allocateSeq側の「counters行が存在しない」エラーで従来通り検出される)
         const projectEntry = (config.projects || []).find(p => p.file === project || p.name === project);
         const workspace = projectEntry ? projectEntry.file : (project || 'inbox');
+        // BM-105: categoryはワークスペースのマスタ(categoriesテーブル)に存在する名前のみ受け付ける。
+        // 未登録の名前はunknown_categoryで拒否し、自由入力による乱立を防ぐ(AIが自己判断で
+        // 新規カテゴリ名を作らないよう促す意図、ルール側にも事故防止の注意を追記済み)。
+        const categoryName = categoriesRepo.resolveCategoryName(db, workspace, category);
         const created = tasksRepo.create(db, {
           workspace,
           title: title.trim(),
           status: newStatus,
+          category: categoryName,
           description: description || null,
           assignee: assignee || null,
           startDate: startDate || null,
@@ -2014,6 +2032,18 @@ function serveStatic(req, res) {
         res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: `Task not found: ${taskId}` }));
         return;
+      }
+      // BM-105: categoryはワークスペースのマスタ(categoriesテーブル)に存在する名前のみ受け付ける。
+      // 空文字/nullは「カテゴリなし」として常に許可する(resolveCategoryName側の仕様)。
+      if (fields.category !== undefined) {
+        try {
+          fields.category = categoriesRepo.resolveCategoryName(db, existing.workspace, fields.category);
+        } catch (e) {
+          const statusCode = e.code === 'unknown_category' ? 400 : 500;
+          res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: e.code || 'internal_error', message: e.message }));
+          return;
+        }
       }
       if (Object.keys(fields).length > 0) tasksRepo.updateFields(db, taskId, fields);
       if (artifacts !== undefined) tasksRepo.setArtifacts(db, taskId, artifacts);

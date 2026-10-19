@@ -112,6 +112,23 @@ const DDL = [
     PRIMARY KEY (task_id, tag_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag_id)`,
+  // BM-105: カテゴリ機能(EPIC BM-101)。tagsと同じ骨格(workspace単位・name_key正規化・
+  // 重複/類似名チェック・sort_order)のマスタテーブル。タグと異なり1タスク1カテゴリのため
+  // 中間テーブルは持たず、tasks.category列(既存の非正規化列)に名前文字列をそのまま保存する。
+  // UNIQUE(workspace, name_key)により、同一ワークスペース内の似た名前の乱立をDBレベルでも防ぐ。
+  `CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace TEXT NOT NULL,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL,
+    color TEXT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT NOT NULL,
+    UNIQUE(workspace, name_key)
+  )`,
   // BM-071: 外部ITS(Redmine/GitLab)連携の基盤。GitHubは既存のtasks.github_issue_*列のまま触らず、
   // Redmine/GitLabはこの新テーブルをsource列で共用する(1タスクにつきsourceごとに1件まで)。
   // 重複判定(同じチケットを二重取り込みしないか)はコード側(source/host/project_ref/issue_keyの
@@ -181,6 +198,8 @@ const EVENT_TYPE_SEED = [
   // BT-393: タグ付け外し。old_value/new_valueにはタグ名を記録する
   { code: 'tag_added', label: 'タグ追加', sort_order: 10 },
   { code: 'tag_removed', label: 'タグ解除', sort_order: 11 },
+  // BM-105: カテゴリ変更。old_value/new_valueにはカテゴリ名(無しはnull)を記録する
+  { code: 'category_changed', label: 'カテゴリ変更', sort_order: 12 },
 ];
 
 /**

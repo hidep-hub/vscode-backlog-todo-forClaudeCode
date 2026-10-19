@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.12.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099、BT-291、BT-438。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.13.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099、BT-291、BT-438、BM-105。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## ルール正本と配布方式
 
@@ -50,11 +50,12 @@ AGENTS.md.sample（Git管理の唯一の正本）
   - 今日やる: `POST /api/toggle-today {taskId, value?, actor?}` — レスポンスキーは `pinned`。EPICを指定すると子タスクへ一括適用し、旧形式で親自身に残ったpinも解除する。応答の`affectedTaskIds`は操作対象のタスクID配列
   - 実行中: `POST /api/toggle-running {taskId, value?, actor?}`
   - **AI実行者の記録（BT-281）**: AIエージェントが上記3 APIを操作する際は、自身の識別子を`actor`へ必ず渡す（Codexは`"codex"`、Claude Codeは`"claude-code"`、Kiroは`"kiro"`）。未指定時は後方互換として`"user"`になる。`toggle-running`のONで実行セッションを開始し、OFFまたは`done`で終了する。開始AI・停止AIは履歴へ永続記録される。
-  - 追加: `POST /api/add-task {title, project?, status?, origin?, parentId?, description?, assignee?, startDate?, dueDate?, completedAt?}`（BT-263で担当/開始日/期日にも対応。登録フォームで最初から入力できる）
+  - 追加: `POST /api/add-task {title, project?, status?, origin?, parentId?, description?, category?, assignee?, startDate?, dueDate?, completedAt?}`（BT-263で担当/開始日/期日にも対応。登録フォームで最初から入力できる）
     - `status`省略時は`todo`
     - **【BT-377, API 2.4.0】過去の完了済みタスクを追加する場合は`status:"done"`と`completedAt`（オフセット付きISO 8601、例`"2026-09-01T10:30:00+09:00"`）を渡す**。`completed_at`と履歴（`created`/`status_changed→done`）が入力日時を基準に記録される。`completedAt`は`status:"done"`の時のみ指定でき（それ以外は400）、未来日時・不正な形式は400。省略時は現在時刻
     - **【重要】`project`にはprefix（例`"BT"`）ではなくconfig.jsonの`projects[].file`値（例`"backlog-todo"`）を渡すこと（BT-129）**。prefixを渡すと該当プロジェクトが解決できず、デフォルト（`inbox`等）に採番されてしまう。追加後は必ず期待したプレフィクスでID発行されたか確認する
-  - 更新: `POST /api/update-task {taskId, title?, description?, category?, assignee?, startDate?, dueDate?}` — 渡したフィールドのみ更新
+    - **【BM-105, API 2.13.0】`category`はワークスペースのカテゴリマスタ（`categories`テーブル）に登録済みの名前のみ受け付ける**。未登録の名前を渡すと400 `unknown_category`。AIが自己判断で新規カテゴリ名を作らず、`GET /api/categories?workspace=`で既存のカテゴリを確認するか、ユーザーに確認してから値を渡すこと。空文字/省略は「カテゴリなし」として常に許可される
+  - 更新: `POST /api/update-task {taskId, title?, description?, category?, assignee?, startDate?, dueDate?}` — 渡したフィールドのみ更新。`category`の挙動は追加時と同じ（マスタ登録済みの名前のみ、BM-105）
   - 並べ替え: `POST /api/reorder {orderedIds: [taskId, ...]}`（2件以上）— 同じ親を持つ子タスク同士、またはトップレベルで同じ実効ステータス同士でないと400
   - 親子付け替え: `POST /api/attach-to-parent {taskIds: [...], parentId}` / `POST /api/detach-from-parent {taskId}`（親子は2階層まで）
   - 削除: `POST /api/delete-task {taskId}` / `POST /api/delete-tasks {taskIds: [...]}` — **論理削除**（`deleted_at`を立てるのみで物理削除ではない）。子を持つタスクは拒否される（409）
