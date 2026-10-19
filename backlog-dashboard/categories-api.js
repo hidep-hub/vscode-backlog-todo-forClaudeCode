@@ -3,9 +3,11 @@
 // カテゴリ機能(EPIC BM-101)のHTTP API(BM-105)。tags-api.jsと同じ骨格で、server.jsが
 // 肥大化しないよう別ファイルに切り出す。DB取得・body読み取り・変更通知(broadcast)は
 // 依存注入で受け取る。
-//   GET  /api/categories?workspace=<file>               カテゴリ一覧(使用数付き)
-//   GET  /api/categories/similar?workspace=<file>&name= 似た名前のカテゴリ一覧(作成前の確認用)
-//   POST /api/create-category  {workspace, name, color?, confirmSimilar?, actor?}
+// カテゴリは「システムで一意」(ヒデさんの運用認識)のためワークスペースの概念を持たない
+// (タグはワークスペース単位だが、カテゴリは全ワークスペース共通)。
+//   GET  /api/categories                       カテゴリ一覧(使用数付き、ワークスペース横断)
+//   GET  /api/categories/similar?name=         似た名前のカテゴリ一覧(作成前の確認用)
+//   POST /api/create-category  {name, color?, confirmSimilar?, actor?}
 //   POST /api/update-category  {categoryId, name?, color?, actor?}
 //   POST /api/delete-category  {categoryId, actor?}
 //   POST /api/merge-categories {sourceId, targetId, actor?}
@@ -16,13 +18,10 @@ const tasksRepo = require('./db/tasks-repo');
 const STATUS_BY_CODE = {
   invalid_name: 400,
   invalid_color: 400,
-  invalid_workspace: 400,
-  unknown_workspace: 400,
   invalid_request: 400,
   duplicate_category: 409,
   similar_categories: 409,
   same_category: 400,
-  workspace_mismatch: 400,
   category_not_found: 404,
 };
 
@@ -73,18 +72,13 @@ function createCategoriesApi({ getDb, readRequestBody, onChange }) {
   return function handle(req, res) {
     if (req.method === 'GET' && (req.url === '/api/categories' || req.url.startsWith('/api/categories?') || req.url.startsWith('/api/categories/similar'))) {
       const url = new URL(req.url, 'http://localhost');
-      const workspace = url.searchParams.get('workspace') || null;
       try {
         if (url.pathname === '/api/categories') {
-          sendJson(res, 200, { categories: categoriesRepo.listCategories(getDb(), workspace) });
+          sendJson(res, 200, { categories: categoriesRepo.listCategories(getDb()) });
           return true;
         }
         if (url.pathname === '/api/categories/similar') {
-          if (!workspace) {
-            sendJson(res, 400, { error: 'invalid_workspace', message: 'workspaceは必須です' });
-            return true;
-          }
-          sendJson(res, 200, { similar: categoriesRepo.findSimilarCategories(getDb(), workspace, url.searchParams.get('name') || '') });
+          sendJson(res, 200, { similar: categoriesRepo.findSimilarCategories(getDb(), url.searchParams.get('name') || '') });
           return true;
         }
       } catch (e) {

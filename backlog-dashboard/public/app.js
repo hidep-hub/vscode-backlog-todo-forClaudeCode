@@ -6728,7 +6728,7 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
             <label>カテゴリ（任意）</label>
             <div class="category-select-row">
               <select id="edit-task-category"><option value="">カテゴリなし</option>${(item.category && item.category !== '-') ? `<option value="${escapeHtml(item.category)}" selected>${escapeHtml(item.category)}</option>` : ''}</select>
-              <button type="button" class="category-manage-link" data-form-kind="edit" data-workspace="${escapeHtml(((currentBoardData && currentBoardData.projectFileMap) || {})[item.project] || item.project || '')}" title="カテゴリ管理を開く"><span class="material-icon icon-settings"></span></button>
+              <button type="button" class="category-manage-link" data-form-kind="edit" title="カテゴリ管理を開く"><span class="material-icon icon-settings"></span></button>
             </div>
           </div>
           <div class="settings-group">
@@ -6768,13 +6768,8 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
 
   cancelBtn.addEventListener('click', () => renderFn(item));
 
-  // BM-106: カテゴリはワークスペース単位のため、現在のワークスペースに応じた選択肢を読み込む
-  {
-    const projectFileMap = (currentBoardData && currentBoardData.projectFileMap) || {};
-    const initialWorkspace = projectFileMap[item.project] || item.project || '';
-    const initialCategory = (item.category && item.category !== '-') ? item.category : '';
-    loadEditFormCategories(body, initialWorkspace, initialCategory);
-  }
+  // BM-106: カテゴリはシステム全体で一意なため、ワークスペースに関わらず全件を読み込む
+  loadEditFormCategories(body, (item.category && item.category !== '-') ? item.category : '');
 
   // BT-432: 親タスク。現在の親を初期値にし、子を持つタスクは2階層制約のため設定不可にする
   const initialParentId = item.parentId || findParentIdOf(item.id);
@@ -6819,11 +6814,6 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
     const parent = current ? findItemById(current) : null;
     if (current && (!parent || parent.project !== projectInput.value)) parentField.clear();
     updateSaveState();
-  });
-  // BM-106: カテゴリもワークスペース単位のため、ワークスペースを変えたら選択肢を入れ替える(選択は外す)
-  projectInput.addEventListener('change', () => {
-    const projectFileMap = (currentBoardData && currentBoardData.projectFileMap) || {};
-    loadEditFormCategories(body, projectFileMap[projectInput.value] || projectInput.value, '');
   });
   updateSaveState();
 
@@ -8800,8 +8790,6 @@ function getOrCreateAddForm() {
   addFormEl.querySelector('#add-task-submit').addEventListener('click', submitAddTask);
   // BT-395: タグはワークスペース単位のため、ワークスペースを変えたら選択済みタグをクリアする
   addFormEl.querySelector('#add-task-project').addEventListener('change', () => resetAddFormTags(addFormEl));
-  // BM-106: カテゴリもワークスペース単位のため、ワークスペースを変えたら選択肢を入れ替える(選択は外す)
-  addFormEl.querySelector('#add-task-project').addEventListener('change', () => loadAddFormCategories(addFormEl, ''));
   // BT-432: 親タスクの候補は選択中ワークスペースのもの。親を選んだらワークスペースを親に合わせて固定する
   addFormEl._parentField = setupParentField(addFormEl.querySelector('#add-task-parent-field'), {
     getProject: () => addFormEl.querySelector('#add-task-project').value,
@@ -8918,7 +8906,7 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId, defaults) {
   form.querySelector('#add-task-completed-time').value = '';
   syncAddFormCompletedFields(); // BT-377: DONE列の＋から開いた場合は完了日時を現在で埋める
   resetAddFormTags(form);
-  loadAddFormCategories(form, ''); // BM-106: 開くたびにワークスペースに応じたカテゴリ一覧を読み込む(選択はなしから)
+  loadAddFormCategories(form, ''); // BM-106: カテゴリはシステム全体で一意なため、開くたびに全件を読み込む(選択はなしから)
 
   // 前回開いた時のエラー表示を引きずらないようリセット
   const errorEl = form.querySelector('#add-task-error');

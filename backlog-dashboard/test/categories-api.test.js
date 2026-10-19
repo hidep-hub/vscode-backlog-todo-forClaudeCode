@@ -1,7 +1,8 @@
 'use strict';
 
-// BM-105: カテゴリAPI(HTTP)を実サーバーで検証する。tags-api.test.jsと同じフィクスチャ方式。
-// 加えてadd-task/update-taskのcategory統合(マスタ存在チェック)もここで検証する。
+// BM-105: カテゴリAPI(HTTP)を実サーバーで検証する。tags-api.test.jsと同じフィクスチャ方式だが、
+// カテゴリは「システムで一意」(ヒデさんの運用認識)のためワークスペースパラメータを持たない。
+// 加えてadd-task/update-taskのcategory統合(マスタ存在チェック、ワークスペース横断)もここで検証する。
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -27,7 +28,7 @@ async function request(baseUrl, pathname, body, rawBody) {
   return { status: response.status, body: await response.json() };
 }
 
-test('serves category management and task category resolution through the REST API', async () => {
+test('serves category management (system-wide, no workspace scoping) and task category resolution through the REST API', async () => {
   const sourceRoot = path.resolve(__dirname, '..');
   const fixtureRoot = fs.mkdtempSync(path.join(sourceRoot, '.api-test-'));
   const dataDir = path.join(fixtureRoot, 'data');
@@ -59,39 +60,43 @@ test('serves category management and task category resolution through the REST A
     }
 
     assert.equal((await request(baseUrl, '/api/create-workspace', { file: 'extra', prefix: 'EX', name: 'Extra' })).body.ok, true);
+    assert.equal((await request(baseUrl, '/api/create-workspace', { file: 'another', prefix: 'AN', name: 'Another' })).body.ok, true);
 
-    const created = await request(baseUrl, '/api/create-category', { workspace: 'extra', name: 'インフラ', color: '#336699' });
+    const created = await request(baseUrl, '/api/create-category', { name: 'インフラ', color: '#336699' });
     assert.equal(created.status, 200, JSON.stringify(created.body));
     const categoryId = created.body.category.id;
 
     // 重複(表記ゆれ含む)は409 duplicate_category、似た名前は409 similar_categories、confirmSimilarで作成できる
-    const dup = await request(baseUrl, '/api/create-category', { workspace: 'extra', name: 'インフラ ' });
+    const dup = await request(baseUrl, '/api/create-category', { name: 'インフラ ' });
     assert.equal(dup.status, 409);
     assert.equal(dup.body.error, 'duplicate_category');
     assert.equal(dup.body.existing.id, categoryId);
-    const similar = await request(baseUrl, '/api/create-category', { workspace: 'extra', name: 'インフ' });
+    const similar = await request(baseUrl, '/api/create-category', { name: 'インフ' });
     assert.equal(similar.status, 409);
     assert.equal(similar.body.error, 'similar_categories');
-    const preview = await (await fetch(`${baseUrl}/api/categories/similar?workspace=extra&name=${encodeURIComponent('インフ')}`)).json();
+    const preview = await (await fetch(`${baseUrl}/api/categories/similar?name=${encodeURIComponent('インフ')}`)).json();
     assert.deepEqual(preview.similar.map(c => c.id), [categoryId]);
 
-    assert.equal((await request(baseUrl, '/api/create-category', { workspace: 'extra', name: '  ' })).status, 400);
-    assert.equal((await request(baseUrl, '/api/create-category', { workspace: 'nope', name: 'x' })).status, 400);
+    assert.equal((await request(baseUrl, '/api/create-category', { name: '  ' })).status, 400);
     assert.equal((await request(baseUrl, '/api/create-category', undefined, '{broken')).status, 400);
 
-    // add-task: マスタに登録済みの名前は通る(表記ゆれもマスタの表記に正規化される)
+    // add-task: マスタに登録済みの名前は通る(表記ゆれもマスタの表記に正規化される)。ワークスペースを問わない
     const task = await request(baseUrl, '/api/add-task', { title: 'cat target', project: 'extra', status: 'todo', category: 'インフラ' });
     assert.equal(task.status, 200, JSON.stringify(task.body));
     const taskId = task.body.id;
     const detail = await (await fetch(`${baseUrl}/api/task/${taskId}`)).json();
     assert.equal(detail.category, 'インフラ');
 
+    // 別ワークスペースでも同じカテゴリ名を使える(システム全体で一意なため)
+    const taskOther = await request(baseUrl, '/api/add-task', { title: 'cat target 2', project: 'another', status: 'todo', category: 'インフラ' });
+    assert.equal(taskOther.status, 200, JSON.stringify(taskOther.body));
+
     // add-task: マスタに無い名前はunknown_categoryで拒否される
     const rejected = await request(baseUrl, '/api/add-task', { title: 'bad cat', project: 'extra', status: 'todo', category: '存在しない' });
     assert.equal(rejected.status, 400);
 
     // update-task: 既存タスクのcategoryをマスタ内の別名へ変更できる。空文字で解除できる
-    const another = await request(baseUrl, '/api/create-category', { workspace: 'extra', name: 'バックエンド' });
+    const another = await request(baseUrl, '/api/create-category', { name: 'バックエンド' });
     const updated = await request(baseUrl, '/api/update-task', { taskId, category: 'バックエンド' });
     assert.equal(updated.status, 200, JSON.stringify(updated.body));
     assert.equal((await (await fetch(`${baseUrl}/api/task/${taskId}`)).json()).category, 'バックエンド');
@@ -101,16 +106,22 @@ test('serves category management and task category resolution through the REST A
     const updateRejected = await request(baseUrl, '/api/update-task', { taskId, category: '存在しない' });
     assert.equal(updateRejected.status, 400);
 
-    const list = await (await fetch(`${baseUrl}/api/categories?workspace=extra`)).json();
+    // 一覧取得はワークスペースパラメータを持たず、常に全体の一覧を返す
+    const list = await (await fetch(`${baseUrl}/api/categories`)).json();
     assert.deepEqual(list.categories.map(c => c.name).sort(), ['インフラ', 'バックエンド'].sort());
 
     const renamed = await request(baseUrl, '/api/update-category', { categoryId: another.body.category.id, name: 'Backend', color: '#000000' });
     assert.equal(renamed.body.category.name, 'Backend');
     assert.equal((await request(baseUrl, '/api/update-category', { categoryId, name: 'backend' })).status, 409);
 
+    // 改名は別ワークスペース(another)のタスクにも反映される(システム全体で一意なため)
+    assert.equal((await (await fetch(`${baseUrl}/api/task/${taskOther.body.id}`)).json()).category, 'インフラ');
+
     const removed = await request(baseUrl, '/api/delete-category', { categoryId });
     assert.equal(removed.status, 200);
     assert.equal((await request(baseUrl, '/api/delete-category', { categoryId })).status, 404);
+    // 削除も別ワークスペースのタスクに反映される
+    assert.equal((await (await fetch(`${baseUrl}/api/task/${taskOther.body.id}`)).json()).category, '-');
 
     const activity = await (await fetch(`${baseUrl}/api/activity`)).json();
     assert.ok(activity.some(e => e.taskId === taskId && e.eventType === 'category_changed'));

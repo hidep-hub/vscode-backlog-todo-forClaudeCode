@@ -1,13 +1,14 @@
 'use strict';
 
 // カテゴリ管理画面(BM-106、EPIC BM-101)。タグ管理画面(tags.js)と同じ骨格で、一覧モーダルから
-// カテゴリの作成・改名・色変更・統合・削除を行う。カテゴリはワークスペース単位で管理する。
+// カテゴリの作成・改名・色変更・統合・削除を行う。カテゴリは「システムで一意」
+// (ヒデさんの運用認識)のためワークスペースの概念を持たない(タグはワークスペース単位だが、
+// カテゴリは全ワークスペース共通の名前空間)。
 // タグと異なり1タスク1値のため、タスク側は複数選択ピッカーではなく<select>で選ぶ。
 // 自由入力でカテゴリが乱立しないよう、入力中に似た名前を警告し、サーバー側(409)でも
 // 完全一致の拒否・似た名前の確認(confirmSimilar)を求める。判定ロジックはcategory-logic.js。
 
 let categoryModalEl = null;
-let categoryManagerWorkspace = '';
 let categoryManagerCategories = [];
 let categoryEditingId = null;
 let categoryMergingId = null;
@@ -29,19 +30,6 @@ function categoryPost(path, payload) {
   });
 }
 
-/** プロジェクト名→ワークスペース(config.projects[].file)の対応。tags.jsのtagWorkspaceOptionsと同じ。 */
-function categoryWorkspaceOptions() {
-  const map = (currentBoardData && currentBoardData.projectFileMap) || {};
-  return Object.keys(map).sort((a, b) => a.localeCompare(b, 'ja', { sensitivity: 'base' }))
-    .map(name => ({ name, file: map[name] }));
-}
-
-function categoryDefaultWorkspace(options) {
-  const map = (currentBoardData && currentBoardData.projectFileMap) || {};
-  if (currentFilter && map[currentFilter]) return map[currentFilter];
-  return options.length ? options[0].file : '';
-}
-
 function categoryChipHtml(category) {
   return categoryLogic.buildCategoryChipHtml(category);
 }
@@ -56,9 +44,6 @@ function getOrCreateCategoryModal() {
     <div class="tag-modal-content" role="dialog" aria-modal="true" aria-labelledby="category-modal-title">
       <div class="tag-modal-header">
         <h3 id="category-modal-title"><span class="material-icon icon-stacks"></span> カテゴリ管理</h3>
-        <label class="tag-ws-label">ワークスペース
-          <select id="category-workspace-select" class="tag-ws-select"></select>
-        </label>
         <button type="button" class="tag-modal-close" id="category-modal-close" title="閉じる">&times;</button>
       </div>
       <form class="tag-create-bar" id="category-create-form" autocomplete="off">
@@ -75,7 +60,7 @@ function getOrCreateCategoryModal() {
       <div class="tag-note" id="category-create-note" role="status" aria-live="polite" hidden></div>
       <div class="tag-modal-body" id="category-modal-body"><div class="tag-empty">読み込み中...</div></div>
       <div class="tag-modal-footer">
-        カテゴリはワークスペースごとに管理し、タスクには1つだけ設定できます。似た名前のカテゴリが増えないよう、追加時に近い名前を確認します。
+        カテゴリはシステム全体で一意に管理し、タスクには1つだけ設定できます。似た名前のカテゴリが増えないよう、追加時に近い名前を確認します。
       </div>
     </div>
   `;
@@ -83,13 +68,6 @@ function getOrCreateCategoryModal() {
 
   categoryModalEl.addEventListener('click', (e) => { if (e.target === categoryModalEl) closeCategoryModal(); });
   categoryModalEl.querySelector('#category-modal-close').addEventListener('click', closeCategoryModal);
-  categoryModalEl.querySelector('#category-workspace-select').addEventListener('change', (e) => {
-    categoryManagerWorkspace = e.target.value;
-    categoryEditingId = null;
-    categoryMergingId = null;
-    clearCategoryNote();
-    loadCategories();
-  });
   const form = categoryModalEl.querySelector('#category-create-form');
   form.addEventListener('submit', (e) => { e.preventDefault(); submitCategoryCreate(false); });
   categoryModalEl.querySelector('#category-create-name').addEventListener('input', scheduleCategorySimilarHint);
@@ -139,13 +117,8 @@ function syncCategorySwatches(field) {
   field.querySelectorAll('.tag-swatch').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.color === current)));
 }
 
-function openCategoryModal(workspaceFile) {
+function openCategoryModal() {
   const modal = getOrCreateCategoryModal();
-  const options = categoryWorkspaceOptions();
-  const select = modal.querySelector('#category-workspace-select');
-  select.innerHTML = options.map(o => `<option value="${escapeHtml(o.file)}">${escapeHtml(o.name)}</option>`).join('');
-  categoryManagerWorkspace = options.some(o => o.file === workspaceFile) ? workspaceFile : categoryDefaultWorkspace(options);
-  select.value = categoryManagerWorkspace;
   categoryEditingId = null;
   categoryMergingId = null;
   clearCategoryNote();
@@ -167,12 +140,8 @@ function closeCategoryModal() {
 
 async function loadCategories() {
   const body = categoryModalEl.querySelector('#category-modal-body');
-  if (!categoryManagerWorkspace) {
-    body.innerHTML = '<div class="tag-empty">ワークスペースがありません。</div>';
-    return;
-  }
   try {
-    const res = await categoryFetchJson(`/api/categories?workspace=${encodeURIComponent(categoryManagerWorkspace)}`);
+    const res = await categoryFetchJson('/api/categories');
     if (res.status !== 200) throw new Error(res.body.error || `HTTP ${res.status}`);
     categoryManagerCategories = res.body.categories || [];
     renderCategories();
@@ -184,7 +153,7 @@ async function loadCategories() {
 function renderCategories() {
   const body = categoryModalEl.querySelector('#category-modal-body');
   if (categoryManagerCategories.length === 0) {
-    body.innerHTML = '<div class="tag-empty">このワークスペースにはまだカテゴリがありません。上の入力欄から追加できます。</div>';
+    body.innerHTML = '<div class="tag-empty">まだカテゴリがありません。上の入力欄から追加できます。</div>';
     return;
   }
   const rows = categoryManagerCategories.map(category => {
@@ -341,7 +310,7 @@ function scheduleCategorySimilarHint() {
       return;
     }
     try {
-      const res = await categoryFetchJson(`/api/categories/similar?workspace=${encodeURIComponent(categoryManagerWorkspace)}&name=${encodeURIComponent(name)}`);
+      const res = await categoryFetchJson(`/api/categories/similar?name=${encodeURIComponent(name)}`);
       if (seq !== categoryHintSeq) return;
       const similar = (res.body && res.body.similar) || [];
       if (similar.length > 0) setCategoryNote(`似た名前のカテゴリがあります: ${similar.map(categoryChipHtml).join(' ')}。既存のカテゴリで足りないか確認してね。`, 'warn');
@@ -358,13 +327,12 @@ async function submitCategoryCreate(confirmSimilar) {
   const color = noColor ? null : categoryModalEl.querySelector('#category-create-color').value;
   const name = nameEl.value;
   if (!categoryLogic.cleanCategoryName(name)) { setCategoryNote('カテゴリ名を入力してください', 'error'); return; }
-  const res = await categoryPost('/api/create-category', { workspace: categoryManagerWorkspace, name, color, confirmSimilar });
+  const res = await categoryPost('/api/create-category', { name, color, confirmSimilar });
   if (res.status === 200) {
     nameEl.value = '';
     clearCategoryNote();
     await loadCategories();
     nameEl.focus();
-    if (typeof refreshCategorySelectOptions === 'function') refreshCategorySelectOptions();
     return;
   }
   const info = categoryLogic.describeCategoryError(res.body);
@@ -384,12 +352,12 @@ let categoryPickerReturnCtx = null; // カテゴリ管理を閉じた時に選�
 // ============================================================
 // タスク追加/編集フォームのカテゴリ選択(BM-106): <select>を使い、タグのような複数選択ピッカーは持たない
 // ============================================================
+// カテゴリはシステム全体で一意なので、フォーム側もワークスペースを問わず全件を取得する。
 
-/** 指定ワークスペースのカテゴリ一覧を取得する(フォームの<select>用)。失敗時は空配列。 */
-async function fetchCategoriesForWorkspace(workspaceFile) {
-  if (!workspaceFile) return [];
+/** カテゴリ一覧を取得する(フォームの<select>用)。失敗時は空配列。 */
+async function fetchAllCategories() {
   try {
-    const res = await categoryFetchJson(`/api/categories?workspace=${encodeURIComponent(workspaceFile)}`);
+    const res = await categoryFetchJson('/api/categories');
     if (res.status !== 200) return [];
     return res.body.categories || [];
   } catch (e) {
@@ -399,7 +367,7 @@ async function fetchCategoriesForWorkspace(workspaceFile) {
 
 /**
  * <select>にカテゴリ選択肢を詰め直す。先頭は常に「カテゴリなし」。selectedNameが選択肢に
- * 無い場合(ワークスペース変更直後等)でも、値自体は保持する特殊optionを末尾に追加して消えないようにする。
+ * 無い場合でも、値自体は保持する特殊optionを末尾に追加して消えないようにする。
  */
 function populateCategorySelect(selectEl, categories, selectedName) {
   const options = ['<option value="">カテゴリなし</option>']
@@ -411,21 +379,19 @@ function populateCategorySelect(selectEl, categories, selectedName) {
   selectEl.value = selectedName || '';
 }
 
-/** 追加フォームの#add-task-categoryへワークスペースに応じたカテゴリ一覧を読み込む。 */
+/** 追加フォームの#add-task-categoryへカテゴリ一覧を読み込む。 */
 async function loadAddFormCategories(form, selectedName) {
   const select = form.querySelector('#add-task-category');
   if (!select) return;
-  const projectName = form.querySelector('#add-task-project').value;
-  const workspaceFile = tagWorkspaceForProject(projectName);
-  const categories = await fetchCategoriesForWorkspace(workspaceFile);
+  const categories = await fetchAllCategories();
   populateCategorySelect(select, categories, selectedName || '');
 }
 
-/** 編集フォームの#edit-task-categoryへワークスペースに応じたカテゴリ一覧を読み込む。 */
-async function loadEditFormCategories(form, workspaceFile, selectedName) {
+/** 編集フォームの#edit-task-categoryへカテゴリ一覧を読み込む。 */
+async function loadEditFormCategories(form, selectedName) {
   const select = form.querySelector('#edit-task-category');
   if (!select) return;
-  const categories = await fetchCategoriesForWorkspace(workspaceFile);
+  const categories = await fetchAllCategories();
   populateCategorySelect(select, categories, selectedName || '');
 }
 
@@ -434,16 +400,13 @@ document.addEventListener('click', (e) => {
   const btn = e.target.closest('.category-manage-link');
   if (!btn) return;
   const select = btn.closest('.settings-group').querySelector('select');
-  const workspaceFile = btn.dataset.formKind === 'add'
-    ? tagWorkspaceForProject(document.getElementById('add-task-project').value)
-    : btn.dataset.workspace || '';
   categoryPickerReturnCtx = {
     onReturn: () => {
       if (btn.dataset.formKind === 'add') loadAddFormCategories(getOrCreateAddForm(), select.value);
-      else if (select) fetchCategoriesForWorkspace(workspaceFile).then(cs => populateCategorySelect(select, cs, select.value));
+      else if (select) fetchAllCategories().then(cs => populateCategorySelect(select, cs, select.value));
     },
   };
-  openCategoryModal(workspaceFile);
+  openCategoryModal();
 });
 
 // ============================================================
@@ -568,13 +531,12 @@ async function openCategoryFilterPopover(anchor) {
   el.querySelector('.tag-filter-footer').addEventListener('click', (e) => {
     if (!e.target.closest('[data-act="manage"]')) return;
     closeCategoryFilterPopover();
-    openCategoryModal(currentFilter ? tagWorkspaceForProject(currentFilter) : undefined);
+    openCategoryModal();
   });
   searchEl.focus();
 
   try {
-    const file = currentFilter ? tagWorkspaceForProject(currentFilter) : '';
-    const res = await categoryFetchJson(file ? `/api/categories?workspace=${encodeURIComponent(file)}` : '/api/categories');
+    const res = await categoryFetchJson('/api/categories');
     if (res.status !== 200) throw new Error(res.body.error || `HTTP ${res.status}`);
     if (categoryFilterPopEl !== el) return; // 取得中に閉じられた
     options = categoryLogic.buildCategoryFilterOptions(res.body.categories || []);

@@ -112,22 +112,21 @@ const DDL = [
     PRIMARY KEY (task_id, tag_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag_id)`,
-  // BM-105: カテゴリ機能(EPIC BM-101)。tagsと同じ骨格(workspace単位・name_key正規化・
-  // 重複/類似名チェック・sort_order)のマスタテーブル。タグと異なり1タスク1カテゴリのため
-  // 中間テーブルは持たず、tasks.category列(既存の非正規化列)に名前文字列をそのまま保存する。
-  // UNIQUE(workspace, name_key)により、同一ワークスペース内の似た名前の乱立をDBレベルでも防ぐ。
+  // BM-105: カテゴリ機能(EPIC BM-101)。name_key正規化・重複/類似名チェック・sort_orderは
+  // tagsと同じ骨格だが、カテゴリは「システムで一意」(ヒデさんの運用認識)のためワークスペース
+  // 列を持たない(タグはワークスペース単位だが、カテゴリは全ワークスペース共通の名前空間)。
+  // 1タスク1カテゴリのため中間テーブルも持たず、tasks.category列(既存の非正規化列)に
+  // 名前文字列をそのまま保存する。UNIQUE(name_key)により、似た名前の乱立をDBレベルでも防ぐ。
   `CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    workspace TEXT NOT NULL,
     name TEXT NOT NULL,
-    name_key TEXT NOT NULL,
+    name_key TEXT NOT NULL UNIQUE,
     color TEXT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     created_by TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    updated_by TEXT NOT NULL,
-    UNIQUE(workspace, name_key)
+    updated_by TEXT NOT NULL
   )`,
   // BM-071: 外部ITS(Redmine/GitLab)連携の基盤。GitHubは既存のtasks.github_issue_*列のまま触らず、
   // Redmine/GitLabはこの新テーブルをsource列で共用する(1タスクにつきsourceごとに1件まで)。

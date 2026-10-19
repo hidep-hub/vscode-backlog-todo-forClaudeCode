@@ -1782,10 +1782,10 @@ function serveStatic(req, res) {
         // allocateSeq側の「counters行が存在しない」エラーで従来通り検出される)
         const projectEntry = (config.projects || []).find(p => p.file === project || p.name === project);
         const workspace = projectEntry ? projectEntry.file : (project || 'inbox');
-        // BM-105: categoryはワークスペースのマスタ(categoriesテーブル)に存在する名前のみ受け付ける。
-        // 未登録の名前はunknown_categoryで拒否し、自由入力による乱立を防ぐ(AIが自己判断で
-        // 新規カテゴリ名を作らないよう促す意図、ルール側にも事故防止の注意を追記済み)。
-        const categoryName = categoriesRepo.resolveCategoryName(db, workspace, category);
+        // BM-105: categoryはマスタ(categoriesテーブル、ワークスペース横断で一意)に存在する
+        // 名前のみ受け付ける。未登録の名前はunknown_categoryで拒否し、自由入力による乱立を
+        // 防ぐ(AIが自己判断で新規カテゴリ名を作らないよう促す意図、ルール側にも事故防止の注意を追記済み)。
+        const categoryName = categoriesRepo.resolveCategoryName(db, category);
         const created = tasksRepo.create(db, {
           workspace,
           title: title.trim(),
@@ -2033,11 +2033,11 @@ function serveStatic(req, res) {
         res.end(JSON.stringify({ error: `Task not found: ${taskId}` }));
         return;
       }
-      // BM-105: categoryはワークスペースのマスタ(categoriesテーブル)に存在する名前のみ受け付ける。
-      // 空文字/nullは「カテゴリなし」として常に許可する(resolveCategoryName側の仕様)。
+      // BM-105: categoryはマスタ(categoriesテーブル、ワークスペース横断で一意)に存在する
+      // 名前のみ受け付ける。空文字/nullは「カテゴリなし」として常に許可する(resolveCategoryName側の仕様)。
       if (fields.category !== undefined) {
         try {
-          fields.category = categoriesRepo.resolveCategoryName(db, existing.workspace, fields.category);
+          fields.category = categoriesRepo.resolveCategoryName(db, fields.category);
         } catch (e) {
           const statusCode = e.code === 'unknown_category' ? 400 : 500;
           res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });

@@ -129,7 +129,7 @@ test('カテゴリ管理モーダル・絞り込みボタン・追加/編集フ�
   has(app, 'categoryLogic.matchesCategoryFilterForBoardItem(item, categoryFilter.keys)');
   has(app, "category: form.querySelector('#add-task-category').value");
   has(app, "category: categoryInput.value");
-  has(categoriesJs, 'function openCategoryModal(workspaceFile)');
+  has(categoriesJs, 'function openCategoryModal()');
   has(categoriesJs, 'function toggleCategoryFilterPopover(anchor)');
   has(categoriesJs, "localStorage.setItem('categoryFilter'");
   assert.ok(html.indexOf('<script src="tag-logic.js">') < html.indexOf('<script src="category-logic.js">'), 'タグに続けて読み込む');
