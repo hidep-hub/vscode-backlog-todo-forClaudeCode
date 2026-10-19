@@ -2036,6 +2036,7 @@ function getOrCreateProductMenu() {
 function closeProductMenu() {
   const el = document.getElementById('product-menu-overlay');
   if (el) el.classList.remove('modal-visible');
+  if (productMenuTipEl) productMenuTipEl.classList.remove('gantt-tip-visible');
 }
 
 /**
@@ -2102,6 +2103,90 @@ async function fillProductMenuInfo(content) {
   }
 }
 
+/**
+ * メニュー初期画面の「直近の更新コミット」(BT-446)。取り込み済み(HEADまで)のコミットを新しい順に並べ、
+ * 先頭にまだ取り込んでいない更新(HEAD..origin/main。/api/update-checkのキャッシュ)を強調して並べる。
+ * 保存はせず、開くたびに取り直す。件数が多い時は一覧部分だけ縦スクロール(CSS側)。
+ * 各行にマウスを載せると、コミット本文(description)をタスク・ガントと同じ見た目のチップで出す。
+ */
+async function fillProductMenuHistory(content) {
+  const box = content.querySelector('#product-menu-history');
+  if (!box) return;
+  const title = '<div class="product-menu-rules-title">直近の更新コミット</div>';
+  box.innerHTML = `${title}<div class="product-menu-rules-line">読み込み中...</div>`;
+  let data = null;
+  let pending = [];
+  try {
+    const [recentRes, updateRes] = await Promise.all([
+      fetch('/api/recent-commits', { cache: 'no-store' }),
+      fetch('/api/update-check', { cache: 'no-store' }).catch(() => null),
+    ]);
+    if (recentRes.ok) data = await recentRes.json();
+    if (updateRes && updateRes.ok) pending = (await updateRes.json()).commits || [];
+  } catch (e) {
+    console.error('[product-menu] Failed to fetch recent commits:', e.message);
+  }
+  if (!box.isConnected) return; // 取得中にメニューが閉じられた/描き直された
+  if (!data || data.unavailable || !data.commits.length) {
+    box.innerHTML = `${title}<div class="product-menu-rules-line">コミット履歴を取得できませんでした</div>`;
+    return;
+  }
+  const entries = [
+    ...pending.map((c) => ({ ...c, pending: true })),
+    ...data.commits.map((c) => ({ ...c, pending: false })),
+  ];
+  const items = entries.map((c, i) => `
+    <li data-idx="${i}"${c.pending ? ' class="is-pending"' : ''}>
+      <span class="product-menu-commit-hash">${escapeHtml(c.shortHash)}</span>${c.pending ? '<span class="product-menu-pending-badge">未取り込み</span>' : ''}${escapeHtml(c.subject)}
+    </li>`).join('');
+  const note = pending.length
+    ? `<div class="product-menu-rules-line rules-bad">まだ取り込んでいない更新が${pending.length}件あるよ(色付きの行)</div>`
+    : '';
+  box.innerHTML = `${title}${note}<ul class="product-menu-commit-list">${items}</ul>`;
+  bindProductMenuCommitTip(box.querySelector('.product-menu-commit-list'), entries);
+}
+
+let productMenuTipEl = null;
+let productMenuTipHideTimer = null;
+
+/** コミット行のホバーで本文を出すチップ。ガントのチップ(.gantt-tip)と同じ見た目・位置決めを使う */
+function bindProductMenuCommitTip(listEl, entries) {
+  // マウスをチップへ移して本文をスクロールできるよう、消すのは少し遅らせ、チップ上にいる間は消さない(ガントと同じ)
+  const scheduleHide = () => {
+    clearTimeout(productMenuTipHideTimer);
+    productMenuTipHideTimer = setTimeout(() => { if (productMenuTipEl) productMenuTipEl.classList.remove('gantt-tip-visible'); }, 250);
+  };
+  listEl.addEventListener('mouseover', (e) => {
+    const li = e.target.closest('li[data-idx]');
+    if (!li) { scheduleHide(); return; }
+    const c = entries[Number(li.dataset.idx)];
+    if (!c) return;
+    clearTimeout(productMenuTipHideTimer);
+    if (!productMenuTipEl) {
+      productMenuTipEl = document.createElement('div');
+      productMenuTipEl.className = 'gantt-tip';
+      productMenuTipEl.addEventListener('mouseenter', () => clearTimeout(productMenuTipHideTimer));
+      productMenuTipEl.addEventListener('mouseleave', scheduleHide);
+      document.body.appendChild(productMenuTipEl);
+    }
+    const tip = productMenuTipEl;
+    const warn = c.pending ? '<div class="gantt-tip-warn is-late">まだ取り込んでいない更新だよ(「更新を確認する」から取り込めるよ)</div>' : '';
+    tip.innerHTML = `<div class="gantt-tip-head"><span class="gantt-tip-id">${escapeHtml(c.shortHash)}</span><span class="gantt-tip-title">${escapeHtml(c.subject)}</span></div>${warn}`
+      + `<div class="gantt-tip-meta"><span>日時: ${escapeHtml(formatCommitDate(c.date))}</span><span>状態: ${c.pending ? '未取り込み' : '取り込み済み'}</span></div>`
+      + `<div class="gantt-tip-desc">${c.body ? escapeHtml(c.body) : '<span class="gantt-tip-none">本文はありません</span>'}</div>`;
+    tip.style.left = '0px';
+    tip.style.top = '0px';
+    tip.classList.add('gantt-tip-visible');
+    const margin = 10;
+    const left = Math.min(e.clientX + 6, window.innerWidth - tip.offsetWidth - margin);
+    let top = e.clientY + 14;
+    if (top + tip.offsetHeight > window.innerHeight - margin) top = Math.max(margin, e.clientY - tip.offsetHeight - 10);
+    tip.style.left = `${Math.max(margin, left)}px`;
+    tip.style.top = `${top}px`;
+  });
+  listEl.addEventListener('mouseleave', scheduleHide);
+}
+
 const PRODUCT_MENU_STAT_CODES = ['do', 'ready', 'todo', 'done'];
 
 /**
@@ -2156,22 +2241,30 @@ function renderProductMenuDefault(content) {
       <h3 class="add-form-title">Backlog Dashboard</h3>
       <button class="add-child-btn btn-add" id="product-menu-open-github"><svg class="product-menu-github-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHubを開く</button>
     </div>
-    <dl class="product-menu-info" id="product-menu-info">
-      <dt>version</dt><dd data-info="version">-</dd>
-      <dt>コミット</dt><dd data-info="commit">-</dd>
-      <dt>更新日</dt><dd data-info="commitDate">-</dd>
-      <dt>サーバー起動</dt><dd data-info="startedAt">-</dd>
-    </dl>
-    <div class="product-menu-stats" id="product-menu-stats"></div>
-    <div class="product-menu-rules" id="product-menu-rules"></div>
-    <div class="edit-form-actions product-menu-actions">
-      <button class="add-child-btn btn-add" id="product-menu-check-update">更新を確認する</button>
-      <button class="add-child-btn btn-add" id="product-menu-restart">サーバーを再起動する</button>
+    <div class="product-menu-columns">
+      <div class="product-menu-col product-menu-col-left">
+        <dl class="product-menu-info" id="product-menu-info">
+          <dt>version</dt><dd data-info="version">-</dd>
+          <dt>コミット</dt><dd data-info="commit">-</dd>
+          <dt>更新日</dt><dd data-info="commitDate">-</dd>
+          <dt>サーバー起動</dt><dd data-info="startedAt">-</dd>
+        </dl>
+        <div class="edit-form-actions product-menu-actions">
+          <button class="add-child-btn btn-add" id="product-menu-check-update">更新を確認する</button>
+          <button class="add-child-btn btn-add" id="product-menu-restart">サーバーを再起動する</button>
+        </div>
+        <div class="product-menu-rules" id="product-menu-rules"></div>
+      </div>
+      <div class="product-menu-col product-menu-col-right">
+        <div class="product-menu-stats" id="product-menu-stats"></div>
+      </div>
     </div>
+    <div class="product-menu-history" id="product-menu-history"></div>
   `;
   fillProductMenuInfo(content);
   fillProductMenuStats(content);
   fillProductMenuRules(content);
+  fillProductMenuHistory(content);
   content.querySelector('#product-menu-close').addEventListener('click', closeProductMenu);
   content.querySelector('#product-menu-open-github').addEventListener('click', async () => {
     try {
