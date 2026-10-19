@@ -40,6 +40,9 @@
           <button class="today-filter-btn pin-tag-seg" id="today-filter-btn" title="今日やるフィルター"><span class="material-icon icon-keep"></span></button>
           <span class="pin-tag-divider" aria-hidden="true"></span>
           <button class="activity-btn tag-filter-btn tag-filter-trigger pin-tag-seg" id="tag-filter-btn" title="タグで絞り込み（ボード・週次計画・ガント共通）" aria-haspopup="dialog"><span class="material-icon icon-tag"></span><span class="tag-filter-count" hidden></span></button>
+          <span class="pin-tag-divider" aria-hidden="true"></span>
+          <!-- BM-106: カテゴリ(1タスク1値)の絞り込みボタン。タグと同じボードで使うため並べて置く -->
+          <button class="activity-btn category-filter-btn category-filter-trigger pin-tag-seg" id="category-filter-btn" title="カテゴリで絞り込み" aria-haspopup="dialog"><span class="material-icon icon-stacks"></span><span class="category-filter-count" hidden></span></button>
         </div>
         <button class="select-mode-btn" id="select-mode-btn" title="複数選択して親タスクにまとめる"><span class="material-icon icon-check"></span></button>
         <button class="activity-btn" id="activity-btn" title="履歴"><span class="material-icon icon-history"></span></button>
@@ -262,6 +265,7 @@
   <script src="holidays.js"></script>
   <script src="gantt.js"></script>
   <script src="tag-logic.js"></script>
+  <script src="category-logic.js"></script>
   <script src="due-trail.js"></script>
   <script src="app.js"></script>
   <script src="activity.js"></script>
@@ -269,5 +273,6 @@
   <script src="weekly-report.js"></script>
   <script src="backup.js"></script>
   <script src="tags.js"></script>
+  <script src="categories.js"></script>
 </body>
 </html>
