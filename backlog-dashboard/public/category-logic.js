@@ -125,6 +125,17 @@
     return `カテゴリ: ${names.join(' または ')}`;
   }
 
+  /**
+   * 複数タスクのカテゴリが共通かを判定する(一括カテゴリ設定のピッカーのチェック表示用)。
+   * 全員が同じカテゴリならそのキー(categoryNameKey)、全員カテゴリなしなら''、バラバラならnull。
+   */
+  function commonCategoryKey(items) {
+    const keys = new Set((items || []).map(item =>
+      (!item.category || item.category === '-') ? '' : categoryNameKey(item.category)));
+    if (keys.size !== 1) return null;
+    return [...keys][0];
+  }
+
   function buildDeleteMessage(category) {
     const used = category.usageCount || 0;
     return used > 0
@@ -186,6 +197,6 @@
     buildDeleteMessage, buildMergeMessage, describeCategoryError, escapeText,
     buildCategoryChipHtml, CATEGORY_COLOR_PALETTE, buildSwatchesHtml,
     matchesCategoryFilter, matchesCategoryFilterForBoardItem, buildCategoryFilterOptions,
-    parseCategoryFilter, describeCategoryFilter,
+    parseCategoryFilter, describeCategoryFilter, commonCategoryKey,
   };
 });

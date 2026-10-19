@@ -144,3 +144,27 @@ test('カテゴリモーダルは最前面判定(Escape制御)の対象に含ま
   assert.match(app, /\.category-modal-overlay\.modal-visible/);
   assert.match(categoriesJs, /isTopmostDialog\(categoryModalEl\)/);
 });
+
+// BT-445: カード・複数選択バーのカテゴリ選択ピッカー
+test('commonCategoryKey: 全員同じならそのキー、全員なしなら空文字、バラバラならnull', () => {
+  assert.equal(categoryLogic.commonCategoryKey([{ category: '調査' }, { category: ' 調査 ' }]), '調査');
+  assert.equal(categoryLogic.commonCategoryKey([{ category: '-' }, { category: '' }, {}]), '');
+  assert.equal(categoryLogic.commonCategoryKey([{ category: '調査' }, { category: '-' }]), null);
+  assert.equal(categoryLogic.commonCategoryKey([{ category: 'A' }, { category: 'B' }]), null);
+  assert.equal(categoryLogic.commonCategoryKey([]), null);
+});
+
+test('カード・複数選択バーにカテゴリ導線が配線されている(アイコンはヘッダのカテゴリボタンと同じicon-stacks)', () => {
+  assert.match(app, /card-category-btn[^>]*><span class="material-icon icon-stacks">/);
+  assert.match(app, /id="selection-category"[^>]*><span class="material-icon icon-stacks">/);
+  assert.match(app, /openCardCategoryPicker\(btn\)/);
+  assert.match(app, /openBulkCategoryPicker\(event\.currentTarget\)/);
+  assert.match(categoriesJs, /function openCategoryPicker\(/);
+  assert.match(css, /\.selection-bar-category:hover/);
+});
+
+test('EPIC内の子カード(ミニボード)にもカテゴリボタンが付き、子itemも解決できる (BT-445)', () => {
+  assert.match(app, /card-category-btn" data-task-id="\$\{child\.id\}"/);
+  assert.match(app, /openCardCategoryPicker\(childCategoryBtnEl\)/);
+  assert.match(categoriesJs, /findItemById\(taskId\) \|\| findChildItemById\(taskId\)/);
+});
