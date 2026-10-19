@@ -3899,6 +3899,7 @@ function renderBoard(data) {
         cardActionsHtml = `<div class="card-actions">
           <button class="card-action-btn card-due-btn" data-task-id="${item.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
           <button class="card-action-btn card-tag-btn" data-task-id="${item.id}" title="タグを付け外し"><span class="material-icon icon-tag"></span></button>
+          <button class="card-action-btn card-category-btn" data-task-id="${item.id}" title="カテゴリを設定"><span class="material-icon icon-stacks"></span></button>
           <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集"><span class="material-icon icon-edit"></span></button>
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
@@ -4162,6 +4163,15 @@ function renderBoard(data) {
       e.stopPropagation();
       e.preventDefault();
       openCardTagPicker(btn);
+    });
+  });
+
+  // カードのカテゴリボタン（BT-445）
+  boardEl.querySelectorAll('.card-category-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      openCardCategoryPicker(btn);
     });
   });
 
@@ -7659,6 +7669,7 @@ function buildMiniBoard(epic) {
       const childActionsHtml = child.id
         ? `<div class="card-actions">
             <button class="card-action-btn card-child-due-btn" data-task-id="${child.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
+            <button class="card-action-btn card-category-btn" data-task-id="${child.id}" title="カテゴリを設定"><span class="material-icon icon-stacks"></span></button>
             <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集"><span class="material-icon icon-edit"></span></button>
             ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
             ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-create-btn" data-task-id="${child.id}" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
@@ -7683,6 +7694,16 @@ function buildMiniBoard(epic) {
           e.stopPropagation();
           e.preventDefault();
           openDueDatePicker(childDueBtnEl, child.dueDate, (date) => planUpdateDueDate(child.id, date));
+        });
+      }
+
+      // カテゴリボタンのイベント（BT-445）
+      const childCategoryBtnEl = card.querySelector('.card-category-btn');
+      if (childCategoryBtnEl) {
+        childCategoryBtnEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          openCardCategoryPicker(childCategoryBtnEl);
         });
       }
 
@@ -8145,6 +8166,7 @@ function getOrCreateSelectionBar() {
     <button class="selection-bar-btn selection-bar-pin" id="selection-unpin"><span class="material-icon icon-keep"></span> ピン解除</button>
     <button class="selection-bar-btn selection-bar-due" id="selection-set-due"><span class="material-icon icon-calendar-month"></span> 期日を設定</button>
     <button class="selection-bar-btn selection-bar-tag" id="selection-tag"><span class="material-icon icon-tag"></span> タグ</button>
+    <button class="selection-bar-btn selection-bar-category" id="selection-category"><span class="material-icon icon-stacks"></span> カテゴリ</button>
     <button class="selection-bar-btn selection-bar-github" id="selection-github-create"><span class="material-icon icon-upload"></span> GitHub登録</button>
     <button class="selection-bar-btn selection-bar-delete danger" id="selection-delete"><span class="material-icon icon-delete"></span> 削除</button>
     <button class="selection-bar-btn selection-bar-cancel" id="selection-cancel">キャンセル</button>
@@ -8159,6 +8181,7 @@ function getOrCreateSelectionBar() {
     openDueDatePicker(event.currentTarget, '', (dueDate) => applySelectedDueDate(dueDate));
   });
   selectionBarEl.querySelector('#selection-tag').addEventListener('click', (event) => openBulkTagPicker(event.currentTarget));
+  selectionBarEl.querySelector('#selection-category').addEventListener('click', (event) => openBulkCategoryPicker(event.currentTarget));
   selectionBarEl.querySelector('#selection-github-create').addEventListener('click', () => openBulkGithubCreateConfirm());
   selectionBarEl.querySelector('#selection-delete').addEventListener('click', () => openBulkDeleteConfirm());
   selectionBarEl.querySelector('#selection-cancel').addEventListener('click', () => {

@@ -395,6 +395,141 @@ async function loadEditFormCategories(form, selectedName) {
   populateCategorySelect(select, categories, selectedName || '');
 }
 
+// ============================================================
+// カードと複数選択バーのカテゴリ選択ピッカー(BT-445): タグのピッカー(.tag-picker)と同じ見た目の単一選択
+// ============================================================
+// カテゴリは1タスク1値でシステム全体で一意なので、ラジオ式。先頭の「カテゴリなし」で解除できる。
+// 一括時は選択タスク全員に同じ値を設定する(全員同値ならチェック、バラバラなら未選択)。
+
+let categoryPickerEl = null;
+let categoryPickerAnchor = null;
+
+function closeCategoryPicker() {
+  if (categoryPickerEl) categoryPickerEl.remove();
+  categoryPickerEl = null;
+  categoryPickerAnchor = null;
+}
+
+/**
+ * ctx: { anchor, currentKey: string|null, onSelect(name) => Promise<boolean> }
+ * currentKey: 現在のカテゴリのキー(categoryNameKey)。''=カテゴリなし、null=未確定(一括でバラバラ)。
+ * onSelect(name): 空文字は「カテゴリなし」。失敗(false)なら選択を戻す。
+ */
+async function openCategoryPicker(ctx) {
+  closeCategoryPicker();
+  if (typeof closeTagPicker === 'function') closeTagPicker();
+  const el = document.createElement('div');
+  el.className = 'tag-picker category-picker';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-label', 'カテゴリを選択');
+  el.innerHTML = `
+    <input type="search" class="tag-picker-search tag-input" placeholder="カテゴリを絞り込み" aria-label="カテゴリを絞り込み" autocomplete="off">
+    <div class="tag-picker-list" role="radiogroup" aria-label="カテゴリ一覧"><div class="tag-picker-empty">読み込み中...</div></div>
+    <div class="tag-picker-footer"><button type="button" class="tag-picker-manage"><span class="material-icon icon-settings"></span>カテゴリ管理を開く…</button></div>`;
+  document.body.appendChild(el);
+  categoryPickerEl = el;
+  categoryPickerAnchor = ctx.anchor;
+  positionTagPicker(el, ctx.anchor);
+
+  const listEl = el.querySelector('.tag-picker-list');
+  const searchEl = el.querySelector('.tag-picker-search');
+  let categories = [];
+  let currentKey = ctx.currentKey;
+  const radio = (value, key, html) =>
+    `<label class="tag-picker-row"><input type="radio" name="category-picker" data-category-name="${escapeHtml(value)}"${currentKey === key ? ' checked' : ''}>${html}</label>`;
+  const renderList = () => {
+    const query = categoryLogic.categoryNameKey(searchEl.value);
+    const shown = categories.filter(c => !query || categoryLogic.categoryNameKey(c.name).includes(query));
+    const rows = [];
+    if (!query) rows.push(radio('', '', '<span class="tag-chip tag-chip-plain"><span class="tag-chip-text">カテゴリなし</span></span>'));
+    shown.forEach(c => rows.push(radio(c.name, categoryLogic.categoryNameKey(c.name), categoryChipHtml(c))));
+    listEl.innerHTML = rows.length > (query ? 0 : 1)
+      ? rows.join('')
+      : `<div class="tag-picker-empty">${categories.length === 0 ? 'カテゴリがありません。「カテゴリ管理を開く」から作成できます。' : '一致するカテゴリがありません。'}</div>`;
+    positionTagPicker(el, ctx.anchor);
+  };
+  searchEl.addEventListener('input', renderList);
+  listEl.addEventListener('change', async (e) => {
+    const box = e.target.closest('input[type="radio"]');
+    if (!box) return;
+    const name = box.dataset.categoryName;
+    const prevKey = currentKey;
+    listEl.querySelectorAll('input').forEach(b => { b.disabled = true; });
+    let ok = false;
+    try { ok = await ctx.onSelect(name); } catch (err) { ok = false; }
+    if (categoryPickerEl !== el) return; // 処理中に閉じられた
+    currentKey = ok ? categoryLogic.categoryNameKey(name) : prevKey;
+    renderList();
+  });
+  el.querySelector('.tag-picker-manage').addEventListener('click', () => {
+    closeCategoryPicker();
+    categoryPickerReturnCtx = { onReturn: () => openCategoryPicker({ ...ctx, anchor: (ctx.reanchor && ctx.reanchor()) || ctx.anchor, currentKey }) };
+    openCategoryModal();
+  });
+  searchEl.focus();
+
+  try {
+    categories = await fetchAllCategories();
+    if (categoryPickerEl !== el) return;
+    renderList();
+  } catch (e) {
+    listEl.innerHTML = `<div class="tag-picker-empty">カテゴリを取得できませんでした（${escapeHtml(e.message)}）</div>`;
+  }
+}
+
+// Escはピッカーだけを先に閉じる。ピッカー外のクリックでも閉じる(タグのピッカーと同じ)。
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !categoryPickerEl) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  closeCategoryPicker();
+}, true);
+document.addEventListener('mousedown', (e) => {
+  if (!categoryPickerEl) return;
+  if (categoryPickerEl.contains(e.target) || (categoryPickerAnchor && categoryPickerAnchor.contains(e.target))) return;
+  closeCategoryPicker();
+});
+
+async function updateTaskCategoryApi(taskId, name) {
+  const res = await categoryPost('/api/update-task', { taskId, category: name });
+  return res.status === 200;
+}
+
+/** カードのカテゴリボタン。選ぶとそのタスクへ即反映する。 */
+function openCardCategoryPicker(anchor) {
+  const taskId = anchor.dataset.taskId;
+  const item = findItemById(taskId) || findChildItemById(taskId); // EPICのミニボード上の子カードにも付く
+  if (!item) return;
+  openCategoryPicker({
+    anchor,
+    reanchor: () => document.querySelector(`.card-category-btn[data-task-id="${taskId}"]`),
+    currentKey: categoryLogic.commonCategoryKey([item]),
+    onSelect: async (name) => {
+      const ok = await updateTaskCategoryApi(taskId, name);
+      if (!ok) alert('カテゴリを更新できませんでした');
+      return ok;
+    },
+  });
+}
+
+/** 複数選択バーの一括カテゴリ設定。選択中の全タスクに同じカテゴリを設定する。 */
+function openBulkCategoryPicker(anchor) {
+  const items = [...selectedIds].map(id => findItemById(id) || findChildItemById(id)).filter(Boolean);
+  if (items.length === 0) return;
+  openCategoryPicker({
+    anchor,
+    currentKey: categoryLogic.commonCategoryKey(items),
+    onSelect: async (name) => {
+      const failed = [];
+      for (const item of items) {
+        if (!(await updateTaskCategoryApi(item.id, name))) failed.push(item.id);
+      }
+      if (failed.length) alert(`カテゴリを設定できなかったタスクがあるよ: ${failed.join(', ')}`);
+      return failed.length === 0;
+    },
+  });
+}
+
 // 「カテゴリ管理を開く…」導線: フォームのカテゴリ欄の隣にボタンを置き、開いて戻ったら選択肢を最新化する。
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('.category-manage-link');
