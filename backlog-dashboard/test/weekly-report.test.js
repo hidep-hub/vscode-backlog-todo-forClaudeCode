@@ -25,14 +25,14 @@ function createTestDb() {
 }
 
 let seq = 0;
-function addTask(db, { workspace = 'alpha', title, status = 'todo', parentId = null, dueDate = null, deleted = false, tagless = true }) {
+function addTask(db, { workspace = 'alpha', title, status = 'todo', parentId = null, dueDate = null, deleted = false, tagless = true, category = null }) {
   seq += 1;
   const prefix = workspace === 'alpha' ? 'AL' : 'BE';
   const now = '2026-10-01T00:00:00.000Z';
   const r = db.prepare(`INSERT INTO tasks (workspace, seq_no, display_id, parent_id, title, status, due_date, sort_order,
-    deleted_at, created_at, created_by, updated_at, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    deleted_at, created_at, created_by, updated_at, updated_by, category) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(workspace, seq, `${prefix}-${String(seq).padStart(3, '0')}`, parentId, title, status, dueDate, seq,
-      deleted ? now : null, now, 'user', now, 'user');
+      deleted ? now : null, now, 'user', now, 'user', category);
   return { id: Number(r.lastInsertRowid), displayId: `${prefix}-${String(seq).padStart(3, '0')}` };
 }
 
@@ -254,4 +254,78 @@ test('書式の保存・読み込み・リセット', () => {
   wr.resetTemplate(dir);
   assert.equal(wr.loadTemplate(dir).saved, false);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+function addCategoryMaster(db, name, sortOrder) {
+  db.prepare(`INSERT INTO categories (name, name_key, sort_order, created_at, created_by, updated_at, updated_by)
+    VALUES (?, ?, ?, '2026-10-01T00:00:00.000Z', 'user', '2026-10-01T00:00:00.000Z', 'user')`).run(name, name, sortOrder);
+}
+
+test('BT-442 カテゴリの章: マスタ順→マスタ外→カテゴリなし、期間内にタスクが無いカテゴリは出さない、表は2スペースで字下げ', () => {
+  const ctx = createTestDb();
+  addCategoryMaster(ctx.db, '調査', 1);
+  addCategoryMaster(ctx.db, '開発', 2);
+  addCategoryMaster(ctx.db, '未使用', 3);
+  for (const [title, category] of [['開発1', '開発'], ['調査1', '調査'], ['旧値1', '旧自由入力'], ['なし1', null]]) {
+    const t = addTask(ctx.db, { title, status: 'done', category });
+    addStatusEvent(ctx.db, t, 'done', IN_PERIOD);
+  }
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, groupByCategory: true });
+  assert.deepEqual(data.workspaces[0].categoryGroups.map(g => g.name), ['調査', '開発', '旧自由入力', '']);
+  const { markdown } = wr.renderWeeklyReport(data, { template: wr.DEFAULT_TEMPLATE, columns: wr.DEFAULT_COLUMNS });
+  assert.ok(markdown.includes('- **カテゴリ名：調査**\n\n  - **完了（DONE）**\n\n    | ID |'));
+  assert.ok(markdown.includes('- **カテゴリ名：なし**'));
+  assert.doesNotMatch(markdown, /未使用/);
+  assert.doesNotMatch(markdown, /^\|/m); // 表が左端から始まらない
+  cleanup(ctx);
+});
+
+test('BT-442 categoriesで絞り込む(空文字はカテゴリなし)。章分けオフでも有効で、未指定なら従来どおり', () => {
+  const ctx = createTestDb();
+  addCategoryMaster(ctx.db, '調査', 1);
+  addCategoryMaster(ctx.db, '開発', 2);
+  for (const [title, category] of [['開発1', '開発'], ['調査1', '調査'], ['なし1', null]]) {
+    const t = addTask(ctx.db, { title, status: 'done', category });
+    addStatusEvent(ctx.db, t, 'done', IN_PERIOD);
+  }
+  const titles = opts => itemsOf(wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, ...opts }).workspaces[0]).map(i => i.title).sort();
+  assert.deepEqual(titles({ categories: ['調査', ''] }), ['なし1', '調査1']);
+  assert.deepEqual(titles({ categories: ['開発'] }), ['開発1']);
+  assert.deepEqual(titles({}), ['なし1', '調査1', '開発1']);
+  const off = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  assert.equal(off.workspaces[0].categoryGroups, null);
+  const { markdown } = wr.renderWeeklyReport(off, { template: wr.DEFAULT_TEMPLATE, columns: wr.DEFAULT_COLUMNS });
+  assert.ok(markdown.includes('### 完了（DONE）\n\n| ID |')); // オフの出力は従来のまま
+  cleanup(ctx);
+});
+
+test('BT-442 parseReportOptions: groupByCategory/categoriesの正規化と不正値', () => {
+  const ctx = createTestDb();
+  const ok = wr.parseReportOptions({ range: 'this', groupByCategory: '1', categories: ['__none__', 'x'] }, CONFIG, ctx.db);
+  assert.equal(ok.groupByCategory, true);
+  assert.deepEqual(ok.categories, ['', 'x']);
+  assert.equal(wr.parseReportOptions({ range: 'this' }, CONFIG, ctx.db).categories, undefined);
+  assert.equal(wr.parseReportOptions({ range: 'this', categories: [1] }, CONFIG, ctx.db).error, 'invalid_category');
+  cleanup(ctx);
+});
+
+test('BT-442 buildWeeklyCounts: ワークスペースごとにカテゴリ別の件数(選択ステータスで出力対象になる数)を返す', () => {
+  const ctx = createTestDb();
+  addCategoryMaster(ctx.db, '開発', 1);
+  for (const [title, category] of [['a', '開発'], ['b', '開発'], ['c', null]]) {
+    const t = addTask(ctx.db, { title, status: 'done', category });
+    addStatusEvent(ctx.db, t, 'done', IN_PERIOD);
+  }
+  const r = wr.buildWeeklyCounts(ctx.db, CONFIG, { from: '2026-10-12', to: '2026-10-18', workspaces: ['alpha'], statuses: ['done'] });
+  assert.deepEqual(r.workspaces[0].categories, { 開発: 2, '': 1 });
+  cleanup(ctx);
+});
+
+test('BT-442 旧データのカテゴリ「-」はカテゴリなしとして扱う', () => {
+  const ctx = createTestDb();
+  const t = addTask(ctx.db, { title: 'x', status: 'done', category: '-' });
+  addStatusEvent(ctx.db, t, 'done', IN_PERIOD);
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, groupByCategory: true });
+  assert.deepEqual(data.workspaces[0].categoryGroups.map(g => g.name), ['']);
+  cleanup(ctx);
 });

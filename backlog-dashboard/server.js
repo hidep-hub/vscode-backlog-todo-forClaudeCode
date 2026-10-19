@@ -901,6 +901,7 @@ function serveStatic(req, res) {
       placeholders: weeklyReport.PLACEHOLDERS,
       columnDefs: weeklyReport.COLUMN_DEFS,
       workspaces: (config.projects || []).map(p => ({ file: p.file, prefix: p.prefix || '', name: p.name || p.file })),
+      categories: categoriesRepo.listCategories(getDb(BACKLOG_DIR)).map(c => ({ name: c.name, color: c.color })),
     }));
     return;
   }
@@ -936,7 +937,7 @@ function serveStatic(req, res) {
     const list = name => (q.get(name) ? q.get(name).split(',').filter(Boolean) : undefined);
     try {
       const result = weeklyReport.buildWeeklyCounts(getDb(BACKLOG_DIR), config, {
-        range: q.get('range'), from: q.get('from'), to: q.get('to'), workspaces: list('workspaces'),
+        range: q.get('range'), from: q.get('from'), to: q.get('to'), workspaces: list('workspaces'), statuses: list('statuses'),
       });
       res.writeHead(result.error ? 400 : 200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(result));
@@ -953,6 +954,7 @@ function serveStatic(req, res) {
       const saved = weeklyReport.loadTemplate(BACKLOG_DIR);
       const result = weeklyReport.buildWeeklyReport(getDb(BACKLOG_DIR), config, {
         range: q.get('range'), from: q.get('from'), to: q.get('to'), workspaces: list('workspaces'), statuses: list('statuses'),
+        groupByCategory: q.get('groupByCategory'), categories: q.has('categories') ? list('categories') || [] : undefined,
       }, saved);
       if (result.error) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });

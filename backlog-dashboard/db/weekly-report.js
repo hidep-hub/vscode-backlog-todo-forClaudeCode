@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const tagsRepo = require('./tags-repo');
 const externalLinksRepo = require('./external-links-repo');
+const categoriesRepo = require('./categories-repo');
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -121,6 +122,11 @@ function normalizeColumns(columns) {
 const STATUS_LABEL = { todo: 'TODO', ready: 'READY', do: 'DO', done: 'DONE' };
 const STATUS_CODES = ['todo', 'ready', 'do', 'done'];
 
+// 週報でのカテゴリ名。未設定は''。旧データのプレースホルダー'-'もカテゴリなしとして扱う
+function categoryOf(row) {
+  return row.category && row.category !== '-' ? row.category : '';
+}
+
 // 表の見出しの並び(BT-438)。単発/EPICの区分けはせず、区分ごとに1つの表にする。
 const SECTIONS = [
   { kind: '期限超過', heading: '期限超過' },
@@ -197,8 +203,10 @@ function statusCountsFor(analysis, from, to) {
  * 子タスクは親のIDと件名を持つ(表示側で件名の頭に付ける)。
  * @returns {{from, to, today, statuses, workspaces: Array}}
  */
-function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today = todayJst() }) {
+function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today = todayJst(), groupByCategory = false, categories }) {
   const selected = new Set(statuses);
+  const categoryFilter = Array.isArray(categories) ? new Set(categories) : null; // ''はカテゴリなし
+  const masterOrder = categoriesRepo.listCategories(db).map(c => c.name);
 
   const projects = (config.projects || []).filter(p => workspaces.includes(p.file));
   const result = [];
@@ -226,6 +234,7 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
         status: r.status,
         statusLabel: STATUS_LABEL[r.status] || r.status,
         kind,
+        category: categoryOf(r),
         updatedAt: toJstDateTime(updated),
         updatedAtRaw: updated,
         dueDate: r.due_date || '',
@@ -238,16 +247,31 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
       };
     };
 
-    const items = included.map(toItem).sort((a, b) => (a.updatedAtRaw < b.updatedAtRaw ? 1 : -1));
-    const sections = SECTIONS
-      .map(s => ({ kind: s.kind, heading: s.heading, items: items.filter(i => i.kind === s.kind) }))
+    const items = included.map(toItem)
+      .filter(i => !categoryFilter || categoryFilter.has(i.category))
+      .sort((a, b) => (a.updatedAtRaw < b.updatedAtRaw ? 1 : -1));
+    const toSections = list => SECTIONS
+      .map(s => ({ kind: s.kind, heading: s.heading, items: list.filter(i => i.kind === s.kind) }))
       .filter(s => s.items.length > 0);
+    const sections = toSections(items);
+    // カテゴリの章: マスタ順 → マスタに無い値(移行前の自由入力)→ カテゴリなし。期間内に該当タスクが無いカテゴリは出さない
+    let categoryGroups = null;
+    if (groupByCategory) {
+      const present = [...new Set(items.map(i => i.category).filter(Boolean))];
+      const names = [
+        ...masterOrder.filter(n => present.includes(n)),
+        ...present.filter(n => !masterOrder.includes(n)).sort(),
+        ...(items.some(i => !i.category) ? [''] : []),
+      ];
+      categoryGroups = names.map(name => ({ name, sections: toSections(items.filter(i => i.category === name)) }));
+    }
 
     result.push({
       file: project.file,
       prefix: project.prefix || '',
       name: project.name || project.file,
       sections,
+      categoryGroups, // groupByCategory時のみ [{name('':カテゴリなし), sections}]
       count: items.length,
       counts: {
         done: items.filter(i => i.kind === '完了').length,
@@ -267,10 +291,16 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
 function buildWeeklyCounts(db, config, input) {
   const opts = parseReportOptions(input, config, db);
   if (opts.error) return opts;
-  const workspaces = (config.projects || []).filter(p => opts.workspaces.includes(p.file)).map(project => ({
-    file: project.file,
-    ...statusCountsFor(analyzeWorkspace(db, project, opts.from, opts.to), opts.from, opts.to),
-  }));
+  const workspaces = (config.projects || []).filter(p => opts.workspaces.includes(p.file)).map(project => {
+    const analysis = analyzeWorkspace(db, project, opts.from, opts.to);
+    // カテゴリ別の件数(BT-442): 選択ステータスで出力対象になるタスクを数える。''はカテゴリなし
+    const categories = {};
+    for (const r of pickIncluded(analysis, new Set(opts.statuses), opts.from, opts.to)) {
+      const name = categoryOf(r);
+      categories[name] = (categories[name] || 0) + 1;
+    }
+    return { file: project.file, ...statusCountsFor(analysis, opts.from, opts.to), categories };
+  });
   return { ok: true, from: opts.from, to: opts.to, workspaces };
 }
 
@@ -320,8 +350,19 @@ function renderTable(items, columns) {
   return [header, sep, ...lines].join('\n');
 }
 
+const NO_CATEGORY_HEADING = 'なし';
+const NO_CATEGORY_TOKEN = '__none__'; // GETのクエリで「カテゴリなし」を表す
+
 function renderWorkspaceTable(ws, columns) {
   if (ws.sections.length === 0) return '(該当するタスクはありません)';
+  if (ws.categoryGroups) {
+    // カテゴリ > ステータス区分 > 表 を3段の箇条書きツリーにする(見出しの下はインデントが効かないため。表を左端から出さない)
+    const indent = (text, n) => text.split('\n').map(l => ' '.repeat(n) + l).join('\n');
+    return ws.categoryGroups.map(g => {
+      const body = g.sections.map(s => `  - **${s.heading}**\n\n${indent(renderTable(s.items, columns), 4)}`).join('\n\n');
+      return `- **カテゴリ名：${g.name || NO_CATEGORY_HEADING}**\n\n${body}`;
+    }).join('\n\n');
+  }
   return ws.sections.map(s => `### ${s.heading}\n\n${renderTable(s.items, columns)}`).join('\n\n');
 }
 
@@ -394,7 +435,14 @@ function parseReportOptions(input, config, db) {
   const statuses = Array.isArray(input.statuses) ? input.statuses : ['done', 'do'];
   const badStatus = statuses.find(s => !validStatuses.includes(s));
   if (badStatus) return { error: 'invalid_status', message: `不正なステータスです: ${badStatus}` };
-  return { from, to, workspaces, statuses };
+  const groupByCategory = input.groupByCategory === true || input.groupByCategory === '1' || input.groupByCategory === 'true';
+  // categories未指定=絞り込まない。配列の''(またはGETの__none__)はカテゴリなし
+  let categories;
+  if (Array.isArray(input.categories)) {
+    if (input.categories.some(c => typeof c !== 'string')) return { error: 'invalid_category', message: 'categoriesは文字列の配列で指定してください' };
+    categories = input.categories.map(c => (c === NO_CATEGORY_TOKEN ? '' : c));
+  }
+  return { from, to, workspaces, statuses, groupByCategory, categories };
 }
 
 function buildWeeklyReport(db, config, input, { template, columns }) {
