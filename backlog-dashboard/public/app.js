@@ -2368,6 +2368,24 @@ async function renderProductMenuChecking(content) {
 }
 
 /**
+ * 「現在 vX (hash) → 更新後 vY (hash)」の1行を組み立てる(BT-444)。
+ * バージョンやハッシュが取れない側は、取れた分だけ表示する。両方空なら何も出さない。
+ * @param {{current?: {version: string|null, shortHash: string|null}, latestVersion?: string|null, latestCommit?: {shortHash: string}|null}} data
+ */
+function formatVersionTransitionHtml(data) {
+  const part = (version, hash) => {
+    const items = [];
+    if (version) items.push(`v${escapeHtml(version)}`);
+    if (hash) items.push(`<span class="product-menu-commit-hash">${escapeHtml(hash)}</span>`);
+    return items.join(' ');
+  };
+  const from = part(data.current && data.current.version, data.current && data.current.shortHash);
+  const to = part(data.latestVersion, data.latestCommit && data.latestCommit.shortHash);
+  if (!from || !to) return '';
+  return `<p class="delete-confirm-text product-menu-version-transition">現在 ${from} → 更新後 ${to}</p>`;
+}
+
+/**
  * 更新確認結果を表示する。更新がある場合は最新コミット情報と「今すぐ更新する」ボタンを出す。
  * @param {{updateAvailable: boolean, aheadBy: number, latestCommit: object|null}} data
  */
@@ -2396,6 +2414,7 @@ function renderProductMenuResult(content, data) {
     <button class="modal-close" id="product-menu-close">&times;</button>
     <h3 class="add-form-title">Backlog Dashboard</h3>
     <p class="delete-confirm-text">更新があるよ(${hasList ? pending.length : data.aheadBy}件)</p>
+    ${formatVersionTransitionHtml(data)}
     ${hasList ? formatPendingCommitsHtml(pending) : formatLatestCommitHtml(data.latestCommit)}
     <p class="delete-confirm-error" style="display:none;"></p>
     <div class="edit-form-actions">

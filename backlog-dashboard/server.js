@@ -99,7 +99,7 @@ const RUNNING_COMMIT = resolveRunningCommit();
 // 既存のexecFileSync(同期)ではなく非同期のexecFileを使い、イベントループを
 // 長時間ブロックしないようにする。
 const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30分
-let updateCheckState = { updateAvailable: false, aheadBy: 0, checkedAt: null, latestCommit: null, commits: [] };
+let updateCheckState = { updateAvailable: false, aheadBy: 0, checkedAt: null, latestCommit: null, latestVersion: null, commits: [] };
 
 /**
  * origin/mainの最新コミット1件を「短縮ハッシュ|コミット日時|件名」の形式(区切り文字は
@@ -127,6 +127,46 @@ function getLatestOriginMainCommit() {
       }
     );
   });
+}
+
+/**
+ * origin/mainのbacklog-dashboard/package.jsonからバージョンを取得する(BT-444)。
+ * 取得できない場合(ファイル無し・JSON不正等)はnullを返し、画面側はハッシュだけ表示する。
+ * @returns {Promise<string|null>}
+ */
+function getLatestOriginMainVersion() {
+  return new Promise((resolve) => {
+    execFile(
+      'git',
+      ['show', 'origin/main:backlog-dashboard/package.json'],
+      { cwd: REPO_ROOT, encoding: 'utf8' },
+      (err, stdout) => {
+        if (err) {
+          console.error('[update-check] git show (latest version) failed:', err.message);
+          resolve(null);
+          return;
+        }
+        try {
+          resolve(JSON.parse(stdout).version || null);
+        } catch (e) {
+          console.error('[update-check] latest package.json parse failed:', e.message);
+          resolve(null);
+        }
+      }
+    );
+  });
+}
+
+/**
+ * 更新確認結果に、起動中のバージョン・コミット(current)を添えて返す(BT-444)。
+ * 起動後にgit pullされても、実際に動いているのは起動時点のコードなので、
+ * currentは起動時に確定したAPI_VERSION/RUNNING_COMMITを使う。
+ */
+function withCurrent(state) {
+  return {
+    ...state,
+    current: { version: API_VERSION, shortHash: RUNNING_COMMIT ? RUNNING_COMMIT.shortHash : null },
+  };
 }
 
 /**
@@ -186,11 +226,13 @@ function refreshUpdateCheck() {
         const aheadBy = parseInt(stdout.trim(), 10) || 0;
         const latestCommit = aheadBy > 0 ? await getLatestOriginMainCommit() : null;
         const commits = aheadBy > 0 ? await getPendingCommits() : [];
+        const latestVersion = aheadBy > 0 ? await getLatestOriginMainVersion() : null;
         updateCheckState = {
           updateAvailable: aheadBy > 0,
           aheadBy,
           checkedAt: new Date().toISOString(),
           latestCommit,
+          latestVersion,
           commits,
         };
         resolve(updateCheckState);
@@ -1001,7 +1043,7 @@ function serveStatic(req, res) {
   // git fetchはここでは実行しない軽量な参照系)
   if (req.url === '/api/update-check' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify(updateCheckState));
+    res.end(JSON.stringify(withCurrent(updateCheckState)));
     return;
   }
 
@@ -1010,7 +1052,7 @@ function serveStatic(req, res) {
   if (req.url === '/api/update-check/refresh' && req.method === 'POST') {
     refreshUpdateCheck().then((state) => {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(state));
+      res.end(JSON.stringify(withCurrent(state)));
     });
     return;
   }
