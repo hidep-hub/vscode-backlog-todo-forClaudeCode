@@ -70,6 +70,12 @@ function getOrCreateWeeklyPane(container) {
         <div class="weekly-hint">期日が期間内のタスクと、期日を過ぎた未完了タスクは、ステータスに関わらず出力します。</div>
       </section>
       <section class="weekly-section">
+        <h4>カテゴリ</h4>
+        <div class="weekly-check-list weekly-inline"><label><input type="checkbox" id="weekly-group-category"> カテゴリで章を分ける</label></div>
+        <div class="weekly-check-list weekly-inline" id="weekly-categories"></div>
+        <div class="weekly-hint">チェックしたカテゴリのタスクだけを出力します。章分けをオンにすると、ワークスペース＞カテゴリ＞ステータス＞表の順になります（期間内にタスクがあるカテゴリだけ章になります）。</div>
+      </section>
+      <section class="weekly-section">
         <h4>表の列</h4>
         <div class="weekly-check-list weekly-inline" id="weekly-columns"></div>
       </section>
@@ -117,14 +123,14 @@ function getOrCreateWeeklyPane(container) {
   // 期間(今週/先週/任意と日付)が変わった時は、ワークスペース横の件数も取り直す
   const schedule = e => {
     renderWeeklyRangeLabel();
-    if (e && e.target.closest('input[name="weekly-range"], #weekly-from, #weekly-to')) refreshWeeklyCounts();
+    if (e && e.target.closest('input[name="weekly-range"], #weekly-from, #weekly-to, #weekly-workspaces, #weekly-statuses')) refreshWeeklyCounts();
     clearTimeout(weeklyPreviewTimer);
     weeklyPreviewTimer = setTimeout(refreshWeeklyPreview, 250);
   };
   $('#weekly-left').addEventListener('input', schedule);
   $('#weekly-left').addEventListener('change', e => {
     if (e.target.name === 'weekly-range') $('#weekly-custom-range').hidden = e.target.value !== 'custom';
-    if (e.target.closest('#weekly-workspaces, #weekly-statuses')) saveWeeklySettings();
+    if (e.target.closest('#weekly-workspaces, #weekly-statuses, #weekly-group-category, #weekly-categories')) saveWeeklySettings();
     schedule(e);
   });
   $('#weekly-tabs').addEventListener('click', e => {
@@ -163,8 +169,10 @@ function loadWeeklySettings() {
     return {
       workspaces: Array.isArray(v.workspaces) ? v.workspaces.filter(x => typeof x === 'string') : [],
       statuses: Array.isArray(v.statuses) ? v.statuses.filter(x => typeof x === 'string') : [],
+      groupByCategory: v.groupByCategory === true,
+      categories: Array.isArray(v.categories) ? v.categories.filter(x => typeof x === 'string') : null, // null=未保存(全部選択)
     };
-  } catch { return { workspaces: [], statuses: [] }; }
+  } catch { return { workspaces: [], statuses: [], groupByCategory: false, categories: null }; }
 }
 
 function saveWeeklySettings() {
@@ -175,6 +183,8 @@ function saveWeeklySettings() {
     localStorage.setItem(WEEKLY_SETTINGS_KEY, JSON.stringify({
       workspaces: sel.workspaces.length ? sel.workspaces : prev.workspaces,
       statuses: sel.statuses.length ? sel.statuses : prev.statuses,
+      groupByCategory: sel.groupByCategory,
+      categories: sel.allCategories.filter(c => sel.checkedCategories.includes(c)),
     }));
   } catch { /* localStorageが使えなくても動作に支障はない */ }
 }
@@ -245,6 +255,7 @@ function showWeeklyView(view) {
 
 function weeklySelection() {
   const $ = sel => weeklyPaneEl.querySelector(sel);
+  const allCats = () => [...weeklyPaneEl.querySelectorAll('#weekly-categories input')].map(i => i.value);
   const range = weeklyPaneEl.querySelector('input[name="weekly-range"]:checked').value;
   const checked = sel => [...weeklyPaneEl.querySelectorAll(`${sel} input:checked`)].map(i => i.value);
   return {
@@ -255,6 +266,15 @@ function weeklySelection() {
     statuses: checked('#weekly-statuses'),
     columns: checked('#weekly-columns'),
     template: $('#weekly-template').value,
+    groupByCategory: $('#weekly-group-category').checked,
+    // すべて選択中はnull(絞り込まない。マスタに無い旧値のカテゴリも出す)。''はカテゴリなし
+    categories: (() => {
+      const all = allCats();
+      const on = checked('#weekly-categories');
+      return all.every(c => on.includes(c)) ? null : on;
+    })(),
+    allCategories: allCats(),
+    checkedCategories: checked('#weekly-categories'),
   };
 }
 
@@ -294,6 +314,7 @@ async function refreshWeeklyPreview() {
   const sel = weeklySelection();
   const seq = ++weeklyPreviewSeq;
   if (sel.workspaces.length === 0) { renderWeeklyResult({ markdown: '', warnings: ['対象ワークスペースを1つ以上選んでください'] }); setWeeklyStatus(''); return; }
+  if (sel.categories && sel.categories.length === 0) { renderWeeklyResult({ markdown: '', warnings: ['出力カテゴリを1つ以上選んでください'] }); setWeeklyStatus(''); return; }
   if (sel.statuses.length === 0) { renderWeeklyResult({ markdown: '', warnings: ['出力ステータスを1つ以上選んでください'] }); setWeeklyStatus(''); return; }
   if (sel.range === 'custom' && (!sel.from || !sel.to)) { renderWeeklyResult({ markdown: '', warnings: ['任意期間は、開始日と終了日の両方を選んでください'] }); setWeeklyStatus(''); return; }
   setWeeklyStatus('生成中...');
@@ -301,7 +322,10 @@ async function refreshWeeklyPreview() {
     const res = await fetch('/api/weekly-report-preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...weeklyPeriodParams(sel), workspaces: sel.workspaces, statuses: sel.statuses, columns: sel.columns, template: sel.template }),
+      body: JSON.stringify({
+        ...weeklyPeriodParams(sel), workspaces: sel.workspaces, statuses: sel.statuses, columns: sel.columns, template: sel.template,
+        groupByCategory: sel.groupByCategory, ...(sel.categories ? { categories: sel.categories } : {}),
+      }),
     });
     const data = await res.json();
     if (seq !== weeklyPreviewSeq || weeklyManualEdit) return; // 古い応答・手編集後の応答は捨てる
@@ -423,10 +447,18 @@ async function refreshWeeklyCounts() {
   if (sel.range === 'custom' && (!sel.from || !sel.to)) { for (const b of boxes) b.innerHTML = ''; return; }
   try {
     const q = new URLSearchParams(weeklyPeriodParams(sel));
+    if (sel.statuses.length) q.set('statuses', sel.statuses.join(','));
     const res = await fetch(`/api/weekly-report-counts?${q}`);
     const data = await res.json();
     if (seq !== weeklyCountsSeq) return; // 古い応答は捨てる
     const byFile = new Map((data.workspaces || []).map(w => [w.file, w]));
+    // カテゴリ別の件数: 選択中のワークスペース・ステータスで出力対象になる数(期間内)
+    const catTotals = {};
+    for (const w of data.workspaces || []) {
+      if (!sel.workspaces.includes(w.file)) continue;
+      for (const [name, n] of Object.entries(w.categories || {})) catTotals[name] = (catTotals[name] || 0) + n;
+    }
+    for (const el of weeklyPaneEl.querySelectorAll('.weekly-cat-count')) el.textContent = `(${catTotals[el.dataset.cat] || 0})`;
     for (const box of boxes) {
       const w = byFile.get(box.dataset.ws);
       box.innerHTML = w ? WEEKLY_STATUSES.map(([code, label]) => {
@@ -468,6 +500,12 @@ async function showWeeklyPane(container) {
     </div>`).join('');
   $('#weekly-statuses').innerHTML = WEEKLY_STATUSES.map(([code, label]) => `
     <label><input type="checkbox" value="${code}"${initialStatuses.includes(code) ? ' checked' : ''}> ${label}</label>`).join('');
+  // カテゴリ: マスタ全件＋カテゴリなし(値''。チェックボックスのvalueは空文字のまま)。保存が無ければ全選択
+  const catNames = [...weeklyMeta.categories.map(c => c.name), ''];
+  const checkedCats = saved.categories ? catNames.filter(c => saved.categories.includes(c)) : catNames;
+  $('#weekly-categories').innerHTML = catNames.map(name => `
+    <label><input type="checkbox" value="${escapeHtml(name)}"${(checkedCats.length ? checkedCats : catNames).includes(name) ? ' checked' : ''}> ${name ? escapeHtml(name) : 'カテゴリなし'} <span class="weekly-cat-count" data-cat="${escapeHtml(name)}"></span></label>`).join('');
+  $('#weekly-group-category').checked = saved.groupByCategory;
   setWeeklyColumns(weeklyMeta.columns);
   $('#weekly-template').value = weeklyMeta.template;
   $('#weekly-format-status').textContent = weeklyMeta.saved ? '保存済みの書式を使っています' : '既定の書式です(編集して「保存」できます)';

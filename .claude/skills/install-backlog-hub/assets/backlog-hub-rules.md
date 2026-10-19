@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.15.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099、BT-291、BT-438、BM-105、BT-444。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.16.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099、BT-291、BT-438、BM-105、BT-444、BT-442。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## ルール正本と配布方式
 
@@ -94,6 +94,7 @@ AGENTS.md.sample（Git管理の唯一の正本）
     - `GET /api/weekly-report?range=this|last（またはfrom=&to=YYYY-MM-DD）&workspaces=<projects[].file,...>&statuses=done,do&format=md|json` — 保存済みの書式で生成。`format=md`はダウンロード、省略はJSON（`markdown`/`warnings`/`data`）。期間は月曜〜日曜（JST）。不正な期間・ワークスペース・ステータスは400
     - `POST /api/weekly-report-preview {range|from,to, workspaces?, statuses?, template?, columns?}`（編集中の書式でプレビュー。書式は保存しない）/ `GET|POST /api/weekly-report-template`（書式と列の取得・保存。`{reset:true}`で既定に戻す。保存先は`<backlogDir>/weekly-report-template.json`）
     - 出力対象は、期間内に選択ステータスへ変わったタスク＋期日が期間内（または期間より前で未完了）のタスク（ステータス不問）。単発/EPICの区分けはせず、「期限超過 → 完了(DONE) → 対応中(DO/READY) → 未着手(TODO)」の見出しごとに1つの表にまとめる（該当が無い見出しは出さない）。子タスクは件名の頭に親のIDと件名を付ける。**【BT-438】** 列に外部ITS（Redmine/GitLab）のIssue番号を選べる。ワークスペース見出しには、ステータス別件数バッジ（`{{statusCounts}}`）を出せる
+    - **【BT-442, API 2.16.0】カテゴリ**: `groupByCategory`（`1`/`true`）で「ワークスペース＞カテゴリ＞ステータス＞表」の章立てになる（カテゴリ・ステータス・表の3段の箇条書きで、表は字下げされる。既定はオフで従来と同じ）。`categories`（GETはカンマ区切り、POSTは文字列配列。カテゴリなしは`__none__`／空文字）で出力カテゴリを絞り込める（章分けオフでも有効、未指定は絞り込まない）。章は期間内に対象タスクがあるカテゴリだけで、並びはマスタ順→マスタ外→カテゴリなし。旧データの`-`はカテゴリなしとして扱う。`/api/weekly-report-counts`は`statuses`を受け取り、各ワークスペースに`categories`（カテゴリ別の件数、`""`はカテゴリなし）を返す
   - **タスク一覧のCSVエクスポート（BT-221、API 2.8.0）**: `GET /api/export-csv?workspace=<projects[].file>` — 外部のガントチャート等へ転送するためのCSVをダウンロード形式（`Content-Disposition: attachment`、BOM付きUTF-8）で返す。読み取り専用で、バックアップ中の全体ロック（409）の対象外。`workspace`省略で全ワークスペース、未登録の`workspace`は400（`unknown_workspace`）
     - 1行1タスクで、EPICの直後にその子が続く。列は`workspace, id, parent_id, type, board_order, title, status, assignee, start_date, due_date, completed_at, tags, category, description, description_truncated, deliverables, its_source, its_issue, its_url`。`workspace`は常に先頭、`board_order`はボード上の並び順（親ごと。トップレベルは同じ実効ステータス内）、`deliverables`はパスではなくファイル名のみ
     - 論理削除済みは含まない。履歴（`task_events`）は含めない（完全な保全は`/api/backup`で行う）。説明欄は3万文字超で切り詰め`description_truncated=1`になる。応答ヘッダ`X-Export-Row-Count`/`X-Export-Truncated-Count`で件数を確認できる。画面からはバックアップのモーダル内「CSVエクスポート」欄で取得できる
