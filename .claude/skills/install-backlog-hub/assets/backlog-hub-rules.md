@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.13.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099、BT-291、BT-438、BM-105。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.14.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099、BT-291、BT-438、BM-105。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## ルール正本と配布方式
 
@@ -54,7 +54,9 @@ AGENTS.md.sample（Git管理の唯一の正本）
     - `status`省略時は`todo`
     - **【BT-377, API 2.4.0】過去の完了済みタスクを追加する場合は`status:"done"`と`completedAt`（オフセット付きISO 8601、例`"2026-09-01T10:30:00+09:00"`）を渡す**。`completed_at`と履歴（`created`/`status_changed→done`）が入力日時を基準に記録される。`completedAt`は`status:"done"`の時のみ指定でき（それ以外は400）、未来日時・不正な形式は400。省略時は現在時刻
     - **【重要】`project`にはprefix（例`"BT"`）ではなくconfig.jsonの`projects[].file`値（例`"backlog-todo"`）を渡すこと（BT-129）**。prefixを渡すと該当プロジェクトが解決できず、デフォルト（`inbox`等）に採番されてしまう。追加後は必ず期待したプレフィクスでID発行されたか確認する
-    - **【BM-105, API 2.13.0】`category`はワークスペースのカテゴリマスタ（`categories`テーブル）に登録済みの名前のみ受け付ける**。未登録の名前を渡すと400 `unknown_category`。AIが自己判断で新規カテゴリ名を作らず、`GET /api/categories?workspace=`で既存のカテゴリを確認するか、ユーザーに確認してから値を渡すこと。空文字/省略は「カテゴリなし」として常に許可される
+    - **【BM-105, API 2.14.0】`category`はカテゴリマスタ（`categories`テーブル、ワークスペースをまたいでシステム全体で一意）に登録済みの名前のみ受け付ける**。未登録の名前を渡すと400 `unknown_category`。AIが自己判断で新規カテゴリ名を作らず、`GET /api/categories`で既存のカテゴリを確認するか、ユーザーに確認してから値を渡すこと。空文字/省略は「カテゴリなし」として常に許可される
+    - **【重要・既存データからの移行】`categories`マスタはBM-105時点では空で始まる一方、`tasks.category`列自体はBM-105より前から存在し自由入力の値（例「バグ修正」「調査」）が既に入っていることがある。この既存値はマスタに自動登録されない**ため、該当タスクの`category`を`update-task`で変更しようとした瞬間に`unknown_category`で弾かれる（他フィールドだけの更新や、値を変えない操作は影響しない）。このAPIバージョンに上げた後にcategoryの操作で原因不明の400が出た場合は、まずこれを疑う。対応手順: ①`SELECT DISTINCT category FROM tasks WHERE category IS NOT NULL`相当で使われている値を洗い出す（DBファイルへの直接SQLは行わず、読み取り目的でも可能な範囲はAPI経由で確認する）②ユーザーに見せて要否を確認する③残したいものだけ`POST /api/create-category`で登録する④残り（削除したいもの）はカテゴリ管理画面またはAPIから`delete-category`し、該当タスクの`category`を自動クリアさせる。この移行作業はユーザー運用データの取捨選択を伴うため、AIが自己判断で一括登録・一括削除をせず、対象一覧をユーザーに確認してから実行する
+    - **【表記ゆれの罠】カテゴリ名はNFKC正規化（全角/半角、空白等）を経てマスタに保存される**（例: 全角括弧「（）」が半角「()」になる等）。移行で既存値をそのままマスタに登録すると、`tasks.category`列の元の表記とマスタの表記がずれることがあり、その場合`listCategories`の使用数カウントや`delete-category`のタスク一括更新は**完全一致**で該当タスクを探すため、ずれたタスクが取り残される（使用数が0件なのに値は残っている状態になる）。移行後は`GET /api/categories`の`usageCount`と、実際にその値を使っているはずのタスク件数を見比べて、食い違いがあれば個別に`update-task`で正しい表記へ揃える
   - 更新: `POST /api/update-task {taskId, title?, description?, category?, assignee?, startDate?, dueDate?}` — 渡したフィールドのみ更新。`category`の挙動は追加時と同じ（マスタ登録済みの名前のみ、BM-105）
   - 並べ替え: `POST /api/reorder {orderedIds: [taskId, ...]}`（2件以上）— 同じ親を持つ子タスク同士、またはトップレベルで同じ実効ステータス同士でないと400
   - 親子付け替え: `POST /api/attach-to-parent {taskIds: [...], parentId}` / `POST /api/detach-from-parent {taskId}`（親子は2階層まで）

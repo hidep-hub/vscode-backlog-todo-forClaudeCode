@@ -202,6 +202,71 @@ const EVENT_TYPE_SEED = [
 ];
 
 /**
+ * BM-105方針転換(workspace単位→システム全体で一意)の移行処理。
+ * 旧スキーマ(workspace列あり、UNIQUE(workspace, name_key))のcategoriesテーブルが
+ * 存在する場合、新スキーマ(workspace列なし、UNIQUE(name_key))へ安全に移行する。
+ * 新スキーマに対して呼んでも何もしない(CREATE TABLE IF NOT EXISTSより前に判定するため)。
+ *
+ * 移行手順:
+ * 1. 旧テーブルをリネームして退避する
+ * 2. 新スキーマで categories テーブルを作り直す
+ * 3. 旧データをname_keyでグルーピングし、各グループの先頭行(id昇順)を正本として1件だけ挿入する
+ *    (同名カテゴリが複数ワークスペースに存在した場合、tagsのmergeTagsと同じ考え方で1件に統合する)
+ * 4. 統合によって名前表記が変わった分(表記ゆれ違いの重複があった場合)は、該当する
+ *    tasks.category列を正本の名前に書き換える(name_keyが同じでも大文字小文字等が
+ *    異なれば別の文字列として保存されているため、統合後の表記に揃える必要がある)
+ * 5. 退避した旧テーブルを削除する
+ * @param {import('node:sqlite').DatabaseSync} db
+ */
+function migrateCategoriesWorkspaceScopeIfNeeded(db) {
+  const existing = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'categories'"
+  ).get();
+  if (!existing || !/\bworkspace\b/.test(existing.sql)) return; // 未作成、または既に新スキーマなら何もしない
+
+  db.exec('ALTER TABLE categories RENAME TO categories_bm105_migration_old;');
+  db.exec(`CREATE TABLE categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL UNIQUE,
+    color TEXT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT NOT NULL
+  )`);
+
+  const oldRows = db.prepare('SELECT * FROM categories_bm105_migration_old ORDER BY id').all();
+  const primaryByKey = new Map(); // name_key -> 正本として採用した旧行
+  const renamePairs = []; // 統合により表記が変わるタスク用 {from, to}
+  for (const row of oldRows) {
+    const primary = primaryByKey.get(row.name_key);
+    if (!primary) {
+      primaryByKey.set(row.name_key, row);
+    } else if (row.name !== primary.name) {
+      renamePairs.push({ from: row.name, to: primary.name });
+    }
+  }
+
+  const insertCategory = db.prepare(`INSERT INTO categories
+    (name, name_key, color, sort_order, created_at, created_by, updated_at, updated_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+  let sortOrder = 0;
+  for (const row of primaryByKey.values()) {
+    sortOrder += 1;
+    insertCategory.run(row.name, row.name_key, row.color, sortOrder, row.created_at, row.created_by, row.updated_at, row.updated_by);
+  }
+
+  const updateTaskCategory = db.prepare('UPDATE tasks SET category = ? WHERE category = ?');
+  for (const { from, to } of renamePairs) {
+    updateTaskCategory.run(to, from);
+  }
+
+  db.exec('DROP TABLE categories_bm105_migration_old;');
+}
+
+/**
  * DB接続に対しPRAGMAの設定とテーブル作成、マスターデータの初期投入を行う。
  * 既存DBに対して呼んでも安全（IF NOT EXISTS / INSERT OR IGNORE）。
  * @param {import('node:sqlite').DatabaseSync} db
@@ -219,6 +284,10 @@ function createSchema(db) {
 
   db.exec('BEGIN');
   try {
+    // BM-105方針転換: DDL(CREATE TABLE IF NOT EXISTS)より前に、旧workspace単位スキーマからの
+    // 移行を行う(IF NOT EXISTSは「存在すれば何もしない」ため、ここで先に新スキーマへ揃えておく必要がある)。
+    migrateCategoriesWorkspaceScopeIfNeeded(db);
+
     for (const stmt of DDL) db.exec(stmt);
     for (const stmt of FTS_DDL) db.exec(stmt);
 
