@@ -218,7 +218,7 @@ function renderCategoryMergeRow(source) {
 
 function showCategoryRowError(rowEl, message) {
   const el = rowEl && rowEl.querySelector('.tag-row-error');
-  if (!el) { alert(message); return; }
+  if (!el) { showAlert(message); return; }
   el.textContent = message;
   el.hidden = false;
 }
@@ -259,7 +259,7 @@ async function doCategoryMerge(source, rowEl) {
   const targetId = Number(rowEl.querySelector('.tag-merge-target').value);
   const target = categoryManagerCategories.find(c => c.id === targetId);
   if (!target) return;
-  if (!window.confirm(categoryLogic.buildMergeMessage(source, target))) return;
+  if (!(await showConfirm(categoryLogic.buildMergeMessage(source, target)))) return;
   const res = await categoryPost('/api/merge-categories', { sourceId: source.id, targetId });
   if (res.status !== 200) { showCategoryRowError(rowEl, categoryLogic.describeCategoryError(res.body).message); return; }
   categoryMergingId = null;
@@ -268,9 +268,9 @@ async function doCategoryMerge(source, rowEl) {
 }
 
 async function doCategoryDelete(category) {
-  if (!window.confirm(categoryLogic.buildDeleteMessage(category))) return;
+  if (!(await showConfirm(categoryLogic.buildDeleteMessage(category)))) return;
   const res = await categoryPost('/api/delete-category', { categoryId: category.id });
-  if (res.status !== 200) { alert(`削除できませんでした: ${categoryLogic.describeCategoryError(res.body).message}`); return; }
+  if (res.status !== 200) { await showAlert(`削除できませんでした: ${categoryLogic.describeCategoryError(res.body).message}`); return; }
   await loadCategories();
   refreshBoardAfterCategoryChange();
 }
@@ -506,7 +506,7 @@ function openCardCategoryPicker(anchor) {
     currentKey: categoryLogic.commonCategoryKey([item]),
     onSelect: async (name) => {
       const ok = await updateTaskCategoryApi(taskId, name);
-      if (!ok) alert('カテゴリを更新できませんでした');
+      if (!ok) await showAlert('カテゴリを更新できませんでした');
       return ok;
     },
   });
@@ -524,7 +524,7 @@ function openBulkCategoryPicker(anchor) {
       for (const item of items) {
         if (!(await updateTaskCategoryApi(item.id, name))) failed.push(item.id);
       }
-      if (failed.length) alert(`カテゴリを設定できなかったタスクがあるよ: ${failed.join(', ')}`);
+      if (failed.length) await showAlert(`カテゴリを設定できなかったタスクがあるよ: ${failed.join(', ')}`);
       return failed.length === 0;
     },
   });

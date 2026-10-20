@@ -252,7 +252,7 @@ function renderMergeRow(source) {
 
 function showRowError(rowEl, message) {
   const el = rowEl && rowEl.querySelector('.tag-row-error');
-  if (!el) { alert(message); return; }
+  if (!el) { showAlert(message); return; }
   el.textContent = message;
   el.hidden = false;
 }
@@ -292,7 +292,7 @@ async function doTagMerge(source, rowEl) {
   const targetId = Number(rowEl.querySelector('.tag-merge-target').value);
   const target = tagManagerTags.find(t => t.id === targetId);
   if (!target) return;
-  if (!window.confirm(tagLogic.buildMergeMessage(source, target))) return;
+  if (!(await showConfirm(tagLogic.buildMergeMessage(source, target)))) return;
   const res = await tagPost('/api/merge-tags', { sourceId: source.id, targetId });
   if (res.status !== 200) { showRowError(rowEl, tagLogic.describeTagError(res.body).message); return; }
   tagMergingId = null;
@@ -300,9 +300,9 @@ async function doTagMerge(source, rowEl) {
 }
 
 async function doTagDelete(tag) {
-  if (!window.confirm(tagLogic.buildDeleteMessage(tag))) return;
+  if (!(await showConfirm(tagLogic.buildDeleteMessage(tag)))) return;
   const res = await tagPost('/api/delete-tag', { tagId: tag.id });
-  if (res.status !== 200) { alert(`削除できませんでした: ${tagLogic.describeTagError(res.body).message}`); return; }
+  if (res.status !== 200) { await showAlert(`削除できませんでした: ${tagLogic.describeTagError(res.body).message}`); return; }
   await loadTags();
 }
 
@@ -518,7 +518,7 @@ function tagIdsFromList(listEl) {
 async function updateTaskTagsApi(taskId, change) {
   const res = await tagPost('/api/update-task-tags', { taskId, ...change });
   if (res.status !== 200) {
-    alert(`タグを更新できませんでした: ${tagLogic.describeTagError(res.body).message}`);
+    await showAlert(`タグを更新できませんでした: ${tagLogic.describeTagError(res.body).message}`);
     return null;
   }
   return res.body.tags || [];
@@ -608,7 +608,7 @@ function openBulkTagPicker(anchor) {
         if (res.status !== 200) { failed.push(item.id); continue; }
         if (checked) have.get(item.id).add(row.key); else have.get(item.id).delete(row.key);
       }
-      if (failed.length) alert(`タグを${checked ? '付け' : '外し'}られなかったタスクがあるよ: ${failed.join(', ')}`);
+      if (failed.length) await showAlert(`タグを${checked ? '付け' : '外し'}られなかったタスクがあるよ: ${failed.join(', ')}`);
       return failed.length === 0;
     },
   });
