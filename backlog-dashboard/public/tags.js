@@ -631,13 +631,16 @@ document.addEventListener('click', async (e) => {
 // --- カードのタグボタン(BT-423) ---
 function openCardTagPicker(anchor) {
   const taskId = anchor.dataset.taskId;
-  const item = findItemById(taskId);
+  // EPICのミニボード上の子カードにも付く(BT-448)。子はprojectを持たないため親EPICから補う
+  const parentEpic = findItemById(taskId) ? null : findParentEpicOfChildId(taskId);
+  const item = findItemById(taskId) || findChildItemById(taskId);
   if (!item) return;
+  const project = item.project || (parentEpic && parentEpic.project);
   const selectedIds = new Set((item.tags || []).map(t => t.id));
   openTagPicker({
     anchor,
     reanchor: () => document.querySelector(`.card-tag-btn[data-task-id="${taskId}"]`),
-    workspace: tagWorkspaceForProject(item.project),
+    workspace: tagWorkspaceForProject(project),
     selectedIds,
     onToggle: async (tag, checked) => {
       const tags = await updateTaskTagsApi(taskId, checked ? { add: [tag.id] } : { remove: [tag.id] });

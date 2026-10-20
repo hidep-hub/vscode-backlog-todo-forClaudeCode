@@ -277,3 +277,10 @@ test('ガントはタイトルの右にタグを出し、タグ絞り込みの�
   assert.ok(!tagsJs.includes('絞り込みを解除</button>'), 'フッターの旧ボタンは廃止');
   has(css, '.tag-filter-clear-sel:disabled');
 });
+
+test('EPIC内の子カード(ミニボード)にもタグボタンが付き、子itemとprojectを解決できる (BT-448)', () => {
+  assert.match(app, /card-tag-btn" data-task-id="\$\{child\.id\}"/);
+  assert.match(app, /openCardTagPicker\(childTagBtnEl\)/);
+  assert.match(tagsJs, /findItemById\(taskId\) \|\| findChildItemById\(taskId\)/);
+  assert.match(tagsJs, /findParentEpicOfChildId\(taskId\)/);
+});

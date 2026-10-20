@@ -7848,6 +7848,7 @@ function buildMiniBoard(epic) {
       const childActionsHtml = child.id
         ? `<div class="card-actions">
             <button class="card-action-btn card-child-due-btn" data-task-id="${child.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
+            <button class="card-action-btn card-tag-btn" data-task-id="${child.id}" title="タグを付け外し"><span class="material-icon icon-tag"></span></button>
             <button class="card-action-btn card-category-btn" data-task-id="${child.id}" title="カテゴリを設定"><span class="material-icon icon-stacks"></span></button>
             <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集"><span class="material-icon icon-edit"></span></button>
             ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
@@ -7873,6 +7874,16 @@ function buildMiniBoard(epic) {
           e.stopPropagation();
           e.preventDefault();
           openDueDatePicker(childDueBtnEl, child.dueDate, (date) => planUpdateDueDate(child.id, date));
+        });
+      }
+
+      // タグボタンのイベント（BT-448）
+      const childTagBtnEl = card.querySelector('.card-tag-btn');
+      if (childTagBtnEl) {
+        childTagBtnEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          openCardTagPicker(childTagBtnEl);
         });
       }
 
