@@ -359,8 +359,9 @@ button.gantt-stat { cursor: pointer; }
 .gantt-label-head { font-weight: 600; color: var(--text-muted); cursor: pointer; }
 .gantt-toggle { width: 12px; color: var(--text-muted); flex: none; }
 /* BT-390: EPIC行ラベルのアイコン(看板と同じepic-icon部品) */
-.gantt-epic-icon { display: inline-flex; align-items: center; }
-.gantt-epic-icon .material-icon { width: 14px; height: 14px; }
+.gantt-epic-chip { vertical-align: middle; }
+/* BT-450: 単発タスク見出しのアイコン(EPICのチップと対になる控えめな線画) */
+.gantt-single-icon { width: 15px; height: 15px; margin-right: 4px; vertical-align: -3px; }
 .gantt-id { color: var(--text-muted); font-size: 0.7rem; flex: none; }
 /* タイトルの右のタグ。タイトルより先に縮まないよう幅の上限を持たせ、はみ出す分は切る(全文はホバーのtitle) */
 .gantt-tags { flex: 0 1 auto; min-width: 0; max-width: 34%; overflow: hidden; display: inline-flex; align-items: center; }

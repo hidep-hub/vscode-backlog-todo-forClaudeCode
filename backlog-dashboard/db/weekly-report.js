@@ -416,12 +416,15 @@ function renderStatusCounts({ counts, active }) {
 
 const EXTERNAL_SOURCE_LABEL = { redmine: 'Redmine', gitlab: 'GitLab' };
 
-// 件名セル。EPIC(集約行)はタイトルの下に、ヒットした子タスクだけを<small>+<br/>+「└」で列挙する(BM-121)。
+// EPICのタイトル先頭に付ける線画系の記号(BT-450)。貼り先のフォントで表示できない場合はここだけ差し替える。
+const EPIC_TITLE_MARK = '⧉';
+
+// 件名セル。EPIC(集約行)はタイトルの先頭に記号を付け、下にヒットした子タスクだけを<small>+<br/>+「└」で列挙する(BM-121)。
 // 単発タスクはタイトルだけ。
 function renderTitleCell(item) {
   if (!item.isEpic) return cell(item.title);
   const childLines = item.childLeaves.map(c => `└ ${cell(c.title)}`).join('<br/>');
-  return `${cell(item.title)}<br/><small>${childLines}</small>`;
+  return `${EPIC_TITLE_MARK} ${cell(item.title)}<br/><small>${childLines}</small>`;
 }
 
 function renderExternal(item) {
