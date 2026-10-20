@@ -130,7 +130,7 @@ function getOrCreateWeeklyPane(container) {
   $('#weekly-left').addEventListener('input', schedule);
   $('#weekly-left').addEventListener('change', e => {
     if (e.target.name === 'weekly-range') $('#weekly-custom-range').hidden = e.target.value !== 'custom';
-    if (e.target.closest('#weekly-workspaces, #weekly-statuses, #weekly-group-category, #weekly-categories')) saveWeeklySettings();
+    if (e.target.closest('#weekly-workspaces, #weekly-statuses, #weekly-group-category, #weekly-categories, #weekly-columns')) saveWeeklySettings();
     schedule(e);
   });
   $('#weekly-tabs').addEventListener('click', e => {
@@ -158,9 +158,11 @@ function getOrCreateWeeklyPane(container) {
   return weeklyPaneEl;
 }
 
-// --- 選択の記憶(BT-438) ---
-// 対象ワークスペースと出力ステータスはこのブラウザだけの便宜として保存し、次に開いた時に復元する。
-// 期間は開くたびに今週へ戻す。書式と列は「保存」ボタン(サーバー側)の担当。
+// --- 選択の記憶(BT-438, BM-123で列を追加) ---
+// 対象ワークスペース・出力ステータス・表の列はこのブラウザだけの便宜として保存し、次に開いた時に復元する。
+// 期間は開くたびに今週へ戻す。書式(テンプレート文字列)は「保存」ボタン(サーバー側、チーム共有)の担当。
+// 列はテンプレートと違い「このブラウザで直前に選んだ表示列」の記憶なので、サーバー側の保存済み書式より
+// こちらを優先する(showWeeklyPaneの初期化を参照)。
 const WEEKLY_SETTINGS_KEY = 'weeklySettings';
 
 function loadWeeklySettings() {
@@ -171,8 +173,9 @@ function loadWeeklySettings() {
       statuses: Array.isArray(v.statuses) ? v.statuses.filter(x => typeof x === 'string') : [],
       groupByCategory: v.groupByCategory === true,
       categories: Array.isArray(v.categories) ? v.categories.filter(x => typeof x === 'string') : null, // null=未保存(全部選択)
+      columns: Array.isArray(v.columns) ? v.columns.filter(x => typeof x === 'string') : null, // null=未保存(サーバー側の書式に従う)
     };
-  } catch { return { workspaces: [], statuses: [], groupByCategory: false, categories: null }; }
+  } catch { return { workspaces: [], statuses: [], groupByCategory: false, categories: null, columns: null }; }
 }
 
 function saveWeeklySettings() {
@@ -185,6 +188,7 @@ function saveWeeklySettings() {
       statuses: sel.statuses.length ? sel.statuses : prev.statuses,
       groupByCategory: sel.groupByCategory,
       categories: sel.allCategories.filter(c => sel.checkedCategories.includes(c)),
+      columns: sel.columns.length ? sel.columns : prev.columns,
     }));
   } catch { /* localStorageが使えなくても動作に支障はない */ }
 }
@@ -412,6 +416,7 @@ async function resetWeeklyFormat() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     weeklyPaneEl.querySelector('#weekly-template').value = weeklyMeta.defaults.template;
     setWeeklyColumns(weeklyMeta.defaults.columns);
+    saveWeeklySettings(); // このブラウザの列の記憶も既定へ揃える(古い記憶が残って復元されるのを防ぐ)
     statusEl.textContent = '既定の書式に戻しました';
     statusEl.classList.remove('weekly-error');
     refreshWeeklyPreview();
@@ -506,7 +511,10 @@ async function showWeeklyPane(container) {
   $('#weekly-categories').innerHTML = catNames.map(name => `
     <label><input type="checkbox" value="${escapeHtml(name)}"${(checkedCats.length ? checkedCats : catNames).includes(name) ? ' checked' : ''}> ${name ? escapeHtml(name) : 'カテゴリなし'} <span class="weekly-cat-count" data-cat="${escapeHtml(name)}"></span></label>`).join('');
   $('#weekly-group-category').checked = saved.groupByCategory;
-  setWeeklyColumns(weeklyMeta.columns);
+  // 列はこのブラウザでの保存があれば優先する。無ければサーバー側の書式(保存済み/既定)に従う(BM-123)。
+  const validKeys = weeklyMeta.columnDefs.map(c => c.key);
+  const savedColumns = saved.columns ? saved.columns.filter(k => validKeys.includes(k)) : null;
+  setWeeklyColumns(savedColumns && savedColumns.length ? savedColumns : weeklyMeta.columns);
   $('#weekly-template').value = weeklyMeta.template;
   $('#weekly-format-status').textContent = weeklyMeta.saved ? '保存済みの書式を使っています' : '既定の書式です(編集して「保存」できます)';
   $('#weekly-format-status').classList.remove('weekly-error');
