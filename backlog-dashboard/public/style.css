@@ -5795,6 +5795,21 @@ mark.activity-hit {
   white-space: nowrap;
 }
 
+.selection-bar-note {
+  font-size: 0.75rem;
+  color: var(--text-secondary, var(--text));
+  opacity: 0.85;
+}
+
+.selection-bar-note[hidden] {
+  display: none;
+}
+
+.selection-bar-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .selection-bar-btn {
   font-size: 0.78rem;
   padding: 6px 14px;

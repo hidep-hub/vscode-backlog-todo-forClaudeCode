@@ -3949,9 +3949,9 @@ function renderBoard(data) {
       // KT-054: 実行中カードの強調（カード全体グロー点滅、B案）
       if (item.running) card.classList.add('is-running');
 
-      // 選択モード（BT-034）: Epic/完了カードは選択不可、それ以外は選択状態を反映
+      // 選択モード（BT-034）: 完了カードは選択不可、それ以外は選択状態を反映（EPICも選択可、BT-455）
       if (selectionMode && item.id && item.id !== '-') {
-        if (isEpic || isCompact) {
+        if (isCompact) {
           card.classList.add('card-select-disabled');
         } else if (selectedIds.has(item.id)) {
           card.classList.add('card-selected');
@@ -8374,9 +8374,8 @@ function setupTaskQuickTip(card, item) {
 // --- 複数選択→親付け (BT-034) ---
 function toggleCardSelection(item) {
   if (!item.id || item.id === '-') return;
-  const isEpic = item.childrenTotal > 0;
   const isDone = item.statusCode === 'done';
-  if (isEpic || isDone) return; // 選択不可（グレーアウト対象と同条件）
+  if (isDone) return; // 選択不可（グレーアウト対象と同条件）。EPICはタグ・カテゴリの一括設定のため選択できる（BT-455）
   if (selectedIds.has(item.id)) selectedIds.delete(item.id);
   else selectedIds.add(item.id);
   renderBoard(lastBoardData);
@@ -8390,6 +8389,7 @@ function getOrCreateSelectionBar() {
   selectionBarEl.className = 'selection-bar';
   selectionBarEl.innerHTML = `
     <span class="selection-bar-count"></span>
+    <span class="selection-bar-note" hidden>EPICを含む選択では、タグ・カテゴリのみ操作可能</span>
     <button class="selection-bar-btn selection-bar-parent" id="selection-pick-parent">親を選ぶ</button>
     <button class="selection-bar-btn selection-bar-move" id="selection-pick-move"><span class="material-icon icon-local-shipping"></span> 移動</button>
     <button class="selection-bar-btn selection-bar-pin" id="selection-pin"><span class="material-icon icon-keep"></span> ピン留め</button>
@@ -8539,8 +8539,39 @@ function updateSelectionBar() {
   }
   const bar = getOrCreateSelectionBar();
   bar.querySelector('.selection-bar-count').textContent = `${selectedIds.size}件選択中`;
+  // EPIC(親)を含む選択はタグ・カテゴリだけ操作可能（親付け・移動・ピン・期日・GitHub・削除は子タスク/単発前提のため、BT-455）
+  const hasEpic = [...selectedIds].some(id => {
+    const item = findItemById(id);
+    return item && item.childrenTotal > 0;
+  });
+  bar.querySelector('.selection-bar-note').hidden = !hasEpic;
+  for (const btnId of SELECTION_BAR_NON_EPIC_BUTTONS) {
+    const btn = bar.querySelector(`#${btnId}`);
+    btn.disabled = hasEpic;
+    btn.title = hasEpic ? 'EPICを含むため使えません（タグ・カテゴリのみ操作可能）' : '';
+  }
   bar.classList.add('selection-bar-visible');
 }
+
+const SELECTION_BAR_NON_EPIC_BUTTONS = [
+  'selection-pick-parent', 'selection-pick-move', 'selection-pin', 'selection-unpin',
+  'selection-set-due', 'selection-github-create', 'selection-delete',
+];
+
+// Escで選択モードを解除する(BT-455)。外側クリックでは解除しない(選んだ内容が消えるため)。
+// モーダル・ピッカー類が開いている間は、そちらのEscを優先する。
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !selectionMode) return;
+  if (e.defaultPrevented) return;
+  if (document.querySelector('.modal-overlay.modal-visible, .settings-overlay.settings-visible, .plan-board-overlay.active, .activity-modal-overlay.modal-visible, .backup-modal-overlay.modal-visible, .tag-modal-overlay.modal-visible, .category-modal-overlay.modal-visible, .ui-dialog-overlay.modal-visible')) return;
+  if (dueDatePickerEl || wsFilterMenuOpen || boardLaneMenuEl) return;
+  if (typeof tagPickerEl !== 'undefined' && tagPickerEl) return;
+  if (typeof categoryPickerEl !== 'undefined' && categoryPickerEl) return;
+  if (typeof tagFilterPopEl !== 'undefined' && tagFilterPopEl) return;
+  if (typeof categoryFilterPopEl !== 'undefined' && categoryFilterPopEl) return;
+  e.preventDefault();
+  finishSelectionMode();
+});
 
 let parentPickerEl = null;
 
