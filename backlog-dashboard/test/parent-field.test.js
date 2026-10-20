@@ -38,8 +38,10 @@ test('編集画面は親の変更をdetach/attachで反映し、子を持つタ�
   assert.match(app, /parentField\.setDisabled\(true, '子タスクを持つタスクは親を設定できないよ'\)/);
 });
 
-test('選んだ親のタイトルはアクセント色で表示する', () => {
-  assert.match(css, /\.parent-field-title\s*\{[^}]*color: var\(--accent\)/);
+test('選んだ親のタイトルは欄の下には出さず、フォーム先頭のパンくずに統一する (BM-110)', () => {
+  assert.match(css, /\.parent-field-title\s*\{\s*display:\s*none;\s*\}/);
+  assert.match(css, /\.parent-crumb-slot\s*\{[^}]*max-height:\s*0/);
+  assert.match(css, /\.parent-crumb-slot\.is-visible\s*\{[^}]*opacity:\s*1/);
 });
 
 test('期日クイックボタンのクリアは「C」1文字で、余白を詰めている', () => {
