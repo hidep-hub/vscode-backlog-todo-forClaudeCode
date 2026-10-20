@@ -2370,6 +2370,33 @@ body {
   flex: 0 0 auto;
 }
 
+/* BM-110: 編集・追加フォームのクリック不可パンくず。遷移はさせないのでホバー色変化も打ち消す */
+.detail-parent-crumb.is-static {
+  cursor: default;
+}
+.detail-parent-crumb.is-static:hover {
+  color: var(--text-muted);
+}
+
+/* BM-110: フォーム先頭のパンくず行。親の有無で出現/消失する際にガタつかないよう
+   max-height/opacityをトランジションさせる（display:noneの瞬時切り替えにしない）。
+   開いた瞬間はis-visibleの有無が最初から確定しているため、ここで揺れることはない。 */
+.parent-crumb-slot {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  margin-bottom: 0;
+  transition: max-height 0.15s ease, opacity 0.15s ease, margin-bottom 0.15s ease;
+}
+.parent-crumb-slot.is-visible {
+  max-height: 32px;
+  opacity: 1;
+  margin-bottom: 6px;
+}
+.parent-crumb-slot .detail-parent-crumb {
+  margin-bottom: 0;
+}
+
 .detail-title {
   display: flex;
   align-items: flex-start;
@@ -7334,9 +7361,10 @@ mark.activity-hit {
   white-space: nowrap;
 }
 .parent-field-empty, .parent-field-more { padding: 6px 8px; font-size: 0.72rem; color: var(--text-muted); }
-/* 選択した親のタイトル。ラベル（ワークスペース/ステータス）と同じ文字サイズで、テーマのアクセント色 */
-.parent-field-title { margin-top: 3px; font-size: 0.68rem; font-weight: 600; color: var(--accent); overflow-wrap: anywhere; }
-.parent-field-title:empty, .parent-field-note:empty { display: none; }
+/* 選択した親のタイトルは、BM-110でフォーム先頭のパンくず(.parent-crumb-slot)に表示を統一したため
+   欄の下には出さない（要素自体はgetValue等の既存ロジックのため残し、見た目だけ消す） */
+.parent-field-title { display: none; }
+.parent-field-note:empty { display: none; }
 .parent-field-note { margin-top: 3px; font-size: 0.68rem; color: var(--text-muted); }
 .parent-field-item-icon { flex-shrink: 0; width: 1em; height: 1em; font-size: 0.85rem; color: var(--accent); align-self: center; }
 
