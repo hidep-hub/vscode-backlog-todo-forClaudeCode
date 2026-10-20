@@ -25,14 +25,14 @@ function createTestDb() {
 }
 
 let seq = 0;
-function addTask(db, { workspace = 'alpha', title, status = 'todo', parentId = null, dueDate = null, deleted = false, tagless = true, category = null }) {
+function addTask(db, { workspace = 'alpha', title, status = 'todo', parentId = null, dueDate = null, deleted = false, tagless = true, category = null, assignee = null }) {
   seq += 1;
   const prefix = workspace === 'alpha' ? 'AL' : 'BE';
   const now = '2026-10-01T00:00:00.000Z';
   const r = db.prepare(`INSERT INTO tasks (workspace, seq_no, display_id, parent_id, title, status, due_date, sort_order,
-    deleted_at, created_at, created_by, updated_at, updated_by, category) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    deleted_at, created_at, created_by, updated_at, updated_by, category, assignee) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(workspace, seq, `${prefix}-${String(seq).padStart(3, '0')}`, parentId, title, status, dueDate, seq,
-      deleted ? now : null, now, 'user', now, 'user', category);
+      deleted ? now : null, now, 'user', now, 'user', category, assignee);
   return { id: Number(r.lastInsertRowid), displayId: `${prefix}-${String(seq).padStart(3, '0')}` };
 }
 
@@ -96,23 +96,139 @@ test('期日: 期間内はステータス不問、期間より前は未完了の
   cleanup(ctx);
 });
 
-test('子タスクは区分ごとの表で、件名の頭に親のIDと件名を小さく付けてぶら下げる(単発/EPICの区分けはしない)', () => {
+// BM-121: EPIC(子タスクを持つ親)は、ヒットした子タスクを1行に集約する。単発タスクは従来どおり1件=1行。
+
+function addTag(db, task, workspace, name) {
+  const tag = db.prepare(`INSERT INTO tags (workspace, name, name_key, sort_order, created_at, created_by, updated_at, updated_by)
+    VALUES (?, ?, ?, 0, '2026-10-01T00:00:00.000Z', 'user', '2026-10-01T00:00:00.000Z', 'user')`).run(workspace, name, name);
+  db.prepare('INSERT INTO task_tags (task_id, tag_id, created_at, created_by) VALUES (?, ?, ?, ?)')
+    .run(task.id, Number(tag.lastInsertRowid), '2026-10-01T00:00:00.000Z', 'user');
+}
+
+test('EPICはヒットした子タスクを1行に集約する。単発は従来どおり1件=1行', () => {
   const ctx = createTestDb();
   const epic = addTask(ctx.db, { title: '大きな話', status: 'do' });
   const k1 = addTask(ctx.db, { title: '子1', status: 'done', parentId: epic.id });
-  addTask(ctx.db, { title: '子2', status: 'todo', parentId: epic.id, dueDate: '2026-10-15' });
+  addTask(ctx.db, { title: '子2(ヒットしない)', status: 'todo', parentId: epic.id }); // 期日なし・期間内の変化なし→対象外
   const solo = addTask(ctx.db, { title: '単発', status: 'done' });
   addStatusEvent(ctx.db, k1, 'done', IN_PERIOD);
   addStatusEvent(ctx.db, solo, 'done', IN_PERIOD);
   const data = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, today: '2026-10-14' });
   const ws = data.workspaces[0];
-  assert.deepEqual(ws.sections.map(s => s.kind), ['完了', '未着手']);
-  assert.deepEqual(ws.sections[0].items.map(i => i.title).sort(), ['単発', '子1']);
-  assert.equal(itemsOf(ws).find(i => i.title === '子1').parentId, epic.displayId);
+  assert.deepEqual(ws.sections.map(s => s.kind), ['完了']);
+  const items = itemsOf(ws);
+  assert.equal(items.length, 2); // EPIC1行 + 単発1行(子2はヒットしないので出てこない)
+  const epicItem = items.find(i => i.isEpic);
+  assert.equal(epicItem.id, epic.displayId);
+  assert.equal(epicItem.title, '大きな話');
+  assert.deepEqual(epicItem.childLeaves.map(c => c.title), ['子1']);
   const { markdown } = wr.renderWeeklyReport(data, { template: wr.DEFAULT_TEMPLATE, columns: wr.DEFAULT_COLUMNS });
-  assert.ok(markdown.includes(`<small>${epic.displayId} 大きな話</small><br/>└ 子1`));
+  assert.ok(markdown.includes('大きな話<br/><small>└ 子1</small>'));
   assert.match(markdown, /\| 単発 \|/); // 親のいないタスクは件名だけ
-  assert.doesNotMatch(markdown, /単発タスク|完了 \d+\/全/);
+  assert.doesNotMatch(markdown, /子2/); // ヒットしなかった子はタイトルにも出ない
+  cleanup(ctx);
+});
+
+test('EPICが週報対象になるのは、ヒットした子が1件以上ある場合のみ(子が1件もヒットしないEPICは出ない)', () => {
+  const ctx = createTestDb();
+  const epic = addTask(ctx.db, { title: '話したいテーマ', status: 'do' });
+  addTask(ctx.db, { title: '動きのない子', status: 'todo', parentId: epic.id }); // 期日なし、ステータス変更なし
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  assert.equal(itemsOf(data.workspaces[0]).length, 0);
+  cleanup(ctx);
+});
+
+test('EPIC行の区分: 子に1件でも期限超過があれば期限超過、なければ対応中が1件でもあれば対応中、全部todoなら未着手、全部doneなら完了', () => {
+  const ctx = createTestDb();
+  const today = '2026-10-14';
+
+  const e1 = addTask(ctx.db, { title: 'EPIC期限超過', status: 'do' });
+  const e1a = addTask(ctx.db, { title: 'a', status: 'done', parentId: e1.id, dueDate: '2026-10-13' });
+  const e1b = addTask(ctx.db, { title: 'b', status: 'todo', parentId: e1.id, dueDate: '2026-10-01' }); // 過去期日・未完了=期限超過
+  addStatusEvent(ctx.db, e1a, 'done', IN_PERIOD);
+  void e1b;
+
+  const e2 = addTask(ctx.db, { title: 'EPIC対応中', status: 'do' });
+  const e2a = addTask(ctx.db, { title: 'c', status: 'do', parentId: e2.id });
+  addStatusEvent(ctx.db, e2a, 'do', IN_PERIOD);
+
+  const e3 = addTask(ctx.db, { title: 'EPIC未着手', status: 'do' });
+  const e3a = addTask(ctx.db, { title: 'd', status: 'todo', parentId: e3.id, dueDate: '2026-10-16' });
+  void e3a;
+
+  const e4 = addTask(ctx.db, { title: 'EPIC完了', status: 'do' });
+  const e4a = addTask(ctx.db, { title: 'e', status: 'done', parentId: e4.id });
+  addStatusEvent(ctx.db, e4a, 'done', IN_PERIOD);
+
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, statuses: ['todo', 'ready', 'do', 'done'], today });
+  const byTitle = Object.fromEntries(itemsOf(data.workspaces[0]).map(i => [i.title, i]));
+  assert.equal(byTitle['EPIC期限超過'].kind, '期限超過');
+  assert.equal(byTitle['EPIC対応中'].kind, '対応中');
+  assert.equal(byTitle['EPIC未着手'].kind, '未着手');
+  assert.equal(byTitle['EPIC完了'].kind, '完了');
+  cleanup(ctx);
+});
+
+test('EPIC行の期日はヒットした子の期日の最大値(最も遅い日付)。EPIC自身のdue_dateは使わない', () => {
+  const ctx = createTestDb();
+  const epic = addTask(ctx.db, { title: 'EPIC', status: 'do', dueDate: '2026-09-01' }); // 比較対象に含めない
+  const a = addTask(ctx.db, { title: 'a', status: 'done', parentId: epic.id, dueDate: '2026-10-14' });
+  const b = addTask(ctx.db, { title: 'b', status: 'done', parentId: epic.id, dueDate: '2026-10-17' });
+  addStatusEvent(ctx.db, a, 'done', IN_PERIOD);
+  addStatusEvent(ctx.db, b, 'done', IN_PERIOD);
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  const epicItem = itemsOf(data.workspaces[0]).find(i => i.isEpic);
+  assert.equal(epicItem.dueDate, '2026-10-17');
+  cleanup(ctx);
+});
+
+test('EPIC行の担当者・タグ・外部リンクは、ヒットした子の範囲から重複を除いて列挙する', () => {
+  const ctx = createTestDb();
+  const epic = addTask(ctx.db, { title: 'EPIC', status: 'do' });
+  const a = addTask(ctx.db, { title: 'a', status: 'done', parentId: epic.id, assignee: '大下' });
+  const b = addTask(ctx.db, { title: 'b', status: 'done', parentId: epic.id, assignee: '信濃' });
+  const c = addTask(ctx.db, { title: 'c', status: 'done', parentId: epic.id, assignee: '大下' }); // 重複
+  addStatusEvent(ctx.db, a, 'done', IN_PERIOD);
+  addStatusEvent(ctx.db, b, 'done', IN_PERIOD);
+  addStatusEvent(ctx.db, c, 'done', IN_PERIOD);
+  addTag(ctx.db, a, 'alpha', 'タグ1');
+  addTag(ctx.db, b, 'alpha', 'タグ2');
+  ctx.db.prepare(`INSERT INTO task_external_links (task_id, source, host, project_ref, issue_key, issue_url, linked_at, linked_by)
+    VALUES (?, 'redmine', 'rm.example', 'proj', '1234', 'https://rm.example/issues/1234', ?, 'user')`).run(a.id, IN_PERIOD);
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  const epicItem = itemsOf(data.workspaces[0]).find(i => i.isEpic);
+  assert.equal(epicItem.assignee, '大下, 信濃');
+  assert.equal(epicItem.tags, 'タグ1, タグ2');
+  assert.equal(epicItem.externalLinks.length, 1);
+  assert.equal(epicItem.externalLinks[0].key, '1234');
+  const { markdown } = wr.renderWeeklyReport(data, { template: wr.DEFAULT_TEMPLATE, columns: ['id', 'title', 'assignee', 'tags', 'external'] });
+  assert.match(markdown, /大下, 信濃/);
+  assert.match(markdown, /タグ1, タグ2/);
+  cleanup(ctx);
+});
+
+test('カテゴリ(BM-121): 子タスク自身のcategoryは週報では参照せず、常に親(EPIC)のcategoryを使う', () => {
+  const ctx = createTestDb();
+  const epic = addTask(ctx.db, { title: 'EPIC', status: 'do', category: 'カテゴリA' });
+  const child = addTask(ctx.db, { title: '子', status: 'done', parentId: epic.id, category: 'カテゴリB(子の値。無視されるはず)' });
+  addStatusEvent(ctx.db, child, 'done', IN_PERIOD);
+  const solo = addTask(ctx.db, { title: '単発', status: 'done', category: 'カテゴリC' });
+  addStatusEvent(ctx.db, solo, 'done', IN_PERIOD);
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, groupByCategory: true });
+  const groups = data.workspaces[0].categoryGroups;
+  assert.deepEqual(groups.map(g => g.name).sort(), ['カテゴリA', 'カテゴリC'].sort());
+  const groupA = groups.find(g => g.name === 'カテゴリA');
+  assert.deepEqual(groupA.items.map(i => i.title), ['EPIC']);
+  cleanup(ctx);
+});
+
+test('buildWeeklyCounts(BM-121): カテゴリ別件数も、子タスクは親(EPIC)のカテゴリとして数える', () => {
+  const ctx = createTestDb();
+  const epic = addTask(ctx.db, { title: 'EPIC', status: 'do', category: '開発' });
+  const child = addTask(ctx.db, { title: '子', status: 'done', parentId: epic.id, category: '-' });
+  addStatusEvent(ctx.db, child, 'done', IN_PERIOD);
+  const r = wr.buildWeeklyCounts(ctx.db, CONFIG, { from: PERIOD.from, to: PERIOD.to, workspaces: ['alpha'], statuses: ['done'] });
+  assert.deepEqual(r.workspaces[0].categories, { 開発: 1 });
   cleanup(ctx);
 });
 
@@ -261,7 +377,7 @@ function addCategoryMaster(db, name, sortOrder) {
     VALUES (?, ?, ?, '2026-10-01T00:00:00.000Z', 'user', '2026-10-01T00:00:00.000Z', 'user')`).run(name, name, sortOrder);
 }
 
-test('BT-442 カテゴリの章: マスタ順→マスタ外→カテゴリなし、期間内にタスクが無いカテゴリは出さない、表は2スペースで字下げ', () => {
+test('BT-442 カテゴリの章: マスタ順→マスタ外→カテゴリなし、期間内にタスクが無いカテゴリは出さない', () => {
   const ctx = createTestDb();
   addCategoryMaster(ctx.db, '調査', 1);
   addCategoryMaster(ctx.db, '開発', 2);
@@ -273,10 +389,26 @@ test('BT-442 カテゴリの章: マスタ順→マスタ外→カテゴリな�
   const data = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, groupByCategory: true });
   assert.deepEqual(data.workspaces[0].categoryGroups.map(g => g.name), ['調査', '開発', '旧自由入力', '']);
   const { markdown } = wr.renderWeeklyReport(data, { template: wr.DEFAULT_TEMPLATE, columns: wr.DEFAULT_COLUMNS });
-  assert.ok(markdown.includes('- **カテゴリ名：調査**\n\n  - **完了（DONE）**\n\n    | ID |'));
-  assert.ok(markdown.includes('- **カテゴリ名：なし**'));
+  // BM-121: カテゴリは見出し(###、カテゴリ名そのまま。「カテゴリ名：」の修飾なし)にする。
+  // 章の中はステータス見出しを分けず1枚の表にする
+  assert.ok(markdown.includes('### 調査\n\n| ID |'));
+  assert.doesNotMatch(markdown, /完了（DONE）/); // ステータス見出しは出ない
+  assert.ok(markdown.includes('### なし'));
   assert.doesNotMatch(markdown, /未使用/);
-  assert.doesNotMatch(markdown, /^\|/m); // 表が左端から始まらない
+  cleanup(ctx);
+});
+
+test('BM-121 カテゴリ章内の並び順: 見出しは分けないが、期限超過→完了→対応中→未着手の優先度で並ぶ', () => {
+  const ctx = createTestDb();
+  const done = addTask(ctx.db, { title: '完了', status: 'done', category: '開発' });
+  addStatusEvent(ctx.db, done, 'done', IN_PERIOD);
+  const doing = addTask(ctx.db, { title: '対応中', status: 'do', category: '開発' });
+  addStatusEvent(ctx.db, doing, 'do', IN_PERIOD);
+  addTask(ctx.db, { title: '未着手', status: 'todo', category: '開発', dueDate: '2026-10-16' });
+  addTask(ctx.db, { title: '期限超過', status: 'todo', category: '開発', dueDate: '2026-10-01' });
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, statuses: ['todo', 'ready', 'do', 'done'], groupByCategory: true, today: '2026-10-14' });
+  const group = data.workspaces[0].categoryGroups.find(g => g.name === '開発');
+  assert.deepEqual(group.items.map(i => i.title), ['期限超過', '完了', '対応中', '未着手']);
   cleanup(ctx);
 });
 

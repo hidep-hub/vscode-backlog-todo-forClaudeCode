@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.17.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099、BT-291、BT-438、BM-105、BT-444、BT-442、BT-446。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.18.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099、BT-291、BT-438、BM-105、BT-444、BT-442、BT-446、BM-121。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## ルール正本と配布方式
 
@@ -93,8 +93,9 @@ AGENTS.md.sample（Git管理の唯一の正本）
   - **週報（BT-291、API 2.11.0）**: 履歴（`task_events`）と期日（`tasks`）から、期間内にやったことをワークスペース別のMarkdown表にする。すべて読み取りで、書式の保存だけが書き込み（バックアップ中は409の対象）。画面は履歴ダイアログの「週報」ボタン
     - `GET /api/weekly-report?range=this|last（またはfrom=&to=YYYY-MM-DD）&workspaces=<projects[].file,...>&statuses=done,do&format=md|json` — 保存済みの書式で生成。`format=md`はダウンロード、省略はJSON（`markdown`/`warnings`/`data`）。期間は月曜〜日曜（JST）。不正な期間・ワークスペース・ステータスは400
     - `POST /api/weekly-report-preview {range|from,to, workspaces?, statuses?, template?, columns?}`（編集中の書式でプレビュー。書式は保存しない）/ `GET|POST /api/weekly-report-template`（書式と列の取得・保存。`{reset:true}`で既定に戻す。保存先は`<backlogDir>/weekly-report-template.json`）
-    - 出力対象は、期間内に選択ステータスへ変わったタスク＋期日が期間内（または期間より前で未完了）のタスク（ステータス不問）。単発/EPICの区分けはせず、「期限超過 → 完了(DONE) → 対応中(DO/READY) → 未着手(TODO)」の見出しごとに1つの表にまとめる（該当が無い見出しは出さない）。子タスクは件名の頭に親のIDと件名を付ける。**【BT-438】** 列に外部ITS（Redmine/GitLab）のIssue番号を選べる。ワークスペース見出しには、ステータス別件数バッジ（`{{statusCounts}}`）を出せる
-    - **【BT-442, API 2.16.0】カテゴリ**: `groupByCategory`（`1`/`true`）で「ワークスペース＞カテゴリ＞ステータス＞表」の章立てになる（カテゴリ・ステータス・表の3段の箇条書きで、表は字下げされる。既定はオフで従来と同じ）。`categories`（GETはカンマ区切り、POSTは文字列配列。カテゴリなしは`__none__`／空文字）で出力カテゴリを絞り込める（章分けオフでも有効、未指定は絞り込まない）。章は期間内に対象タスクがあるカテゴリだけで、並びはマスタ順→マスタ外→カテゴリなし。旧データの`-`はカテゴリなしとして扱う。`/api/weekly-report-counts`は`statuses`を受け取り、各ワークスペースに`categories`（カテゴリ別の件数、`""`はカテゴリなし）を返す
+    - 出力対象は、期間内に選択ステータスへ変わったタスク＋期日が期間内（または期間より前で未完了）のタスク（ステータス不問）。「期限超過 → 完了(DONE) → 対応中(DO/READY) → 未着手(TODO)」の見出しごとに1つの表にまとめる（該当が無い見出しは出さない）。**【BT-438】** 列に外部ITS（Redmine/GitLab）のIssue番号を選べる。ワークスペース見出しには、ステータス別件数バッジ（`{{statusCounts}}`）を出せる
+    - **【BM-121, API 2.18.0】EPIC(子タスクを持つ親)は1行に集約する**（子タスクを個別行として並べるのはやめた）。対象条件（期間内のステータス変更／期日）を満たす子が1件以上あるEPICだけが、その子をまとめた1行として出る（満たす子が無いEPICは出ない）。件名セルはEPICタイトル＋ヒットした子タスクの件名を`<small>`+`<br/>`+「└」で列挙。区分（期限超過/完了/対応中/未着手）は子の状態だけで判定（期限超過が1件でもあれば期限超過、なければ対応中が1件でもあれば対応中、全部todoなら未着手、全部doneなら完了。EPIC自身のstatus/due_dateは見ない）。期日はヒットした子の期日の最大値（最も遅い日付）。担当者・タグ・外部リンクはヒットした子の範囲から重複を除いて列挙。**カテゴリは常にEPIC/単発自身の値を使い、子タスク自身の`category`列は週報では参照しない**（子のカテゴリ欄はUIでグレイアウトされる想定。別タスクで対応）
+    - **【BT-442, BM-121で表示方法を変更。API 2.18.0】カテゴリ**: `groupByCategory`（`1`/`true`）で「ワークスペース＞カテゴリ＞表」になる。カテゴリは見出し(`###`、カテゴリ名そのまま。「カテゴリ名：」等の修飾子は付かない)で、カテゴリとステータスは別軸のため章の中でさらにステータス区分の見出しには分けない（区分は表の「区分」列に出る。並び順は期限超過→完了→対応中→未着手の優先度を保つ）。`categories`（GETはカンマ区切り、POSTは文字列配列。カテゴリなしは`__none__`／空文字）で出力カテゴリを絞り込める（章分けオフでも有効、未指定は絞り込まない）。章は期間内に対象タスクがあるカテゴリだけで、並びはマスタ順→マスタ外→カテゴリなし。旧データの`-`はカテゴリなしとして扱う。`/api/weekly-report-counts`は`statuses`を受け取り、各ワークスペースに`categories`（カテゴリ別の件数、`""`はカテゴリなし。子タスクは親EPICのカテゴリとして数える）を返す
   - **タスク一覧のCSVエクスポート（BT-221、API 2.8.0）**: `GET /api/export-csv?workspace=<projects[].file>` — 外部のガントチャート等へ転送するためのCSVをダウンロード形式（`Content-Disposition: attachment`、BOM付きUTF-8）で返す。読み取り専用で、バックアップ中の全体ロック（409）の対象外。`workspace`省略で全ワークスペース、未登録の`workspace`は400（`unknown_workspace`）
     - 1行1タスクで、EPICの直後にその子が続く。列は`workspace, id, parent_id, type, board_order, title, status, assignee, start_date, due_date, completed_at, tags, category, description, description_truncated, deliverables, its_source, its_issue, its_url`。`workspace`は常に先頭、`board_order`はボード上の並び順（親ごと。トップレベルは同じ実効ステータス内）、`deliverables`はパスではなくファイル名のみ
     - 論理削除済みは含まない。履歴（`task_events`）は含めない（完全な保全は`/api/backup`で行う）。説明欄は3万文字超で切り詰め`description_truncated=1`になる。応答ヘッダ`X-Export-Row-Count`/`X-Export-Truncated-Count`で件数を確認できる。画面からはバックアップのモーダル内「CSVエクスポート」欄で取得できる
