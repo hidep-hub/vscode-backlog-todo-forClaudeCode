@@ -59,6 +59,10 @@
     // 完了が大量にあると未完了の計画が埋もれるため、既定は非表示(チェックで表示)
     try { return localStorage.getItem('ganttShowDone') === '1'; } catch { return false; }
   }
+  function loadGroupByCategory() {
+    // BT-447: カテゴリでの階層化は任意。既定はOFF(従来の「EPIC/単発」だけの見た目)
+    try { return localStorage.getItem('ganttGroupByCategory') === '1'; } catch { return false; }
+  }
 
   function loadLabelW() {
     try {
@@ -72,6 +76,7 @@
     labelW: loadLabelW(),   // タスク列の幅(ヘッダー境界のドラッグで変更。localStorageに保持)
     zoom: loadZoom(),
     showDone: loadShowDone(),
+    groupByCategory: loadGroupByCategory(), // BT-447: 「カテゴリ > EPIC|単発 > 子」で束ねるか
     collapsed: new Set(),   // 折りたたみ中のEPIC id と単発グループ('single:<project>')
     collapsedWs: new Set(), // 折りたたみ中のワークスペース(ALL表示時)
     extraBefore: 0,         // 範囲を過去へ広げた週数
@@ -211,7 +216,7 @@
       const emit = (row) => { if (!wsCollapsed) rows.push(row); };
 
       // BT-447: 「カテゴリ > EPIC(|単発) > 子」。ワークスペース内にカテゴリ付きが1件も無ければ従来どおり階層を出さない
-      const catLevel = groups.some((g) => (g.epic ? !!catName(g.epic) : g.children.some((c) => !!catName(c))));
+      const catLevel = state.groupByCategory && groups.some((g) => (g.epic ? !!catName(g.epic) : g.children.some((c) => !!catName(c))));
       const buckets = new Map(); // カテゴリ名 → { epics, singles }
       const bucketOf = (name) => { if (!buckets.has(name)) buckets.set(name, { epics: [], singles: [] }); return buckets.get(name); };
       if (!catLevel) {
@@ -324,8 +329,9 @@
           <span class="gantt-range" title="左: いま見えている期間 / 括弧内: 描画されているカレンダー全体（「◀ 4週」「4週 ▶」で広げられる）"></span>
         </div>
         <div class="gantt-toolbar-row gantt-toolbar-row-2">
-          <label class="gantt-check"><input type="checkbox" data-act="show-done"${state.showDone ? ' checked' : ''}> 完了を表示</label>
           <button type="button" class="gantt-btn${state.selecting ? ' is-on' : ''}" data-act="toggle-select" title="複数の未完了タスクを選択して一括操作">選択</button>
+          <label class="gantt-check" title="カテゴリ見出しの下にEPIC・単発タスクをまとめる（EPIC自身のカテゴリで束ねる）"><input type="checkbox" data-act="group-by-category"${state.groupByCategory ? ' checked' : ''}> カテゴリでグループ化</label>
+          <label class="gantt-check"><input type="checkbox" data-act="show-done"${state.showDone ? ' checked' : ''}> 完了を表示</label>
           ${state.selecting ? `<span class="gantt-selection-actions"><span class="gantt-selection-count">${state.selectedIds.size}件選択中</span><button type="button" class="gantt-btn" data-act="bulk-pin"${state.selectedIds.size ? '' : ' disabled'}>📌 ピン留め</button><button type="button" class="gantt-btn" data-act="bulk-unpin"${state.selectedIds.size ? '' : ' disabled'}>📌 ピン解除</button><button type="button" class="gantt-btn" data-act="bulk-due"${state.selectedIds.size ? '' : ' disabled'}>期日を設定</button></span>` : ''}
           <span class="gantt-stats">
             ${stats.overdue ? `<button type="button" class="gantt-stat gantt-stat-overdue" data-act="jump-overdue" title="期日を過ぎて未完了のタスク。クリックで古い順に1件ずつ移動（最後まで行くと先頭に戻る）">遅延 ${stats.overdue}件</button>` : ''}
@@ -674,6 +680,12 @@
       if (due && info.item.startDate && due < info.item.startDate) patch.startDate = due;
       if ((info.item.dueDate || '') === due && patch.startDate === undefined) return;
       save(t.dataset.taskId, patch);
+      return;
+    }
+    if (t.matches && t.matches('[data-act="group-by-category"]')) {
+      state.groupByCategory = t.checked;
+      try { localStorage.setItem('ganttGroupByCategory', t.checked ? '1' : '0'); } catch { /* 無視 */ }
+      rerender();
       return;
     }
     if (t.matches && t.matches('[data-act="show-done"]')) {

@@ -14,8 +14,9 @@ const app = fs.readFileSync(path.join(publicDir, 'app.js'), 'utf8');
 const categoriesJs = fs.readFileSync(path.join(publicDir, 'categories.js'), 'utf8');
 const ganttCss = fs.readFileSync(path.join(publicDir, 'gantt.css'), 'utf8');
 
-function loadGantt() {
-  const sandbox = { console };
+function loadGantt({ group = true } = {}) {
+  // カテゴリ階層は既定OFF(localStorageのganttGroupByCategory=1でON)。テストでは既定でONにして読み込む
+  const sandbox = { console, localStorage: { getItem: (k) => (k === 'ganttGroupByCategory' && group ? '1' : null), setItem() {} } };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(ganttSrc, sandbox);
@@ -94,4 +95,17 @@ test('マスタ順→マスタ外(名前順)→カテゴリなしで並べる', 
   ];
   const { rows } = loadGantt().collectRows({ groups, today: '2026-10-20', groupByWorkspace: false, categoryOf: (i) => i.category, categoryOrder: ['B', 'A'] });
   assert.deepEqual([...rows].filter((r) => r.type === 'cat').map((r) => r.label), ['B', 'A', 'Z外', 'カテゴリなし']);
+});
+
+test('カテゴリでグループ化のスイッチがOFFなら、カテゴリ付きがあっても階層を出さない(既定)', () => {
+  const groups = [{ epic: task('E1', { category: 'A' }), children: [task('C1')] }];
+  const { rows } = loadGantt({ group: false }).collectRows({ groups, today: '2026-10-20', groupByWorkspace: false, categoryOf: (i) => i.category });
+  assert.deepEqual(seq(rows), ['e:E1', 't:C1']);
+});
+
+test('ツールバー2段目は「選択｜カテゴリでグループ化｜完了を表示」の順で、スイッチはlocalStorageに保存する', () => {
+  const row2 = ganttSrc.slice(ganttSrc.indexOf('gantt-toolbar-row-2'));
+  const order = ['data-act="toggle-select"', 'data-act="group-by-category"', 'data-act="show-done"', 'gantt-selection-actions', 'gantt-stats'].map((k) => row2.indexOf(k));
+  assert.ok(order.every((v, i) => v > 0 && (i === 0 || v > order[i - 1])), order.join(','));
+  assert.match(ganttSrc, /localStorage\.setItem\('ganttGroupByCategory'/);
 });
