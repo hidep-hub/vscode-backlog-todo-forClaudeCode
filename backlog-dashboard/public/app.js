@@ -2137,7 +2137,7 @@ async function fillProductMenuHistory(content) {
   ];
   const items = entries.map((c, i) => `
     <li data-idx="${i}"${c.pending ? ' class="is-pending"' : ''}>
-      <span class="product-menu-commit-hash">${escapeHtml(c.shortHash)}</span>${c.pending ? '<span class="product-menu-pending-badge">未取り込み</span>' : ''}${escapeHtml(c.subject)}
+      <span class="product-menu-commit-hash">${escapeHtml(c.shortHash)}</span>${c.pending ? '<span class="product-menu-pending-badge">未取り込み</span>' : ''}${c.isHead ? '<span class="product-menu-head-badge">現在</span>' : ''}${escapeHtml(c.subject)}
     </li>`).join('');
   const note = pending.length
     ? `<div class="product-menu-rules-line rules-bad">まだ取り込んでいない更新が${pending.length}件あるよ(色付きの行)</div>`
