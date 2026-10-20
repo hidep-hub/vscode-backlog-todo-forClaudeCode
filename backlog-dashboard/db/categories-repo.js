@@ -91,6 +91,33 @@ function inTransaction(db, fn) {
   }
 }
 
+/**
+ * カテゴリの表示順を入れ替える(BM-112)。カテゴリはワークスペースの概念を持たないため、
+ * tagsRepo.reorderTagsと異なりスコープ検証は不要で、渡されたID全てが存在するかだけ確認する。
+ */
+function reorderCategories(db, orderedIds, actor = 'user') {
+  if (!Array.isArray(orderedIds) || orderedIds.length < 2) {
+    throw fail('invalid_request', 'orderedIds array (2+ items) is required');
+  }
+  if (!orderedIds.every(Number.isInteger)) {
+    throw fail('invalid_request', 'orderedIdsはカテゴリIDの整数配列で指定してください');
+  }
+  const rows = orderedIds.map(id => getCategory(db, id));
+  const missingIdx = rows.findIndex(r => !r);
+  if (missingIdx !== -1) throw fail('category_not_found', `カテゴリが見つかりません: ${orderedIds[missingIdx]}`);
+
+  const now = new Date().toISOString();
+  const stmt = db.prepare('UPDATE categories SET sort_order = ?, updated_at = ?, updated_by = ? WHERE id = ?');
+  db.exec('BEGIN');
+  try {
+    orderedIds.forEach((id, idx) => stmt.run(idx + 1, now, actor, id));
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+
 /** 名前一致(ワークスペース横断)で、カテゴリが付いている生存タスクを返す。 */
 function liveTaskRowsForCategory(db, categoryName) {
   return db.prepare(`SELECT id, display_id FROM tasks
@@ -200,5 +227,5 @@ function resolveCategoryName(db, name) {
 
 module.exports = {
   listCategories, getCategory, findSimilarCategories, createCategory, updateCategory,
-  deleteCategory, mergeCategories, resolveCategoryName,
+  deleteCategory, mergeCategories, resolveCategoryName, reorderCategories,
 };

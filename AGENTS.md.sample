@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.18.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099、BT-291、BT-438、BM-105、BT-444、BT-442、BT-446、BM-121。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.19.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099、BT-291、BT-438、BM-105、BT-444、BT-442、BT-446、BM-121、BM-112。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 ## ルール正本と配布方式
 
@@ -78,6 +78,7 @@ AGENTS.md.sample（Git管理の唯一の正本）
     - 取得: `GET /api/board`・`GET /api/task/:id`のitemに`tags: [{id,name,color}]`が付く。親EPICには子由来のタグ`childTags`（子のタグのうち親自身に無いもの）も付く（EPICのタグは子から導出するだけで、継承はしない）
     - 履歴: 付け外しは`tag_added`/`tag_removed`として`/api/activity`に残る（`newValue`/`oldValue`はタグ名）。`move-task`でワークスペースを移すと、タグはワークスペース単位のため解除され`tag_removed`が記録される
     - **AIがタグを付ける・作る場合の作法**: 付与の前に`GET /api/tags`で既存タグを確認し、似た名前があれば新規作成せず既存タグを使う。新規作成が必要な場合も、自己判断で`confirmSimilar:true`を付けず、ユーザーに確認してから行う
+    - **【BM-112, API 2.19.0】並べ替え**: `POST /api/reorder-tags {workspace, orderedIds: [tagId, ...], actor?}`（2件以上）— 同一ワークスペース内のタグ同士でのみ並べ替え可能。別ワークスペースのタグが混ざっていると400 `workspace_mismatch`。渡した順に`sort_order`を1,2,3...へ振り直す（タスクの`/api/reorder`と同じ骨格）
   - **外部ITS連携（BM-071、API 2.6.0）**: GitHub以外の外部チケット（Redmine/GitLab）とタスクの紐づけ。`GET /api/board`・`GET /api/task/:id`のitem（子にも）に`externalLinks: [{source, key, url, projectRef}]`が付く。**GitHub分は従来どおり`githubIssueNumber`/`githubIssueUrl`で、`externalLinks`には含まれない**。1タスクにつきsourceごとに1件まで
     - 設定API: `GET /api/its-settings?prefix=XX`（`prefix`は`projects[].prefix`）/ `POST /api/its-settings {prefix, source, projectUrl?, token?}` / `GET /api/its-host-status?source=&url=`。**トークンは秘密情報のため、AIは扱わない（設定の入力・参照・ログ出力をしない）。設定はユーザーがUIで行う**
   - **Redmine取り込み（BM-072、API 2.7.0）**: 外部への書き戻しはしない読み取り専用の取り込み
@@ -90,6 +91,7 @@ AGENTS.md.sample（Git管理の唯一の正本）
     - `POST /api/its-import {prefix, source:"gitlab", keys:[...]}` → `{ok, added, skipped, errors}`。階層化しないため、選択したissueはすべてトップレベルのタスクとして作成される
     - `its-meta`はRedmine専用のため、GitLabでは呼ばない（呼ぶと400）
     - **AIが取り込む場合の作法**: Redmineと同じく、先に`its-preview`で対象を確認してユーザーに示し、承認を得てから`its-import`を実行する
+  - **カテゴリの並べ替え（BM-112、API 2.19.0）**: `POST /api/reorder-categories {orderedIds: [categoryId, ...], actor?}`（2件以上）— カテゴリはワークスペースの概念を持たないため、タグの並べ替えと異なりワークスペース検証は不要。渡した順に`sort_order`を1,2,3...へ振り直す
   - **週報（BT-291、API 2.11.0）**: 履歴（`task_events`）と期日（`tasks`）から、期間内にやったことをワークスペース別のMarkdown表にする。すべて読み取りで、書式の保存だけが書き込み（バックアップ中は409の対象）。画面は履歴ダイアログの「週報」ボタン
     - `GET /api/weekly-report?range=this|last（またはfrom=&to=YYYY-MM-DD）&workspaces=<projects[].file,...>&statuses=done,do&format=md|json` — 保存済みの書式で生成。`format=md`はダウンロード、省略はJSON（`markdown`/`warnings`/`data`）。期間は月曜〜日曜（JST）。不正な期間・ワークスペース・ステータスは400
     - `POST /api/weekly-report-preview {range|from,to, workspaces?, statuses?, template?, columns?}`（編集中の書式でプレビュー。書式は保存しない）/ `GET|POST /api/weekly-report-template`（書式と列の取得・保存。`{reset:true}`で既定に戻す。保存先は`<backlogDir>/weekly-report-template.json`）

@@ -9,6 +9,7 @@
 //   POST /api/delete-tag      {tagId, actor?}
 //   POST /api/merge-tags      {sourceId, targetId, actor?}
 //   POST /api/update-task-tags {taskId, add?: [tagId], remove?: [tagId], actor?}
+//   POST /api/reorder-tags    {workspace, orderedIds: [tagId, ...], actor?}  並べ替え(BM-112)
 
 const tagsRepo = require('./db/tags-repo');
 const tasksRepo = require('./db/tasks-repo');
@@ -89,6 +90,10 @@ function createTagsApi({ getDb, readRequestBody, onChange }) {
         { add: requireIdArray(b.add, 'add'), remove: requireIdArray(b.remove, 'remove') },
         tasksRepo.normalizeActor(b.actor));
       return { ok: true, taskId: b.taskId, tags };
+    },
+    '/api/reorder-tags': (db, b) => {
+      tagsRepo.reorderTags(db, b.workspace, b.orderedIds, tasksRepo.normalizeActor(b.actor));
+      return { ok: true };
     },
   };
 

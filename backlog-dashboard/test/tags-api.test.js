@@ -110,6 +110,17 @@ test('serves tag management and tagging through the REST API', async () => {
     const activity = await (await fetch(`${baseUrl}/api/activity`)).json();
     assert.ok(activity.some(e => e.taskId === taskId && e.eventType === 'tag_added' && e.newValue === 'ガントチャート' && e.actor === 'claude-code'));
 
+    // 並べ替え(BM-112): 同一ワークスペース内で入れ替えられる。他ワークスペース混在や1件のみは拒否
+    const third = await request(baseUrl, '/api/create-tag', { workspace: 'extra', name: 'Third', confirmSimilar: true });
+    const thirdId = third.body.tag.id;
+    const beforeOrder = (await (await fetch(`${baseUrl}/api/tags?workspace=extra`)).json()).tags.map(t => t.id);
+    const reordered = await request(baseUrl, '/api/reorder-tags', { workspace: 'extra', orderedIds: [thirdId, tagId], actor: 'claude-code' });
+    assert.equal(reordered.status, 200, JSON.stringify(reordered.body));
+    const afterOrder = (await (await fetch(`${baseUrl}/api/tags?workspace=extra`)).json()).tags.map(t => t.id);
+    assert.notDeepEqual(afterOrder, beforeOrder);
+    assert.deepEqual(afterOrder.slice(0, 2), [thirdId, tagId]);
+    assert.equal((await request(baseUrl, '/api/reorder-tags', { workspace: 'extra', orderedIds: [thirdId] })).status, 400);
+
     const removed = await request(baseUrl, '/api/delete-tag', { tagId });
     assert.deepEqual([removed.status, removed.body.removedFromTasks], [200, 1]);
     assert.equal((await request(baseUrl, '/api/delete-tag', { tagId })).status, 404);

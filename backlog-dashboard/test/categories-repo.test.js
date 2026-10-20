@@ -155,6 +155,26 @@ test('listCategories counts live tasks matching the category name as usage, acro
   }
 });
 
+test('reorderCategories rewrites sort_order system-wide (no workspace scoping)', () => {
+  const f = createTestDb();
+  try {
+    const a = categoriesRepo.createCategory(f.db, { name: 'A' });
+    const b = categoriesRepo.createCategory(f.db, { name: 'B' });
+    const c = categoriesRepo.createCategory(f.db, { name: 'C' });
+    assert.deepEqual(categoriesRepo.listCategories(f.db).map(x => x.name), ['A', 'B', 'C']);
+
+    categoriesRepo.reorderCategories(f.db, [c.id, a.id, b.id], 'claude-code');
+    assert.deepEqual(categoriesRepo.listCategories(f.db).map(x => x.name), ['C', 'A', 'B']);
+
+    assert.equal(code(() => categoriesRepo.reorderCategories(f.db, [a.id])).code, 'invalid_request');
+    assert.equal(code(() => categoriesRepo.reorderCategories(f.db, [a.id, 999])).code, 'category_not_found');
+    // 失敗時は変更が残らない(ロールバック確認)
+    assert.deepEqual(categoriesRepo.listCategories(f.db).map(x => x.name), ['C', 'A', 'B']);
+  } finally {
+    cleanup(f);
+  }
+});
+
 test('resolveCategoryName allows empty/null as "no category" and rejects names not in the master, regardless of workspace', () => {
   const f = createTestDb();
   try {
