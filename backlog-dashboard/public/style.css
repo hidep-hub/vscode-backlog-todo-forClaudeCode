@@ -4055,7 +4055,8 @@ body {
 }
 
 .delete-confirm-modal,
-.github-link-modal {
+.github-link-modal,
+.ui-dialog-modal {
   max-width: 420px;
 }
 
@@ -4063,6 +4064,18 @@ body {
   font-size: 0.9rem;
   line-height: 1.5;
   margin: 8px 0 16px;
+}
+
+/* BM-114: window.confirm/alertの代わりに使う共通ダイアログ(VS Code Simple Browserはwebviewの
+   制約でwindow.confirm/alertを無視するため)。見た目は既存の削除確認モーダルに揃える。
+   タグ/カテゴリ管理モーダル(1250)の中から呼ばれることが多いため、.modal-front(1200)より
+   前面に出す必要がある。タグ選択ピッカー(1300)よりは背面でよい。 */
+.modal-overlay.ui-dialog-overlay {
+  z-index: 1260;
+}
+
+.ui-dialog-modal .delete-confirm-text {
+  white-space: pre-wrap;
 }
 
 /* BM-064: 更新確認ダイアログで表示する、origin/mainの最新コミット情報(ハッシュ・日付・件名) */
