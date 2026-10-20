@@ -11,6 +11,7 @@
 //   POST /api/update-category  {categoryId, name?, color?, actor?}
 //   POST /api/delete-category  {categoryId, actor?}
 //   POST /api/merge-categories {sourceId, targetId, actor?}
+//   POST /api/reorder-categories {orderedIds: [categoryId, ...], actor?}  並べ替え(BM-112)
 
 const categoriesRepo = require('./db/categories-repo');
 const tasksRepo = require('./db/tasks-repo');
@@ -23,6 +24,7 @@ const STATUS_BY_CODE = {
   similar_categories: 409,
   same_category: 400,
   category_not_found: 404,
+  invalid_request: 400,
 };
 
 function sendJson(res, status, body) {
@@ -66,6 +68,10 @@ function createCategoriesApi({ getDb, readRequestBody, onChange }) {
     '/api/merge-categories': (db, b) => {
       requireIds(b.sourceId, b.targetId);
       return { ok: true, ...categoriesRepo.mergeCategories(db, b.sourceId, b.targetId, tasksRepo.normalizeActor(b.actor)) };
+    },
+    '/api/reorder-categories': (db, b) => {
+      categoriesRepo.reorderCategories(db, b.orderedIds, tasksRepo.normalizeActor(b.actor));
+      return { ok: true };
     },
   };
 

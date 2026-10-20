@@ -121,6 +121,7 @@ function getOrCreateTagModal() {
     if (e.target.closest('.tag-note-cancel')) clearTagNote();
   });
   tagModalEl.querySelector('#tag-modal-body').addEventListener('click', onTagBodyClick);
+  setupTagRowDragAndDrop(tagModalEl.querySelector('#tag-modal-body'));
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (tagModalEl.classList.contains('modal-visible') && typeof isTopmostDialog === 'function' && isTopmostDialog(tagModalEl)) {
@@ -193,7 +194,8 @@ function renderTags() {
   const rows = tagManagerTags.map(tag => {
     if (tag.id === tagEditingId) return renderEditRow(tag);
     const merging = tag.id === tagMergingId;
-    const row = `<tr data-tag-id="${tag.id}">
+    const row = `<tr data-tag-id="${tag.id}" draggable="true">
+      <td class="tag-col-drag" title="ドラッグで並べ替え">≡</td>
       <td class="tag-col-name">${tagChipHtml(tag)}</td>
       <td class="tag-col-num">${tag.usageCount ?? 0} 件</td>
       <td class="tag-col-actions">
@@ -205,7 +207,7 @@ function renderTags() {
     return merging ? row + renderMergeRow(tag) : row;
   }).join('');
   body.innerHTML = `<table class="tag-table">
-    <thead><tr><th>タグ</th><th class="tag-col-num">使用数</th><th></th></tr></thead>
+    <thead><tr><th class="tag-col-drag"></th><th>タグ</th><th class="tag-col-num">使用数</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (tagEditingId) {
     const input = body.querySelector('.tag-edit-name');
@@ -215,7 +217,7 @@ function renderTags() {
 
 function renderEditRow(tag) {
   return `<tr class="tag-edit-row" data-tag-id="${tag.id}">
-    <td colspan="3">
+    <td colspan="4">
       <div class="tag-edit-form">
         <input type="text" class="tag-input tag-edit-name" value="${escapeHtml(tag.name)}" maxlength="80" aria-label="タグ名">
         <button type="button" class="tag-action-btn tag-primary" data-action="save">保存</button>
@@ -236,7 +238,7 @@ function renderEditRow(tag) {
 function renderMergeRow(source) {
   const targets = tagManagerTags.filter(t => t.id !== source.id);
   return `<tr class="tag-merge-row" data-tag-id="${source.id}">
-    <td colspan="3">
+    <td colspan="4">
       <div class="tag-edit-form">
         <span class="tag-merge-label">「${escapeHtml(source.name)}」の統合先:</span>
         <select class="tag-merge-target" aria-label="統合先のタグ">
@@ -255,6 +257,78 @@ function showRowError(rowEl, message) {
   if (!el) { showAlert(message); return; }
   el.textContent = message;
   el.hidden = false;
+}
+
+// --- 並べ替え(BM-112): app.jsのボードD&D(setupDragAndDrop/setupDropZone)と同じ考え方を
+// テーブル行に適用する。行の上下移動のみで、親子化・列移動のような複雑な分岐は無い。
+let tagDragId = null;
+
+function getTagDropTargetRow(bodyEl, clientY) {
+  const rows = Array.from(bodyEl.querySelectorAll('tr[data-tag-id]')).filter(r => !r.classList.contains('tag-row-dragging'));
+  for (const row of rows) {
+    const rect = row.getBoundingClientRect();
+    if (clientY < rect.top + rect.height / 2) return { row, position: 'above' };
+  }
+  return rows.length ? { row: rows[rows.length - 1], position: 'below' } : { row: null, position: 'below' };
+}
+
+function clearTagDropIndicators(bodyEl) {
+  bodyEl.querySelectorAll('.tag-row-drop-above').forEach(el => el.classList.remove('tag-row-drop-above'));
+  bodyEl.querySelectorAll('.tag-row-drop-below').forEach(el => el.classList.remove('tag-row-drop-below'));
+}
+
+function setupTagRowDragAndDrop(bodyEl) {
+  let lastTarget = { row: null, position: 'below' };
+
+  bodyEl.addEventListener('dragstart', (e) => {
+    const row = e.target.closest('tr[data-tag-id]');
+    if (!row) { e.preventDefault(); return; }
+    tagDragId = Number(row.dataset.tagId);
+    row.classList.add('tag-row-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(tagDragId));
+  });
+
+  bodyEl.addEventListener('dragend', (e) => {
+    const row = e.target.closest('tr[data-tag-id]');
+    if (row) row.classList.remove('tag-row-dragging');
+    tagDragId = null;
+    clearTagDropIndicators(bodyEl);
+  });
+
+  bodyEl.addEventListener('dragover', (e) => {
+    if (tagDragId === null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const target = getTagDropTargetRow(bodyEl, e.clientY);
+    lastTarget = target;
+    clearTagDropIndicators(bodyEl);
+    if (target.row) target.row.classList.add(target.position === 'above' ? 'tag-row-drop-above' : 'tag-row-drop-below');
+  });
+
+  bodyEl.addEventListener('drop', async (e) => {
+    if (tagDragId === null) return;
+    e.preventDefault();
+    clearTagDropIndicators(bodyEl);
+    const dragId = tagDragId;
+    tagDragId = null;
+    const currentIds = tagManagerTags.map(t => t.id);
+    if (!currentIds.includes(dragId)) return;
+    const filteredIds = currentIds.filter(id => id !== dragId);
+    let insertIdx;
+    if (!lastTarget.row) {
+      insertIdx = filteredIds.length;
+    } else {
+      const targetId = Number(lastTarget.row.dataset.tagId);
+      const targetIdx = filteredIds.indexOf(targetId);
+      insertIdx = lastTarget.position === 'above' ? targetIdx : targetIdx + 1;
+    }
+    filteredIds.splice(insertIdx, 0, dragId);
+    if (JSON.stringify(filteredIds) === JSON.stringify(currentIds)) return;
+    const res = await tagPost('/api/reorder-tags', { workspace: tagManagerWorkspace, orderedIds: filteredIds });
+    if (res.status !== 200) { await showAlert(`並べ替えに失敗したよ: ${tagLogic.describeTagError(res.body).message}`); return; }
+    await loadTags();
+  });
 }
 
 async function onTagBodyClick(e) {

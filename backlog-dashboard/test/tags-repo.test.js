@@ -248,6 +248,29 @@ test('moving a task to another workspace drops its tags and records the removal'
   }
 });
 
+test('reorderTags rewrites sort_order within the same workspace and rejects cross-workspace input', () => {
+  const f = createTestDb();
+  try {
+    const a = tagsRepo.createTag(f.db, { workspace: 'test', name: 'A' });
+    const b = tagsRepo.createTag(f.db, { workspace: 'test', name: 'B' });
+    const c = tagsRepo.createTag(f.db, { workspace: 'test', name: 'C' });
+    const foreign = tagsRepo.createTag(f.db, { workspace: 'other', name: 'Foreign' });
+    assert.deepEqual(tagsRepo.listTags(f.db, 'test').map(t => t.name), ['A', 'B', 'C']);
+
+    tagsRepo.reorderTags(f.db, 'test', [c.id, a.id, b.id], 'claude-code');
+    assert.deepEqual(tagsRepo.listTags(f.db, 'test').map(t => t.name), ['C', 'A', 'B']);
+
+    assert.equal(code(() => tagsRepo.reorderTags(f.db, 'test', [a.id])).code, 'invalid_request');
+    assert.equal(code(() => tagsRepo.reorderTags(f.db, 'test', [a.id, 999])).code, 'tag_not_found');
+    assert.equal(code(() => tagsRepo.reorderTags(f.db, 'test', [a.id, foreign.id])).code, 'workspace_mismatch');
+    assert.equal(code(() => tagsRepo.reorderTags(f.db, '', [a.id, b.id])).code, 'invalid_workspace');
+    // 失敗時は変更が残らない(ロールバック確認)
+    assert.deepEqual(tagsRepo.listTags(f.db, 'test').map(t => t.name), ['C', 'A', 'B']);
+  } finally {
+    cleanup(f);
+  }
+});
+
 test('tag event types are seeded so existing DBs gain them on upgrade', () => {
   const f = createTestDb();
   try {

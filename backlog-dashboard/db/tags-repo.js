@@ -108,6 +108,38 @@ function updateTag(db, tagId, { name, color }, actor = 'user') {
   return toTagItem(getTag(db, tag.id));
 }
 
+/**
+ * 同一ワークスペース内のタグの表示順を入れ替える(BM-112)。tasksRepo.reorder()と同じ骨格:
+ * 渡されたID配列が同一ワークスペースのタグを全て指しているかを検証し、
+ * トランザクション内でsort_orderを1,2,3...へ振り直す。
+ */
+function reorderTags(db, workspace, orderedIds, actor = 'user') {
+  if (typeof workspace !== 'string' || !workspace) throw fail('invalid_workspace', 'workspaceは必須です');
+  if (!Array.isArray(orderedIds) || orderedIds.length < 2) {
+    throw fail('invalid_request', 'orderedIds array (2+ items) is required');
+  }
+  if (!orderedIds.every(Number.isInteger)) {
+    throw fail('invalid_request', 'orderedIdsはタグIDの整数配列で指定してください');
+  }
+  const rows = orderedIds.map(id => getTag(db, id));
+  const missingIdx = rows.findIndex(r => !r);
+  if (missingIdx !== -1) throw fail('tag_not_found', `タグが見つかりません: ${orderedIds[missingIdx]}`);
+  if (!rows.every(r => r.workspace === workspace)) {
+    throw fail('workspace_mismatch', '並べ替え対象は同じワークスペースのタグ同士である必要があります');
+  }
+
+  const now = new Date().toISOString();
+  const stmt = db.prepare('UPDATE tags SET sort_order = ?, updated_at = ?, updated_by = ? WHERE id = ?');
+  db.exec('BEGIN');
+  try {
+    orderedIds.forEach((id, idx) => stmt.run(idx + 1, now, actor, id));
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+
 function liveTaskRowsForTag(db, tagId) {
   return db.prepare(`SELECT k.id, k.display_id FROM task_tags tt
     JOIN tasks k ON k.id = tt.task_id
@@ -232,5 +264,5 @@ function listTagsForTasks(db, taskIds = null) {
 module.exports = {
   cleanName, toNameKey, isSimilarKey,
   listTags, getTag, findSimilarTags, createTag, updateTag, deleteTag, mergeTags,
-  updateTaskTags, listTagsForTasks,
+  updateTaskTags, listTagsForTasks, reorderTags,
 };

@@ -117,6 +117,19 @@ test('serves category management (system-wide, no workspace scoping) and task ca
     // 改名は別ワークスペース(another)のタスクにも反映される(システム全体で一意なため)
     assert.equal((await (await fetch(`${baseUrl}/api/task/${taskOther.body.id}`)).json()).category, 'インフラ');
 
+    // 並べ替え(BM-112): システム全体で一意なためワークスペース指定は不要。既存の全件を対象に
+    // 並べ替えないと、対象外の行のsort_orderが更新されず名前キーでタイブレークされてしまうため、
+    // 現存する全カテゴリ(categoryId, another.body.category.id)を含めて検証する
+    const third = await request(baseUrl, '/api/create-category', { name: 'セキュリティ' });
+    const thirdId = third.body.category.id;
+    const beforeOrder = (await (await fetch(`${baseUrl}/api/categories`)).json()).categories.map(c => c.id);
+    const reordered = await request(baseUrl, '/api/reorder-categories', { orderedIds: [thirdId, categoryId, another.body.category.id], actor: 'claude-code' });
+    assert.equal(reordered.status, 200, JSON.stringify(reordered.body));
+    const afterOrder = (await (await fetch(`${baseUrl}/api/categories`)).json()).categories.map(c => c.id);
+    assert.notDeepEqual(afterOrder, beforeOrder);
+    assert.deepEqual(afterOrder, [thirdId, categoryId, another.body.category.id]);
+    assert.equal((await request(baseUrl, '/api/reorder-categories', { orderedIds: [thirdId] })).status, 400);
+
     const removed = await request(baseUrl, '/api/delete-category', { categoryId });
     assert.equal(removed.status, 200);
     assert.equal((await request(baseUrl, '/api/delete-category', { categoryId })).status, 404);
