@@ -4603,7 +4603,20 @@ function buildMetaHtml(item) {
   const dueHtml = buildDueDateTrailHtml(item);
   if (dueHtml) metaParts.push(dueHtml);
   const infoHtml = metaParts.length > 0 ? `<div class="detail-section"><h4>情報</h4><ul class="detail-meta">${metaParts.join('')}</ul></div>` : '';
-  return buildDetailTagsHtml(item) + infoHtml;
+  return buildDetailCategoryHtml(item) + buildDetailTagsHtml(item) + infoHtml;
+}
+
+// 詳細モーダルのステータス表示（BT-457）。他画面と同じTODO/READY/DO/DONE表記にするため、日本語ラベルではなくstatusCodeから引く
+const DETAIL_STATUS_LABEL = { todo: 'TODO', ready: 'READY', do: 'DO', done: 'DONE' };
+function buildDetailStatusBadgeHtml(item) {
+  const label = DETAIL_STATUS_LABEL[item.statusCode] || item.status || '-';
+  return `<span class="detail-status">${escapeHtml(label)}</span>`;
+}
+
+// 詳細モーダルのカテゴリ欄（BT-457）。タグと同じ右カラムに置き、カテゴリなしなら出さない
+function buildDetailCategoryHtml(item) {
+  if (!item.category || item.category === '-') return '';
+  return `<div class="detail-section detail-category-section"><h4>カテゴリ</h4>${categoryBadgeHtml(item.category)}</div>`;
 }
 
 // 詳細モーダルのタグ欄（BT-395）。自分のタグは×で外せ、「＋ タグ」で既存タグから選んで付け外しする。
@@ -6696,8 +6709,7 @@ function openChildModal(item, parentEpic = null) {
 
   const parentCrumbHtml = buildParentBreadcrumbHtml(resolveChildParent(item, parentEpic), item);
 
-  const statusBadge = `<span class="detail-status">${escapeHtml(item.status || '-')}</span>`;
-  const category = (item.category && item.category !== '-') ? categoryBadgeHtml(item.category) : '';
+  const statusBadge = buildDetailStatusBadgeHtml(item);
   const project = item.project ? `<span class="detail-tag project">${escapeHtml(item.project)}</span>` : '';
   const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
   const redmineBadge = renderRedmineIssueBadge(item.externalLinks); // BM-073
@@ -6754,7 +6766,7 @@ function openChildModal(item, parentEpic = null) {
     <div class="detail-header">
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
       ${statusBadge}
-      ${project}${category}${githubBadge}${redmineBadge}${gitlabBadge}
+      ${project}${githubBadge}${redmineBadge}${gitlabBadge}
     </div>
     <h3 class="detail-title">${escapeHtml(item.title)}${titlePinBtnHtml}</h3>
     ${actionsRow(stopRunningBtnHtml, editBtnHtml, copyBtnHtml, deleteBtnHtml, workspaceActionHtml, moveActionHtml, detachBtn, githubLinkBtnHtml, githubCreateBtnHtml)}
@@ -7532,8 +7544,7 @@ function renderModalContent(item) {
   const isEpic = item.children && item.children.length > 0;
   content.classList.toggle('modal-wide', isEpic);
 
-  const statusBadge = `<span class="detail-status">${escapeHtml(item.status || '-')}</span>`;
-  const category = (item.category && item.category !== '-') ? categoryBadgeHtml(item.category) : '';
+  const statusBadge = buildDetailStatusBadgeHtml(item);
   const project = item.project ? `<span class="detail-tag project">${escapeHtml(item.project)}</span>` : '';
   const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
   const redmineBadge = renderRedmineIssueBadge(item.externalLinks); // BM-073
@@ -7607,7 +7618,7 @@ function renderModalContent(item) {
       ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
       ${statusBadge}
       ${badgeHtml}
-      ${project}${category}${githubBadge}${redmineBadge}${gitlabBadge}
+      ${project}${githubBadge}${redmineBadge}${gitlabBadge}
     </div>
     <h3 class="detail-title"><span class="detail-title-text">${isEpic ? '<span class="epic-title-chip" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : ''}${escapeHtml(item.title)}</span>${titlePinBtnHtml}</h3>
     ${actionsRow(stopRunningBtnHtml, editBtnHtml, copyBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml)}
