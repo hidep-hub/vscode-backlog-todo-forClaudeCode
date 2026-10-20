@@ -5861,10 +5861,13 @@ function planSetupDropZone(bodyEl, bucketId) {
 // EPIC+子の組(epic=null は単発タスクの束)にして gantt.js へ渡す。日付は update-task の既存項目だけ使う。
 // BM-046: フッターの母数(絞り込み前の件数)を出すため、検索・ピン絞り込みを無視した版を作れるようにする
 function planBuildGanttGroups(ignoreFilter) {
-  const isFiltered = !ignoreFilter && (!!planSearchQuery.trim() || planPinOnly || tagFilter.tags.length > 0);
+  const categoryActive = !ignoreFilter && categoryFilter.keys.length > 0;
+  const isFiltered = !ignoreFilter && (!!planSearchQuery.trim() || planPinOnly || tagFilter.tags.length > 0 || categoryActive);
   const groups = [];
   const singles = [];
   for (const item of planCollectItems()) {
+    // BT-447: カテゴリ絞り込みはボードと同じくEPIC/単発タスク自身のカテゴリで判定する(EPICが合えば子ごと出す)
+    if (categoryActive && !categoryLogic.matchesCategoryFilterForBoardItem(item, categoryFilter.keys)) continue;
     const isEpic = (item.children && item.children.length > 0) || item.childrenTotal > 0;
     if (isEpic) {
       const epicPinned = planPinActive(item);
@@ -5955,11 +5958,11 @@ function renderPlanGantt() {
   // 反映し検索・ピン絞り込みは無視、絞り込み後(groups)はそれらも反映した件数。絞り込みが無い時はshownを出さない
   const allGroups = planBuildGanttGroups(true);
   const query = planSearchQuery.trim();
-  const filtered = !!query || planPinOnly || tagFilter.tags.length > 0;
+  const filtered = !!query || planPinOnly || tagFilter.tags.length > 0 || categoryFilter.keys.length > 0;
   const totalCounts = planGanttStatusCounts(allGroups);
   const shownCounts = filtered ? planGanttStatusCounts(groups) : null;
   // 絞り込みメッセージに出す条件文言。現状の絞り込み手段はキーワード検索と📌今日やるのみ
-  const filterLabel = [query ? `「${query}」` : '', planPinOnly ? '📌今日やる' : '', tagLogic.describeTagFilter(tagFilter)].filter(Boolean).join(' + ');
+  const filterLabel = [query ? `「${query}」` : '', planPinOnly ? '📌今日やる' : '', tagLogic.describeTagFilter(tagFilter), categoryFilter.keys.length > 0 ? `カテゴリ:${categoryFilter.keys.join('、')}` : ''].filter(Boolean).join(' + ');
 
   // BM-093: 「遅延」ボタンの巡回位置をリセットする判定キー。ワークスペース・検索語・ピン・タグ絞り込みの
   // いずれかが変わったら別キーになり、gantt.js側で先頭に戻す(存在しないタスクを指し続けないようにする)
@@ -5969,6 +5972,7 @@ function renderPlanGantt() {
     planPinOnly,
     tagFilter.mode,
     tagFilter.tags.map((t) => t.key).sort(),
+    categoryFilter.keys.slice().sort(),
   ]);
 
   window.ganttView.render(root, {
@@ -5981,6 +5985,10 @@ function renderPlanGantt() {
     filterKey: overdueFilterKey,
     // タイトルの右に出すタグ。EPICは自分のタグに子由来のタグ(薄)を続ける
     tagsHtml: (item) => tagLogic.buildCardTagsHtml(item.tags, item.childTags, 2),
+    // BT-447: カテゴリ階層の束ね(EPIC/単発タスク自身のカテゴリ)
+    categoryOf: (item) => item.category,
+    categoryChipHtml: planCategoryChipHtml,
+    categoryOrder: [...planCategoryColors.keys()],
     onSaveDates: planSaveGanttDates,
     // BT-424: 行のステータス文字から変更する
     onChangeStatus: planChangeGanttStatus,
@@ -6193,6 +6201,7 @@ function getOrCreatePlanBoardModal() {
         </div>
         <button type="button" class="plan-pin-filter-btn" id="plan-pin-filter-btn" title="📌ピンを付けたタスクだけ表示する（EPICは子に📌があればEPICごと表示）"><span class="material-icon icon-keep"></span><span class="plan-pin-count" id="plan-pin-count"></span></button>
         <button type="button" class="plan-pin-filter-btn plan-tag-filter-btn tag-filter-trigger" id="plan-tag-filter-btn" aria-haspopup="dialog" title="タグで絞り込み（ボード・週次計画・ガント共通）"><span class="material-icon icon-tag"></span><span class="tag-filter-count" hidden></span></button>
+        <button type="button" class="plan-pin-filter-btn category-filter-btn category-filter-trigger" id="plan-category-filter-btn" aria-haspopup="dialog" title="カテゴリで絞り込み（ボード・週次計画・ガント共通）"><span class="material-icon icon-stacks"></span><span class="category-filter-count" hidden></span></button>
         <button type="button" class="plan-pin-filter-btn plan-done-filter-btn" id="plan-done-filter-btn"><span class="material-icon icon-check-box"></span></button>
         <button class="plan-board-close" id="plan-board-close">&times;</button>
       </div>
@@ -6246,7 +6255,9 @@ function getOrCreatePlanBoardModal() {
 
   // BT-397: 計画画面を開くとヘッダーのタグ絞り込みが隠れるため、画面内にも同じボタンを置く（状態・条件はヘッダーと共通）
   overlay.querySelector('#plan-tag-filter-btn').addEventListener('click', (e) => toggleTagFilterPopover(e.currentTarget));
+  overlay.querySelector('#plan-category-filter-btn').addEventListener('click', (e) => toggleCategoryFilterPopover(e.currentTarget));
   renderTagFilterControls();
+  renderCategoryFilterControls();
 
   // BT-315: 完了タスクを出すかどうかのトグル（週次カンバンのみ）
   overlay.querySelector('#plan-done-filter-btn').addEventListener('click', () => {
@@ -6271,8 +6282,38 @@ function planToggleAllGroups() {
   renderPlanBoard();
 }
 
+// BT-447: ガントのカテゴリ見出しをタグ風チップで出すための色(カテゴリマスタ)。名前→色。
+// 開くたびに取り直し、色が変わっていた時だけ描画し直す(取得前・失敗時は色なしのチップで出す)
+let planCategoryColors = new Map();
+async function planRefreshCategoryColors() {
+  try {
+    const res = await fetch('/api/categories');
+    if (!res.ok) return;
+    const body = await res.json();
+    const next = new Map((body.categories || []).map((c) => [c.name, c.color || '']));
+    const same = next.size === planCategoryColors.size && [...next].every(([k, v]) => planCategoryColors.get(k) === v);
+    planCategoryColors = next;
+    const overlay = document.getElementById('plan-board-overlay');
+    if (!same && overlay && overlay.classList.contains('active') && planViewMode === 'gantt') renderPlanGantt();
+  } catch { /* 色なしのチップで続行 */ }
+}
+
+// カテゴリ見出し用のチップ。タグのチップ(色つき・角丸)にタグアイコンを前置きする。名前なし=カテゴリなしは色なし
+function planCategoryChipHtml(name) {
+  const label = name || 'カテゴリなし';
+  const color = name ? planCategoryColors.get(name) : '';
+  const hasColor = /^#[0-9a-f]{6}$/i.test(color || '');
+  // 色はマスタの色を背景に薄く混ぜ、文字・枠は少し濃いめにして、行の線や他の行より主張しすぎないようにする
+  const style = hasColor
+    ? ` style="background:color-mix(in srgb, ${color} 22%, var(--surface));color:color-mix(in srgb, ${color} 80%, var(--text));border-color:color-mix(in srgb, ${color} 50%, var(--surface))"`
+    : '';
+  const esc = categoryLogic.escapeText;
+  return `<span class="tag-chip${hasColor ? '' : ' tag-chip-plain'}"${style} title="${esc(label)}"><span class="material-icon icon-tag"></span><span class="tag-chip-text">${esc(label)}</span></span>`;
+}
+
 function openPlanBoard() {
   const overlay = getOrCreatePlanBoardModal();
+  planRefreshCategoryColors();
   if (wsFilterPlanDropdown) wsFilterPlanDropdown.render(); // 開くたびに現在のcurrentFilter/件数で描画し直す
   overlay.classList.add('active');
   if (window.ganttView) window.ganttView.resetScroll(); // ガントは開くたびに今日の位置から見せる

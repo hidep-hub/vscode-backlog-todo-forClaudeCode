@@ -163,8 +163,10 @@
     // show=falseでも統計・範囲・lookupには数える(折りたたんでも「遅延N件」等は変わらないように)
     // BM-033: isLastはEPIC配下で表示中の子のうち最後の1件かどうか(ツリー線を止める位置の判定用)
     // BT-450: singleは単発タスクの束の行(parentはnullのまま。ツリー線とアイコンの表示判定にだけ使う)
-    const pushItem = (item, parent, show, isLast, single = false) => {
-      lookup.set(item.id, { item, parent });
+    // BT-447: ckは所属カテゴリ行のキー(カテゴリ階層が無ければnull)、gkは所属グループ(EPIC id/単発グループ)のキー。
+    // 「遅延」ジャンプで折りたたみを開く時に使う
+    const pushItem = (item, parent, show, isLast, single = false, ck = null, gk = null, inCat = false) => {
+      lookup.set(item.id, { item, parent, catKey: ck, groupKey: gk });
       const sp = barSpan(item);
       if (!isDone(item)) {
         if (!sp) stats.unplanned++;
@@ -175,8 +177,11 @@
           stats.overdueItems.push(item);
         } else if (j === 'late-start') stats.lateStart++;
       }
-      if (show) rows.push({ type: 'task', item, parent, isLast, single });
+      if (show) rows.push({ type: 'task', item, parent, isLast, single, inCat });
     };
+
+    // BT-447: カテゴリはEPIC/単発タスク自身の値で束ねる(子のカテゴリは見ない。週報と同じ考え方)。''はカテゴリなし
+    const catName = (item) => { const c = ctx.categoryOf ? ctx.categoryOf(item) : ''; return c && c !== '-' ? c : ''; };
 
     // ワークスペースごとに束ねる(ALLで複数ある時だけ見出しを出す)。単発の束はプロジェクトで分割する
     const byProject = new Map();
@@ -205,7 +210,37 @@
       }
       const emit = (row) => { if (!wsCollapsed) rows.push(row); };
 
-      for (const g of epics) {
+      // BT-447: 「カテゴリ > EPIC(|単発) > 子」。ワークスペース内にカテゴリ付きが1件も無ければ従来どおり階層を出さない
+      const catLevel = groups.some((g) => (g.epic ? !!catName(g.epic) : g.children.some((c) => !!catName(c))));
+      const buckets = new Map(); // カテゴリ名 → { epics, singles }
+      const bucketOf = (name) => { if (!buckets.has(name)) buckets.set(name, { epics: [], singles: [] }); return buckets.get(name); };
+      if (!catLevel) {
+        buckets.set('', { epics, singles });
+      } else {
+        for (const g of epics) bucketOf(catName(g.epic)).epics.push(g);
+        for (const g of singles) {
+          const byCat = new Map();
+          for (const c of g.children) { const n = catName(c); if (!byCat.has(n)) byCat.set(n, []); byCat.get(n).push(c); }
+          for (const [n, list] of byCat) bucketOf(n).singles.push({ epic: null, children: list, allChildren: list });
+        }
+      }
+      // 並びはカテゴリマスタ順(ctx.categoryOrder)→マスタ外(名前順)→カテゴリなし
+      const rank = (n) => { const i = ctx.categoryOrder ? ctx.categoryOrder.indexOf(n) : -1; return i < 0 ? Infinity : i; };
+      const catNames = [...buckets.keys()].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : (rank(a) - rank(b)) || a.localeCompare(b, 'ja')));
+
+      for (const cat of catNames) {
+        const { epics: catEpics, singles: catSingles } = buckets.get(cat);
+        let ck = null, catHidden = false;
+        if (catLevel) {
+          ck = `cat:${project}:${cat}`;
+          keys.push(ck);
+          catHidden = state.collapsed.has(ck);
+          const count = [...catEpics, ...catSingles].reduce((n, g) => n + g.children.length, 0);
+          emit({ type: 'cat', key: ck, label: cat || 'カテゴリなし', isNone: !cat, count, collapsed: catHidden });
+        }
+        const emitIn = (row) => { if (!catHidden) emit(row); };
+
+      for (const g of catEpics) {
         let min = null, max = null, done = 0;
         // BM-050: 畳んだ状態でも帯だけでマイルストーンが見えるよう、子の期限(due)/完了(doneAt)を集めておく
         const marks = [];
@@ -217,15 +252,16 @@
           else if (c.dueDate && c.dueDate !== '-') marks.push({ date: c.dueDate, kind: 'due', item: c, late: c.dueDate < today });
         }
         keys.push(g.epic.id);
-        emit({ type: 'epic', epic: g.epic, span: min ? { start: min, end: max } : null, done, total: g.allChildren.length, marks });
-        const show = !wsCollapsed && !state.collapsed.has(g.epic.id);
-        g.children.forEach((c, i) => pushItem(c, g.epic, show, i === g.children.length - 1));
+        emitIn({ type: 'epic', epic: g.epic, span: min ? { start: min, end: max } : null, done, total: g.allChildren.length, marks, inCat: catLevel });
+        const show = !wsCollapsed && !catHidden && !state.collapsed.has(g.epic.id);
+        g.children.forEach((c, i) => pushItem(c, g.epic, show, i === g.children.length - 1, false, ck, g.epic.id, catLevel));
       }
-      for (const g of singles) {
-        const key = `single:${project}`;
+      for (const g of catSingles) {
+        const key = catLevel ? `single:${project}:${cat}` : `single:${project}`;
         keys.push(key);
-        emit({ type: 'head', key, label: '単発タスク', project, count: g.children.length, collapsed: state.collapsed.has(key) });
-        g.children.forEach((c, i) => pushItem(c, null, !wsCollapsed && !state.collapsed.has(key), i === g.children.length - 1, true));
+        emitIn({ type: 'head', key, label: '単発タスク', project, count: g.children.length, collapsed: state.collapsed.has(key), inCat: catLevel });
+        g.children.forEach((c, i) => pushItem(c, null, !wsCollapsed && !catHidden && !state.collapsed.has(key), i === g.children.length - 1, true, ck, key, catLevel));
+      }
       }
     }
     return { rows, lookup, stats, dated, keys };
@@ -355,12 +391,16 @@
     const rowHtml = rowParts.join('');
 
     function buildRow(r) {
+      if (r.type === 'cat') {
+        // BT-447: カテゴリ見出し。折りたたみはEPIC/単発見出しと同じtoggle-epic(キーがcat:...)
+        return `<div class="gantt-row gantt-row-cat"><div class="gantt-label gantt-label-cat${r.isNone ? ' is-none' : ''}" data-act="toggle-epic" data-epic-id="${esc(r.key)}"><span class="gantt-toggle">${r.collapsed ? '▸' : '▾'}</span>${ctx.categoryChipHtml ? `<span class="gantt-title gantt-cat-chip">${ctx.categoryChipHtml(r.isNone ? '' : r.label)}</span>` : `<span class="gantt-title" title="${esc(r.label)}">${esc(r.label)}</span>`}<span class="gantt-count">${r.count}</span><i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px"></div></div>`;
+      }
       if (r.type === 'head') {
         // BT-430: 単発タスク見出しの右端に「＋ 単発タスクを追加」(EPIC行の子タスク追加と同じ見た目・縮み方)。onAddTask未指定なら出さない
         const addSingleBtn = ctx.onAddTask
           ? `<button type="button" class="gantt-add-child" data-act="add-single" data-project="${esc(r.project || '')}" title="${esc(r.project || '')} に単発タスクを追加" aria-label="単発タスクを追加"><span class="gantt-add-child-icon">＋</span><span class="gantt-add-child-text">単発タスクを追加</span></button>`
           : '';
-        return `<div class="gantt-row gantt-row-head"><div class="gantt-label gantt-label-head" data-act="toggle-epic" data-epic-id="${esc(r.key)}"><span class="gantt-toggle">${r.collapsed ? '▸' : '▾'}</span><span class="material-icon icon-sticky-note gantt-single-icon" title="単発タスク（親を持たないタスク）"></span>${esc(r.label)}<span class="gantt-count">${r.count}</span>${addSingleBtn}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px"></div></div>`;
+        return `<div class="gantt-row gantt-row-head"><div class="gantt-label gantt-label-head${r.inCat ? ' in-cat' : ''}" data-act="toggle-epic" data-epic-id="${esc(r.key)}"><span class="gantt-toggle">${r.collapsed ? '▸' : '▾'}</span><span class="material-icon icon-sticky-note gantt-single-icon" title="単発タスク（親を持たないタスク）"></span>${esc(r.label)}<span class="gantt-count">${r.count}</span>${addSingleBtn}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px"></div></div>`;
       }
       if (r.type === 'epic') {
         const collapsed = state.collapsed.has(r.epic.id);
@@ -396,7 +436,7 @@
         const addChildBtn = ctx.onAddChild
           ? `<button type="button" class="gantt-add-child" data-act="add-child" data-epic-id="${esc(r.epic.id)}" data-project="${esc(r.epic.project || '')}" title="${esc(r.epic.id)} に子タスクを追加" aria-label="子タスクを追加"><span class="gantt-add-child-icon">＋</span><span class="gantt-add-child-text">子タスクを追加</span></button>`
           : '';
-        return `<div class="gantt-row gantt-row-epic${r.epic.statusCode === 'done' ? ' is-done' : ''}" data-epic-id="${esc(r.epic.id)}"><div class="gantt-label gantt-label-epic" data-act="toggle-epic" data-epic-id="${esc(r.epic.id)}" data-task-id="${esc(r.epic.id)}"><span class="gantt-toggle">${collapsed ? '▸' : '▾'}</span>${epicIcon}<span class="gantt-id">${esc(r.epic.id)}</span>${eRunning}<span class="gantt-title">${esc(r.epic.title)}</span>${tagsCell(r.epic)}<span class="gantt-count">${r.done}/${r.total}</span>${addChildBtn}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px">${bar}</div></div>`;
+        return `<div class="gantt-row gantt-row-epic${r.epic.statusCode === 'done' ? ' is-done' : ''}" data-epic-id="${esc(r.epic.id)}"><div class="gantt-label gantt-label-epic${r.inCat ? ' in-cat' : ''}" data-act="toggle-epic" data-epic-id="${esc(r.epic.id)}" data-task-id="${esc(r.epic.id)}"><span class="gantt-toggle">${collapsed ? '▸' : '▾'}</span>${epicIcon}<span class="gantt-id">${esc(r.epic.id)}</span>${eRunning}<span class="gantt-title">${esc(r.epic.title)}</span>${tagsCell(r.epic)}<span class="gantt-count">${r.done}/${r.total}</span>${addChildBtn}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px">${bar}</div></div>`;
       }
       const item = r.item;
       const done = isDone(item);
@@ -414,7 +454,7 @@
       // DONEもグレーの文字で出す(緑ドットは廃止、BT-365)
       const stateCell = `<button type="button" class="gantt-state" data-act="status-menu" data-task-id="${esc(item.id)}" title="${esc(item.status || item.statusCode)}（クリックで変更）">${running || '<span class="gantt-running-slot"></span>'}<span class="gantt-status-text st-${esc(item.statusCode)}">${esc(String(item.statusCode).toUpperCase())}</span></button>`;
       // BM-033: 子タスクはis-childでツリー線用の背景・インデントを付与。is-lastは縦線を自分の行で止める印
-      const childCls = (r.parent || r.single) ? ` is-child${r.isLast ? ' is-last' : ''}` : '';
+      const childCls = (r.parent || r.single) ? ` is-child${r.isLast ? ' is-last' : ''}${r.inCat ? ' in-cat' : ''}` : '';
       const selectable = state.selecting && !done;
       const selectionMark = selectable ? `<span class="gantt-selection-mark${state.selectedIds.has(item.id) ? ' is-selected' : ''}" aria-hidden="true">${state.selectedIds.has(item.id) ? '✓' : ''}</span>` : '';
       const label = `<div class="gantt-label gantt-label-task${childCls}${selectable ? ' is-selecting' : ''}" data-act="${selectable ? 'select-task' : 'open'}" data-task-id="${esc(item.id)}">${selectionMark}<span class="gantt-id">${esc(item.id)}</span><span class="gantt-title">${esc(item.title)}</span>${tagsCell(item)}${pin}<i class="gantt-resizer gantt-resizer-state" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${stateCell}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;
@@ -573,8 +613,10 @@
     const project = parent ? parent.project : item.project;
     const ws = current.ctx.groupByWorkspace ? project : '';
     let expanded = state.collapsedWs.delete(ws);
+    // BT-447: カテゴリ階層がある時は、所属カテゴリ見出しと単発グループのキーも開く
+    if (info && info.catKey) expanded = state.collapsed.delete(info.catKey) || expanded;
     if (parent) expanded = state.collapsed.delete(parent.id) || expanded;
-    else expanded = state.collapsed.delete(`single:${ws}`) || expanded;
+    else expanded = state.collapsed.delete(info && info.groupKey ? info.groupKey : `single:${ws}`) || expanded;
     if (expanded) rerender();
     const label = current.scrollEl.querySelector(`.gantt-label-task[data-task-id="${CSS.escape(item.id)}"]`);
     const row = label && label.parentElement;
@@ -1086,6 +1128,7 @@
   root.ganttView = {
     render,
     hideTip,
+    collectRows, // 単体テスト用(行の並び・カテゴリ階層の検証)
     // ダイアログを開き直した時に今日の位置から見せる。BM-093: 遅延巡回の位置も合わせて先頭に戻す
     resetScroll() { state.needsInitialScroll = true; state.overdueCursorId = null; },
   };

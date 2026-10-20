@@ -636,6 +636,9 @@ function applyCategoryFilter() {
   saveCategoryFilter();
   renderCategoryFilterControls();
   if (currentBoardData) renderBoard(currentBoardData);
+  // BT-447: ガント(週次計画オーバーレイ)が開いていれば同じ絞り込みで再描画する(タグ絞り込みと同じ)
+  const plan = document.getElementById('plan-board-overlay');
+  if (plan && plan.classList.contains('active') && typeof renderPlanBoard === 'function') renderPlanBoard();
 }
 
 function toggleCategoryFilterKey(key, checked) {
