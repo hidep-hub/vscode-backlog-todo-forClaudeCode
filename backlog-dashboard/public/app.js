@@ -3931,7 +3931,7 @@ function renderBoard(data) {
 
       const id = (showField('id') && item.id && item.id !== '-') ? item.id : '';
       const completedDate = (showField('completedDate') && item.completedDate) ? renderCompletedDateBadge(item.completedDate) : '';
-      const category = (showField('category') && item.category && item.category !== '-') ? `<span class="card-tag category">${item.category}</span>` : '';
+      const category = (showField('category') && item.category && item.category !== '-') ? categoryBadgeHtml(item.category, { small: true }) : '';
 
       // 親Epicへのリンク（BT-201: 親が未完了のまま個別完了した子タスクを完了カラムに混在表示する分）
       // クリックすると親Epicの詳細（ミニボード）を開き、このカードをハイライトする
@@ -6295,20 +6295,18 @@ async function planRefreshCategoryColors() {
     planCategoryColors = next;
     const overlay = document.getElementById('plan-board-overlay');
     if (!same && overlay && overlay.classList.contains('active') && planViewMode === 'gantt') renderPlanGantt();
+    if (!same && lastBoardData) renderBoard(lastBoardData); // BT-454: ボードのカテゴリチップも色の変更に追随させる
   } catch { /* 色なしのチップで続行 */ }
 }
 
-// カテゴリ見出し用のチップ。タグのチップ(色つき・角丸)にタグアイコンを前置きする。名前なし=カテゴリなしは色なし
+// カテゴリ見出し用のチップ。タグのチップ(色つき・角丸)にカテゴリアイコンを前置きする。名前なし=カテゴリなしは色なし
 function planCategoryChipHtml(name) {
-  const label = name || 'カテゴリなし';
-  const color = name ? planCategoryColors.get(name) : '';
-  const hasColor = /^#[0-9a-f]{6}$/i.test(color || '');
-  // 色はマスタの色を背景に薄く混ぜ、文字・枠は少し濃いめにして、行の線や他の行より主張しすぎないようにする
-  const style = hasColor
-    ? ` style="background:color-mix(in srgb, ${color} 22%, var(--surface));color:color-mix(in srgb, ${color} 80%, var(--text));border-color:color-mix(in srgb, ${color} 50%, var(--surface))"`
-    : '';
-  const esc = categoryLogic.escapeText;
-  return `<span class="tag-chip${hasColor ? '' : ' tag-chip-plain'}"${style} title="${esc(label)}"><span class="material-icon icon-tag"></span><span class="tag-chip-text">${esc(label)}</span></span>`;
+  return categoryBadgeHtml(name);
+}
+
+// BT-454: ボード・詳細のカテゴリ表示。マスタの色(planCategoryColors)を引いて色付きチップにする
+function categoryBadgeHtml(name, opts) {
+  return categoryLogic.buildCategoryBadgeHtml(name, name ? planCategoryColors.get(name) : '', opts);
 }
 
 function openPlanBoard() {
@@ -6668,7 +6666,7 @@ function openChildModal(item, parentEpic = null) {
   const parentCrumbHtml = buildParentBreadcrumbHtml(resolveChildParent(item, parentEpic), item);
 
   const statusBadge = `<span class="detail-status">${escapeHtml(item.status || '-')}</span>`;
-  const category = (item.category && item.category !== '-') ? `<span class="detail-tag category">${escapeHtml(item.category)}</span>` : '';
+  const category = (item.category && item.category !== '-') ? categoryBadgeHtml(item.category) : '';
   const project = item.project ? `<span class="detail-tag project">${escapeHtml(item.project)}</span>` : '';
   const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
   const redmineBadge = renderRedmineIssueBadge(item.externalLinks); // BM-073
@@ -7504,7 +7502,7 @@ function renderModalContent(item) {
   content.classList.toggle('modal-wide', isEpic);
 
   const statusBadge = `<span class="detail-status">${escapeHtml(item.status || '-')}</span>`;
-  const category = (item.category && item.category !== '-') ? `<span class="detail-tag category">${escapeHtml(item.category)}</span>` : '';
+  const category = (item.category && item.category !== '-') ? categoryBadgeHtml(item.category) : '';
   const project = item.project ? `<span class="detail-tag project">${escapeHtml(item.project)}</span>` : '';
   const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
   const redmineBadge = renderRedmineIssueBadge(item.externalLinks); // BM-073
@@ -7813,7 +7811,7 @@ function buildMiniBoard(epic) {
 
       const mParts = [];
       if (child.category && child.category !== '-') {
-        mParts.push(`<span class="card-tag category">${escapeHtml(child.category)}</span>`);
+        mParts.push(categoryBadgeHtml(child.category, { small: true }));
       }
       if (child.assignee) {
         mParts.push(`<span class="card-tag">${escapeHtml(child.assignee)}</span>`);
@@ -9246,4 +9244,5 @@ async function submitAddTask() {
 
 // --- Init ---
 applySettings();
+planRefreshCategoryColors(); // BT-454: ボードのカテゴリチップ用にマスタの色を先に取得する
 connect();

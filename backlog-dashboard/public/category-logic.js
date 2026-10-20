@@ -180,22 +180,34 @@
   }
 
   /**
-   * カテゴリ1件のチップHTML。色ありは背景色+読みやすい文字色、色なしはニュートラル。
-   * small=カード用の小さめ表示。カテゴリは1タスク1値のためremovable(×ボタン)は持たない
-   * (選択は<select>側で行い、チップはボード/詳細の表示専用)。
+   * カテゴリ1件のチップHTML({name,color}を渡す版)。カテゴリ管理の一覧・絞り込みピッカーなど、
+   * カテゴリを表示する場所すべてで見た目を揃えるため、buildCategoryBadgeHtml(栞形+カテゴリアイコン)に一本化している。
+   * カテゴリは1タスク1値のためremovable(×ボタン)は持たない(選択は<select>側で行い、チップは表示専用)。
    */
-  function buildCategoryChipHtml(category, { small = false } = {}) {
-    const bg = /^#[0-9a-f]{6}$/i.test(category.color || '') ? category.color : '';
-    const fg = readableTextColor(bg);
-    const cls = ['tag-chip', bg ? '' : 'tag-chip-plain', small ? 'tag-chip-sm' : ''].filter(Boolean).join(' ');
-    const style = bg ? ` style="background:${bg};color:${fg};border-color:${bg}"` : '';
-    return `<span class="${cls}"${style} title="${escapeText(category.name)}"><span class="tag-chip-text">${escapeText(category.name)}</span></span>`;
+  function buildCategoryChipHtml(category, opts) {
+    return buildCategoryBadgeHtml(category.name, category.color, opts);
+  }
+
+  /**
+   * ボード・詳細・ガント見出し用の表示専用チップ。カテゴリアイコン(icon-stacks。カテゴリ管理・設定ボタンと
+   * 同じ。タグのicon-tagとは区別する)を前置きし、色ありはマスタの色を
+   * 背景に薄く混ぜて文字・枠を少し濃くする(カードや行の線より主張しすぎないため)。
+   * 色なし(名前なし含む)はニュートラル。small=カード用の小さめ表示。
+   */
+  function buildCategoryBadgeHtml(name, color, { small = false } = {}) {
+    const label = name || 'カテゴリなし';
+    const hasColor = !!name && /^#[0-9a-f]{6}$/i.test(color || '');
+    const cls = ['tag-chip', 'category-badge', hasColor ? '' : 'tag-chip-plain', small ? 'tag-chip-sm' : ''].filter(Boolean).join(' ');
+    const style = hasColor
+      ? ` style="background:color-mix(in srgb, ${color} 22%, var(--surface));color:color-mix(in srgb, ${color} 80%, var(--text));border-color:transparent;border-left-color:color-mix(in srgb, ${color} 80%, #000)"`
+      : '';
+    return `<span class="${cls}"${style} title="${escapeText(label)}"><span class="material-icon icon-stacks"></span><span class="tag-chip-text">${escapeText(label)}</span></span>`;
   }
 
   return {
     cleanCategoryName, categoryNameKey, findExactCategory, readableTextColor,
     buildDeleteMessage, buildMergeMessage, describeCategoryError, escapeText,
-    buildCategoryChipHtml, CATEGORY_COLOR_PALETTE, buildSwatchesHtml,
+    buildCategoryChipHtml, buildCategoryBadgeHtml, CATEGORY_COLOR_PALETTE, buildSwatchesHtml,
     matchesCategoryFilter, matchesCategoryFilterForBoardItem, buildCategoryFilterOptions,
     parseCategoryFilter, describeCategoryFilter, commonCategoryKey,
   };

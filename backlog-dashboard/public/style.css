@@ -7028,6 +7028,42 @@ mark.activity-hit {
   overflow-wrap: normal;
 }
 
+/* BT-454: カード上のカテゴリ/タグは、期日・GitHubなど他のカードバッジ(card-tag)と同じ文字サイズ・余白に揃える
+   (チップだけ一回り小さく、行内の高さもバラついていたため)。行内は上下中央にそろえる */
+:is(.card, .plan-card) .tag-chip-sm {
+  font-size: var(--fs-tag, 0.65rem);
+  line-height: normal;
+  padding: var(--card-tag-pad, 2px 6px);
+  align-self: center;
+}
+
+/* BT-454: カテゴリは四角(右端にV字の切り込みを入れた栞形)にして、丸いタグと形でも見分ける。
+   clip-pathで枠線が切り込み辺に出ないため、栞形では枠線を透明にして背景の薄い色だけで見せる
+   (幅だけ確保して、枠線のあるタグチップと高さを揃える) */
+.category-badge {
+  --flag-cut: 0.55em;
+  border-color: transparent;
+  /* 先頭の濃い線。色はカテゴリ色を濃くしたものをインラインで指定(色なしは下の.tag-chip-plain)。
+     文字が大きいチップ(ピッカー・詳細など)ほど太くなるようemで指定し、小さいカードでも最低4pxは確保する。
+     .tag-chipの左余白(10px)だと線とアイコンの間が空いて見えるため、線の太さに合わせて詰める */
+  border-left-width: max(4px, 0.35em);
+  padding-left: 0.5em;
+  border-radius: 0;
+  border-radius: 0;
+  padding-right: calc(var(--flag-cut) + 0.35em);
+  clip-path: polygon(0 0, 100% 0, calc(100% - var(--flag-cut)) 50%, 100% 100%, 0 100%); /* 栞(リボン)形: 右端にV字の切り込み */
+}
+
+.category-badge.tag-chip-plain {
+  border-color: transparent;
+  border-left-color: var(--text-muted);
+}
+
+:is(.card, .plan-card) .category-badge.tag-chip-sm {
+  padding: var(--card-tag-pad, 2px 6px);
+  padding-right: calc(var(--flag-cut) + 0.35em);
+}
+
 .tag-chip-dim {
   opacity: 0.55;
   border-style: dashed;

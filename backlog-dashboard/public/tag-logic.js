@@ -177,7 +177,7 @@
     const remove = removable
       ? `<button type="button" class="tag-chip-remove" data-tag-id="${escapeText(tag.id)}" title="このタグを外す" aria-label="${escapeText(tag.name)}を外す">&times;</button>`
       : '';
-    return `<span class="${cls}"${style} title="${escapeText(tag.name)}"><span class="tag-chip-text">${escapeText(tag.name)}</span>${remove}</span>`;
+    return `<span class="${cls}"${style} title="${escapeText(tag.name)}"><span class="material-icon icon-tag"></span><span class="tag-chip-text">${escapeText(tag.name)}</span>${remove}</span>`;
   }
 
   /**
