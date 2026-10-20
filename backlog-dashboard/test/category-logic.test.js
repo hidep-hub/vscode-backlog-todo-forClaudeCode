@@ -62,14 +62,40 @@ test('describeCategoryErrorはサーバーのエラーを画面向けに変換�
   assert.equal(categoryLogic.describeCategoryError(null).kind, 'error');
 });
 
-test('buildCategoryChipHtmlは名前・色をエスケープし、色ありは文字色を付ける', () => {
+test('buildCategoryChipHtmlは名前・色をエスケープし、色ありはマスタ色を薄く混ぜる(BT-454でbuildCategoryBadgeHtmlに一本化)', () => {
   const chip = categoryLogic.buildCategoryChipHtml({ name: '<b>"x"&', color: '#e53935' });
   assert.doesNotMatch(chip, /<b>/);
   assert.match(chip, /&lt;b&gt;&quot;x&quot;&amp;/);
-  assert.match(chip, /background:#e53935;color:#ffffff/);
+  assert.match(chip, /color-mix\(in srgb, #e53935 22%/);
+  assert.match(chip, /category-badge/);
+  assert.equal(chip, categoryLogic.buildCategoryBadgeHtml('<b>"x"&', '#e53935'));
   const plain = categoryLogic.buildCategoryChipHtml({ name: 'A', color: null });
   assert.match(plain, /tag-chip-plain/);
   assert.doesNotMatch(plain, /style=/);
+});
+
+test('buildCategoryBadgeHtml(BT-454)はカテゴリアイコン付きで、色ありはマスタ色を薄く混ぜ、色なし・名前なしはニュートラル', () => {
+  const badge = categoryLogic.buildCategoryBadgeHtml('<b>バグ</b>', '#e53935', { small: true });
+  assert.doesNotMatch(badge, /<b>/);
+  assert.match(badge, /&lt;b&gt;バグ&lt;\/b&gt;/);
+  assert.match(badge, /icon-stacks/);
+  assert.doesNotMatch(badge, /icon-tag/);
+  assert.match(badge, /tag-chip-sm/);
+  assert.match(badge, /color-mix\(in srgb, #e53935 22%/);
+  const plain = categoryLogic.buildCategoryBadgeHtml('機能追加', '');
+  assert.match(plain, /tag-chip-plain/);
+  assert.doesNotMatch(plain, /style=/);
+  assert.doesNotMatch(plain, /tag-chip-sm/);
+  const none = categoryLogic.buildCategoryBadgeHtml('', '#e53935');
+  assert.match(none, /カテゴリなし/);
+  assert.doesNotMatch(none, /style=/);
+});
+
+test('ボード・子カード・詳細のカテゴリ表示は固定色バッジではなく色付きチップを使う(BT-454)', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.doesNotMatch(app, /card-tag category/);
+  assert.doesNotMatch(app, /detail-tag category/);
+  assert.equal((app.match(/categoryBadgeHtml\(/g) || []).length >= 5, true);
 });
 
 test('matchesCategoryFilterは1値のためいずれかの選択に一致するかで判定し、空の条件は常に一致する', () => {

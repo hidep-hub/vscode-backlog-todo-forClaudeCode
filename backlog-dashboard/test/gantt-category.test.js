@@ -78,9 +78,12 @@ test('週次計画/ガントのヘッダーにカテゴリ絞り込みボタン�
   assert.match(app, /renderCategoryFilterControls\(\);\s*\/\/ BT-315|renderCategoryFilterControls\(\);\n/);
 });
 
-test('カテゴリ見出しはタグ風チップ(タグアイコン付き)で出し、並びはカテゴリマスタ順にする', () => {
+test('カテゴリ見出しはタグ風チップ(カテゴリアイコン付き)で出し、並びはカテゴリマスタ順にする', () => {
   assert.match(app, /categoryChipHtml: planCategoryChipHtml/);
-  assert.match(app, /icon-tag"><\/span><span class="tag-chip-text">/);
+  // BT-454: チップのHTMLはcategory-logic.jsのbuildCategoryBadgeHtmlに共通化した(ボード・詳細と同じ見た目)
+  assert.match(app, /function planCategoryChipHtml\(name\) \{\s*return categoryBadgeHtml\(name\);/);
+  const categoryLogicSrc = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'category-logic.js'), 'utf8');
+  assert.match(categoryLogicSrc, /icon-stacks"><\/span><span class="tag-chip-text">/);
   assert.match(app, /categoryOrder: \[\.\.\.planCategoryColors\.keys\(\)\]/);
   assert.match(ganttSrc, /ctx\.categoryChipHtml \?/);
   assert.match(ganttCss, /\.gantt-cat-chip \.tag-chip\s*\{/);

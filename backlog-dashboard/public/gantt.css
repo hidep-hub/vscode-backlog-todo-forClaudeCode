@@ -338,6 +338,7 @@ button.gantt-stat { cursor: pointer; }
 .gantt-cat-chip { display: flex; align-items: center; }
 /* 行の高さ(28px)に対して上下に余白を残し、行の区切り線に被らない小ささにする(約19px) */
 .gantt-cat-chip .tag-chip { position: relative; top: 0.5px; /* 目の錯覚で中央だと上に寄って見えるため、下の線に被らない範囲でごく少し下げる(1px・1.5pxでは近すぎた) */ max-width: 100%; min-width: 0; padding: 0 8px; gap: 3px; border-radius: 10px; font-size: 0.7rem; line-height: 17px; font-weight: 600; }
+.gantt-cat-chip .tag-chip.category-badge { border-radius: 0; padding-right: calc(var(--flag-cut) + 0.35em); } /* BT-454: カテゴリは旗形(丸いタグと区別) */
 .gantt-cat-chip .tag-chip .material-icon { width: 0.9em; height: 0.9em; flex: none; }
 .gantt-cat-chip .tag-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
 .gantt-label.in-cat:not(.gantt-label-task) { padding-left: 24px; }
