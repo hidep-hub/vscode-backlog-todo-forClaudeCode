@@ -153,6 +153,7 @@
     const stats = { overdue: 0, lateStart: 0, unplanned: 0, overdueItems: [] };
     const dated = []; // 範囲決定用の非完了日付
     const keys = [];  // 折りたためるグループのキー(「全部折りたたむ」用。ワークスペース折りたたみ中の分も含める)
+    const epicKeys = []; // BT-453: EPICのidだけ(「EPICだけ折りたたむ」用。単発の束・カテゴリは含めない)
 
     // BT-424: 並びはID順(プレフィクス→番号の数値順)で固定する。BT-364で日付では入れ替えないようにしたが、
     // カンバンの並びのままだとステータスを変えた時に別の列の位置へ飛ぶため、ステータスにも左右されない並びにする
@@ -257,6 +258,7 @@
           else if (c.dueDate && c.dueDate !== '-') marks.push({ date: c.dueDate, kind: 'due', item: c, late: c.dueDate < today });
         }
         keys.push(g.epic.id);
+        epicKeys.push(g.epic.id);
         emitIn({ type: 'epic', epic: g.epic, span: min ? { start: min, end: max } : null, done, total: g.allChildren.length, marks, inCat: catLevel });
         const show = !wsCollapsed && !catHidden && !state.collapsed.has(g.epic.id);
         g.children.forEach((c, i) => pushItem(c, g.epic, show, i === g.children.length - 1, false, ck, g.epic.id, catLevel));
@@ -269,7 +271,7 @@
       }
       }
     }
-    return { rows, lookup, stats, dated, keys };
+    return { rows, lookup, stats, dated, keys, epicKeys };
   }
 
   function computeRange(today, dated) {
@@ -297,7 +299,7 @@
     const prevLeft = prev ? prev.scrollLeft : 0;
     const prevTop = prev ? prev.scrollTop : 0;
 
-    const { rows, lookup, stats, dated, keys } = collectRows(ctx);
+    const { rows, lookup, stats, dated, keys, epicKeys } = collectRows(ctx);
     // BM-093: 「遅延」ボタンの巡回順は期日が古い順(stats.overdueItemsはプロジェクト→表示順で積まれているため並べ直す)
     stats.overdueItems.sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0));
     // フィルタ・ワークスペース切替で表示内容が変わったら、巡回位置を先頭に戻す(存在しないタスクを指し続けないようにする)
@@ -318,6 +320,7 @@
       <div class="gantt-toolbar">
         <div class="gantt-toolbar-row gantt-toolbar-row-1">
           <button type="button" class="gantt-btn" data-act="expand-all" title="ワークスペース・EPIC・単発タスクをすべて展開">▾ 全部展開</button>
+          <button type="button" class="gantt-btn" data-act="collapse-epics" title="EPICだけを折りたたむ（単発タスク・カテゴリ・ワークスペース見出しはそのまま）">▸ EPIC</button>
           <button type="button" class="gantt-btn" data-act="collapse-all" title="EPIC・単発タスクをすべて折りたたむ（ワークスペース見出しは残す）">▸ 全部折りたたむ</button>
           <button type="button" class="gantt-btn" data-act="today" title="先週〜再来週が見える位置へ移動（先週の月曜が左端）">今日</button>
           <button type="button" class="gantt-btn" data-act="more-before" title="過去へ4週ぶん広げる">◀ 4週</button>
@@ -546,7 +549,7 @@
       ${footer}`;
 
     const scrollEl = container.querySelector('.gantt-scroll');
-    current = { container, ctx, scrollEl, lookup, range, dw, stats, keys };
+    current = { container, ctx, scrollEl, lookup, range, dw, stats, keys, epicKeys };
     bind(container, scrollEl);
     scrollEl.addEventListener('scroll', onGanttScroll,{ passive: true });
 
@@ -719,6 +722,7 @@
     if (act === 'more-after') { state.extraAfter += 4; state.scrollTarget = 'right'; rerender(); return; }
     if (act === 'expand-all') { state.collapsed.clear(); state.collapsedWs.clear(); rerender(); return; }
     if (act === 'collapse-all') { current.keys.forEach((k) => state.collapsed.add(k)); rerender(); return; }
+    if (act === 'collapse-epics') { current.epicKeys.forEach((k) => state.collapsed.add(k)); rerender(); return; }
     if (act === 'zoom') {
       state.zoom = actEl.dataset.zoom;
       try { localStorage.setItem('ganttZoom', state.zoom); } catch { /* 無視 */ }
