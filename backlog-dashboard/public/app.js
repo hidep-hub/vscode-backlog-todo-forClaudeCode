@@ -858,6 +858,33 @@ let githubImportSelectedNumbers = new Set(); // BT-109: 選択中のissue番号(
 let githubImportAllIssues = []; // BT-130: フィルタ切り替え時に再取得しないためのキャッシュ
 let importSourceTab = 'github'; // BM-073: 取り込みモーダルで現在表示中のタブ('github' | 'redmine')
 
+// BT-449: 取り込みモーダルで最後に選んだタブをワークスペース(prefix)単位で覚える。
+// Redmineしか使わない環境などで、開くたびにタブをクリックし直さなくて済むようにする(BM-099と同じ作法)
+const IMPORT_SOURCE_TABS = ['github', 'redmine', 'gitlab'];
+function loadImportSourceTabByPrefix() {
+  try {
+    const raw = localStorage.getItem('importSourceTabByPrefix');
+    if (raw) return JSON.parse(raw) || {};
+  } catch { /* 無視 */ }
+  return {};
+}
+function saveImportSourceTab(prefix, source) {
+  if (!prefix || !IMPORT_SOURCE_TABS.includes(source)) return;
+  const map = loadImportSourceTabByPrefix();
+  map[prefix] = source;
+  try { localStorage.setItem('importSourceTabByPrefix', JSON.stringify(map)); } catch { /* 無視 */ }
+}
+// 保存値が無い・不正な場合はGitHub(従来の既定)に戻す
+function getSavedImportSourceTab(prefix) {
+  const saved = prefix ? loadImportSourceTabByPrefix()[prefix] : null;
+  return IMPORT_SOURCE_TABS.includes(saved) ? saved : 'github';
+}
+// 現在表示中のタブが対象にしているワークスペースのprefix
+function getActiveImportTabPrefix() {
+  const sel = githubImportEl && githubImportEl.querySelector(`#${importSourceTab}-import-project`);
+  return sel ? sel.value : '';
+}
+
 // BM-073: ヘッダーの「外部取り込み」ボタンから開く取り込みモーダルをGitHub/Redmineのタブで切り替える。
 // GitHubタブの既存UI・API・ロジックには一切手を入れない(ワークスペース選択もタブ別に独立させ、
 // github-import-*のid/関数はそのまま使う)。Redmineタブは並びで新設する(関数は別名)。
@@ -964,7 +991,10 @@ function getOrCreateGithubImportModal() {
   // BM-073: タブ切り替え
   githubImportEl.querySelector('#import-source-tabs').addEventListener('click', (e) => {
     const btn = e.target.closest('.import-source-tab');
-    if (btn) switchImportSourceTab(btn.dataset.source);
+    if (btn) {
+      switchImportSourceTab(btn.dataset.source);
+      saveImportSourceTab(getActiveImportTabPrefix(), btn.dataset.source); // BT-449
+    }
   });
 
   // BM-073: Redmineタブの配線
@@ -1442,7 +1472,8 @@ function openGithubImportModal() {
       onGitlabImportProjectChange();
     }
   }
-  switchImportSourceTab('github'); // BM-073: 常にGitHubタブから開く(前回Redmine/GitLabを見ていても初期化する)
+  // BT-449: ワークスペースごとに前回のタブで開く(保存が無ければGitHub。BM-073の「常にGitHub」を置き換え)
+  switchImportSourceTab(getSavedImportSourceTab(el.querySelector('#github-import-project').value));
   el.classList.add('modal-visible');
 }
 
