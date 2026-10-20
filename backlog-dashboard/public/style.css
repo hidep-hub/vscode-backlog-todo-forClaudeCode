@@ -4461,10 +4461,14 @@ body {
 
 /* --- Mini board pin (smaller) --- */
 .mini-col-body .card-child .today-pin-btn {
-  font-size: 0.55rem;
+  font-size: 0.85rem; /* BT-448: アクションボタンと同じ大きさに揃える */
   top: 2px;
   right: 2px;
-  padding: 1px;
+  padding: 2px;
+}
+
+.mini-col-body .card-child:hover .today-pin-btn {
+  opacity: 0.85;
 }
 
 /* --- Card direct edit/delete buttons (BT-041) --- */
@@ -4592,13 +4596,22 @@ body {
 .mini-col-body .card-child .card-actions {
   font-size: 0.55rem;
   top: 2px;
-  right: 18px;
+  right: 24px; /* BT-448: 拡大したピンと重ならない位置 */
   gap: 1px;
 }
 
+/* BT-448: 子カードのアクションが小さく押しづらいため、アイコンだけ拡大する(カードの高さ・折り返しは変えない) */
 .mini-col-body .card-child .card-action-btn {
-  font-size: 0.55rem;
-  padding: 1px;
+  font-size: 0.85rem;
+  padding: 2px;
+}
+
+/* 拡大したアイコンがタイトル文字と重なって読めなくなるため、ホバー中は背景を敷いて濃く出す */
+.mini-col-body .card-child:hover .card-actions {
+  opacity: 0.85;
+  background: var(--card);
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--border);
 }
 
 /* --- Today filter button in header --- */
