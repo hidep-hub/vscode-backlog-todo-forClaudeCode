@@ -3955,10 +3955,12 @@ function renderBoard(data) {
       const spinnerHtml = item.running ? '<span class="running-spinner"></span>' : '';
 
       // Epicハブアイコン（子タスクを束ねる親タスクの目印）
-      const epicIcon = isEpic ? '<span class="epic-icon" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : '';
+      // BT-450: 通常カードはタイトル先頭のチップで目立たせ、窮屈な完了列(compact)だけ従来どおりID行の小アイコン
+      const epicTitleChip = (isEpic && !isCompact) ? '<span class="epic-title-chip" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : '';
+      const epicIcon = (isEpic && isCompact) ? '<span class="epic-icon" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : '';
 
       const idHtml = id ? `<div class="card-id">${spinnerHtml}${epicIcon}${parentEpicLinkHtml}<span>${id}</span>${originIcon}</div>` : (originIcon || epicIcon ? `<div class="card-id">${spinnerHtml}${epicIcon}${originIcon}</div>` : '');
-      const titleHtml = showField('title') ? `<div class="card-title">${escapeHtml(item.title)}</div>` : '';
+      const titleHtml = showField('title') ? `<div class="card-title">${epicTitleChip}${escapeHtml(item.title)}</div>` : '';
       // BM-111: ワークスペースを1つに絞っているとき(currentFilterが非空)は全カード同じ値になり
       // 情報量がゼロなので出さない(Plan Board側のwsBadge/BM-012と同じ考え方)。
       // レーン表示中(laneKey!==null)はレーン見出しに既にワークスペース名が出ているため、
@@ -5762,7 +5764,7 @@ function planBuildEpicGroup(group, bucketId, forceExpand = false) {
   const pinIcon = epicPinned
     ? `<span class="material-icon icon-keep plan-card-pin" title="子タスクに📌あり（${group.epic.todayCount || 0}件）"></span>` : '';
   const toggleTitle = forceExpand ? '絞り込み中は開いたまま表示するよ' : (isExpanded ? '折りたたむ' : '開く');
-  header.innerHTML = `<span class="plan-epic-handle" title="ドラッグでこのEPICの子タスクをまとめて移動">≡</span><span class="plan-epic-toggle" title="${escapeHtml(toggleTitle)}">${isExpanded ? '▾' : '▸'}</span><div class="plan-epic-header-text"><div class="plan-epic-header-row1"><span class="card-id">${pinIcon}${escapeHtml(group.epic.id)}</span><span class="count">${group.children.length}</span></div><div class="card-title">${escapeHtml(group.epic.title)}</div></div>`;
+  header.innerHTML = `<span class="plan-epic-handle" title="ドラッグでこのEPICの子タスクをまとめて移動">≡</span><span class="plan-epic-toggle" title="${escapeHtml(toggleTitle)}">${isExpanded ? '▾' : '▸'}</span><div class="plan-epic-header-text"><div class="plan-epic-header-row1"><span class="card-id">${pinIcon}${escapeHtml(group.epic.id)}</span><span class="count">${group.children.length}</span></div><div class="card-title"><span class="epic-title-chip" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>${escapeHtml(group.epic.title)}</div></div>`;
 
   header.addEventListener('click', (e) => {
     if (forceExpand) return;
@@ -7537,7 +7539,7 @@ function renderModalContent(item) {
       ${badgeHtml}
       ${project}${category}${githubBadge}${redmineBadge}${gitlabBadge}
     </div>
-    <h3 class="detail-title">${escapeHtml(item.title)}${titlePinBtnHtml}</h3>
+    <h3 class="detail-title"><span class="detail-title-text">${isEpic ? '<span class="epic-title-chip" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : ''}${escapeHtml(item.title)}</span>${titlePinBtnHtml}</h3>
     ${actionsRow(stopRunningBtnHtml, editBtnHtml, copyBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml)}
   `;
 

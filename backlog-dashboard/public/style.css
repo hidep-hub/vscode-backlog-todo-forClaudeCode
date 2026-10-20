@@ -39,6 +39,7 @@
 .material-icon.icon-local-shipping{ -webkit-mask-image: url('icons/local_shipping.svg'); mask-image: url('icons/local_shipping.svg'); }
 .material-icon.icon-lock-open     { -webkit-mask-image: url('icons/lock_open.svg'); mask-image: url('icons/lock_open.svg'); }
 .material-icon.icon-stacks        { -webkit-mask-image: url('icons/stacks.svg'); mask-image: url('icons/stacks.svg'); }
+.material-icon.icon-sticky-note   { -webkit-mask-image: url('icons/sticky_note_2.svg'); mask-image: url('icons/sticky_note_2.svg'); }
 .material-icon.icon-content-copy  { -webkit-mask-image: url('icons/content_copy.svg'); mask-image: url('icons/content_copy.svg'); }
 .material-icon.icon-check         { -webkit-mask-image: url('icons/check.svg'); mask-image: url('icons/check.svg'); }
 .material-icon.icon-close         { -webkit-mask-image: url('icons/close.svg'); mask-image: url('icons/close.svg'); }
@@ -1975,6 +1976,26 @@ body {
   flex-shrink: 0;
 }
 
+/* BT-450: EPICタイトル先頭のアイコンチップ（メインボード・Plan Board共通） */
+.epic-title-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25em;
+  height: 1.25em;
+  margin-right: 0.35em;
+  border-radius: 5px;
+  background: var(--accent);
+  color: #fff;
+  vertical-align: -0.2em;
+}
+
+.epic-title-chip .material-icon {
+  width: 0.95em;
+  height: 0.95em;
+  vertical-align: baseline;
+}
+
 .card-badge {
   display: inline-flex;
   align-items: center;
@@ -2407,6 +2428,12 @@ body {
   margin-bottom: 16px;
   line-height: 1.4;
   color: var(--text);
+}
+
+/* BT-450: EPICチップとタイトル文字を1つの塊にして左寄せのまま折り返す */
+.detail-title-text {
+  flex: 1;
+  min-width: 0;
 }
 
 /* BM-061: 詳細画面タイトル右端のピントグル。

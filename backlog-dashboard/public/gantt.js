@@ -162,7 +162,8 @@
 
     // show=falseでも統計・範囲・lookupには数える(折りたたんでも「遅延N件」等は変わらないように)
     // BM-033: isLastはEPIC配下で表示中の子のうち最後の1件かどうか(ツリー線を止める位置の判定用)
-    const pushItem = (item, parent, show, isLast) => {
+    // BT-450: singleは単発タスクの束の行(parentはnullのまま。ツリー線とアイコンの表示判定にだけ使う)
+    const pushItem = (item, parent, show, isLast, single = false) => {
       lookup.set(item.id, { item, parent });
       const sp = barSpan(item);
       if (!isDone(item)) {
@@ -174,7 +175,7 @@
           stats.overdueItems.push(item);
         } else if (j === 'late-start') stats.lateStart++;
       }
-      if (show) rows.push({ type: 'task', item, parent, isLast });
+      if (show) rows.push({ type: 'task', item, parent, isLast, single });
     };
 
     // ワークスペースごとに束ねる(ALLで複数ある時だけ見出しを出す)。単発の束はプロジェクトで分割する
@@ -224,7 +225,7 @@
         const key = `single:${project}`;
         keys.push(key);
         emit({ type: 'head', key, label: '単発タスク', project, count: g.children.length, collapsed: state.collapsed.has(key) });
-        for (const c of g.children) pushItem(c, null, !wsCollapsed && !state.collapsed.has(key), false);
+        g.children.forEach((c, i) => pushItem(c, null, !wsCollapsed && !state.collapsed.has(key), i === g.children.length - 1, true));
       }
     }
     return { rows, lookup, stats, dated, keys };
@@ -359,7 +360,7 @@
         const addSingleBtn = ctx.onAddTask
           ? `<button type="button" class="gantt-add-child" data-act="add-single" data-project="${esc(r.project || '')}" title="${esc(r.project || '')} に単発タスクを追加" aria-label="単発タスクを追加"><span class="gantt-add-child-icon">＋</span><span class="gantt-add-child-text">単発タスクを追加</span></button>`
           : '';
-        return `<div class="gantt-row gantt-row-head"><div class="gantt-label gantt-label-head" data-act="toggle-epic" data-epic-id="${esc(r.key)}"><span class="gantt-toggle">${r.collapsed ? '▸' : '▾'}</span>${esc(r.label)}<span class="gantt-count">${r.count}</span>${addSingleBtn}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px"></div></div>`;
+        return `<div class="gantt-row gantt-row-head"><div class="gantt-label gantt-label-head" data-act="toggle-epic" data-epic-id="${esc(r.key)}"><span class="gantt-toggle">${r.collapsed ? '▸' : '▾'}</span><span class="material-icon icon-sticky-note gantt-single-icon" title="単発タスク（親を持たないタスク）"></span>${esc(r.label)}<span class="gantt-count">${r.count}</span>${addSingleBtn}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px"></div></div>`;
       }
       if (r.type === 'epic') {
         const collapsed = state.collapsed.has(r.epic.id);
@@ -390,7 +391,7 @@
         // EPIC内で今動いている情報を失わないよう、実行中/進行中のスピナーだけタイトルの左に残す
         const eRunning = r.epic.running || r.epic.statusCode === 'do'
           ? `<span class="gantt-running${r.epic.running ? '' : ' is-idle'}" title="${r.epic.running ? '実行中' : '進行中'}"></span>` : '';
-        const epicIcon = '<span class="epic-icon gantt-epic-icon" title="EPIC（子タスクを束ねる親タスク）"><span class="material-icon icon-stacks"></span></span>';
+        const epicIcon = '<span class="epic-title-chip gantt-epic-chip" title="EPIC（子タスクを束ねる親タスク）"><span class="material-icon icon-stacks"></span></span>';
         // BT-430: タイトル欄の右端に「＋ 子タスクを追加」。欄が狭いときはCSS(コンテナクエリ)で「＋」だけに縮む。onAddChild未指定なら出さない
         const addChildBtn = ctx.onAddChild
           ? `<button type="button" class="gantt-add-child" data-act="add-child" data-epic-id="${esc(r.epic.id)}" data-project="${esc(r.epic.project || '')}" title="${esc(r.epic.id)} に子タスクを追加" aria-label="子タスクを追加"><span class="gantt-add-child-icon">＋</span><span class="gantt-add-child-text">子タスクを追加</span></button>`
@@ -413,7 +414,7 @@
       // DONEもグレーの文字で出す(緑ドットは廃止、BT-365)
       const stateCell = `<button type="button" class="gantt-state" data-act="status-menu" data-task-id="${esc(item.id)}" title="${esc(item.status || item.statusCode)}（クリックで変更）">${running || '<span class="gantt-running-slot"></span>'}<span class="gantt-status-text st-${esc(item.statusCode)}">${esc(String(item.statusCode).toUpperCase())}</span></button>`;
       // BM-033: 子タスクはis-childでツリー線用の背景・インデントを付与。is-lastは縦線を自分の行で止める印
-      const childCls = r.parent ? ` is-child${r.isLast ? ' is-last' : ''}` : '';
+      const childCls = (r.parent || r.single) ? ` is-child${r.isLast ? ' is-last' : ''}` : '';
       const selectable = state.selecting && !done;
       const selectionMark = selectable ? `<span class="gantt-selection-mark${state.selectedIds.has(item.id) ? ' is-selected' : ''}" aria-hidden="true">${state.selectedIds.has(item.id) ? '✓' : ''}</span>` : '';
       const label = `<div class="gantt-label gantt-label-task${childCls}${selectable ? ' is-selecting' : ''}" data-act="${selectable ? 'select-task' : 'open'}" data-task-id="${esc(item.id)}">${selectionMark}<span class="gantt-id">${esc(item.id)}</span><span class="gantt-title">${esc(item.title)}</span>${tagsCell(item)}${pin}<i class="gantt-resizer gantt-resizer-state" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${stateCell}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;

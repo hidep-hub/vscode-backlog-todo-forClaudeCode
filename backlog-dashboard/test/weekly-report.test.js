@@ -123,7 +123,7 @@ test('EPICはヒットした子タスクを1行に集約する。単発は従来
   assert.equal(epicItem.title, '大きな話');
   assert.deepEqual(epicItem.childLeaves.map(c => c.title), ['子1']);
   const { markdown } = wr.renderWeeklyReport(data, { template: wr.DEFAULT_TEMPLATE, columns: wr.DEFAULT_COLUMNS });
-  assert.ok(markdown.includes('大きな話<br/><small>└ 子1</small>'));
+  assert.ok(markdown.includes('⧉ 大きな話<br/><small>└ 子1</small>'));
   assert.match(markdown, /\| 単発 \|/); // 親のいないタスクは件名だけ
   assert.doesNotMatch(markdown, /子2/); // ヒットしなかった子はタイトルにも出ない
   cleanup(ctx);
