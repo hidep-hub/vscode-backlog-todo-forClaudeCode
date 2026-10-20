@@ -112,7 +112,7 @@ test('カード・詳細・登録フォームへタグ表示/選択が配線さ�
   assert.match(app, /tagLogic\.buildCardTagsHtml\(item\.tags, item\.childTags\)/);
   assert.match(app, /isCompact \? '' : tagLogic\.buildCardTagsHtml/, '完了カラムのコンパクトカードには出さない');
   assert.match(app, /tagLogic\.buildCardTagsHtml\(child\.tags, null\)/, 'ミニボードの子カード');
-  assert.match(app, /return buildDetailTagsHtml\(item\) \+ infoHtml;/);
+  assert.match(app, /return buildDetailCategoryHtml\(item\) \+ buildDetailTagsHtml\(item\) \+ infoHtml;/, '右カラムは カテゴリ→タグ→情報 の順（BT-457）');
   assert.match(app, /id="add-task-tags"/);
   assert.match(app, /resetAddFormTags\(addFormEl\)/);
   assert.match(app, /\/api\/update-task-tags/);
@@ -283,4 +283,10 @@ test('EPIC内の子カード(ミニボード)にもタグボタンが付き、�
   assert.match(app, /openCardTagPicker\(childTagBtnEl\)/);
   assert.match(tagsJs, /findItemById\(taskId\) \|\| findChildItemById\(taskId\)/);
   assert.match(tagsJs, /findParentEpicOfChildId\(taskId\)/);
+});
+
+test('詳細モーダルはステータスを英語表記で出し、カテゴリは右カラムに置く（BT-457）', () => {
+  assert.match(app, /const DETAIL_STATUS_LABEL = \{ todo: 'TODO', ready: 'READY', do: 'DO', done: 'DONE' \};/);
+  assert.equal((app.match(/const statusBadge = buildDetailStatusBadgeHtml\(item\);/g) || []).length, 2, '単発/EPICと子タスクの両方');
+  assert.doesNotMatch(app, /\$\{project\}\$\{category\}/, 'ヘッダーにはカテゴリを出さない');
 });
