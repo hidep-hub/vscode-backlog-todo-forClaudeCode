@@ -3959,7 +3959,11 @@ function renderBoard(data) {
 
       const idHtml = id ? `<div class="card-id">${spinnerHtml}${epicIcon}${parentEpicLinkHtml}<span>${id}</span>${originIcon}</div>` : (originIcon || epicIcon ? `<div class="card-id">${spinnerHtml}${epicIcon}${originIcon}</div>` : '');
       const titleHtml = showField('title') ? `<div class="card-title">${escapeHtml(item.title)}</div>` : '';
-      const projectTag = showField('project') ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
+      // BM-111: ワークスペースを1つに絞っているとき(currentFilterが非空)は全カード同じ値になり
+      // 情報量がゼロなので出さない(Plan Board側のwsBadge/BM-012と同じ考え方)。
+      // レーン表示中(laneKey!==null)はレーン見出しに既にワークスペース名が出ているため、
+      // All Projects選択中でもカード側のバッジは重複するので出さない。
+      const projectTag = (showField('project') && !currentFilter && laneKey === null) ? `<span class="card-tag project">${escapeHtml(item.project)}</span>` : '';
       const artifactIndicator = (item.artifacts && item.artifacts.length > 0) ? '<span class="card-tag artifact-indicator" title="成果物あり"><span class="material-icon icon-attach-file"></span></span>' : '';
       const githubBadge = item.githubIssueNumber ? renderGithubIssueBadge(item.githubIssueNumber, item.githubIssueUrl) : '';
       const redmineBadge = renderRedmineIssueBadge(item.externalLinks); // BM-073
