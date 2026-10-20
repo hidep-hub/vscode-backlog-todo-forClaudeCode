@@ -6574,6 +6574,35 @@ function buildParentBreadcrumbHtml(epic, item) {
   return `<a class="detail-parent-crumb" href="#" data-parent-id="${escapeHtml(parentId)}" title="親タスクの詳細を開く"><span class="material-icon icon-stacks"></span><span class="detail-parent-crumb-id">${escapeHtml(parentId)}</span><span class="detail-parent-crumb-title">${escapeHtml(parentTitle || '')}</span><span class="detail-parent-crumb-arrow">›</span></a>`;
 }
 
+// BM-110: 編集・追加フォーム用のクリック不可パンくず。入力中の画面では遷移すると
+// 未保存の変更が消えてしまうため、子タスク詳細(buildParentBreadcrumbHtml)と見た目は揃えつつクリックはさせない
+function buildParentCrumbPreviewHtml(parentId, parentTitle) {
+  if (!parentId) return '';
+  return `<div class="detail-parent-crumb is-static"><span class="material-icon icon-stacks"></span><span class="detail-parent-crumb-id">${escapeHtml(parentId)}</span><span class="detail-parent-crumb-title">${escapeHtml(parentTitle || '')}</span></div>`;
+}
+
+// BM-110: フォーム先頭に置くパンくずの入れ物。初期描画時は親の有無に応じて最初から
+// 確定した状態(is-visibleの有無)で返すため、開いた瞬間にガタつくことはない。
+// 以後の出現/消失は updateParentCrumbSlot がCSSトランジションで滑らかにする。
+function renderParentCrumbSlotHtml(idPrefix, parentId, parentTitle) {
+  const visible = parentId ? ' is-visible' : '';
+  const inner = parentId ? buildParentCrumbPreviewHtml(parentId, parentTitle) : '';
+  return `<div class="parent-crumb-slot${visible}" id="${idPrefix}-parent-crumb-slot">${inner}</div>`;
+}
+
+// BM-110: 親タスク欄の変更に応じてスロットの中身と表示/非表示を更新する。
+// parentTitleを省略した場合はボード上のデータから探す(ユーザーが候補から選んだ場合はここで見つかる)。
+function updateParentCrumbSlot(slotEl, parentId, parentTitle) {
+  if (!slotEl) return;
+  if (parentId) {
+    const title = parentTitle != null ? parentTitle : ((findItemById(parentId) || {}).title || '');
+    slotEl.innerHTML = buildParentCrumbPreviewHtml(parentId, title);
+    slotEl.classList.add('is-visible');
+  } else {
+    slotEl.classList.remove('is-visible');
+  }
+}
+
 function openChildModal(item, parentEpic = null) {
   currentChildModalItemId = item.id;
   loadFullDescriptionIfMissing(item, item.id, (full) => openChildModal(full, parentEpic));
@@ -6815,7 +6844,12 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
     `<option value="${escapeHtml(project)}"${project === item.project ? ' selected' : ''}>${escapeHtml(project)}</option>`
   ).join('');
 
+  // BM-110: 単発タスクでも親を指定していれば、子タスク詳細と同じ見た目のパンくずを
+  // ダイアログ先頭に出す（クリックは不可。入力中に遷移すると未保存の変更が消えるため）
+  const initialParentIdForHeader = item.parentId || findParentIdOf(item.id);
+
   body.innerHTML = `
+    ${renderParentCrumbSlotHtml('edit-task', initialParentIdForHeader, item.parentTitle || '')}
     <div class="detail-header">
       <span class="detail-id">${escapeHtml(item.id || '-')}</span>
     </div>
@@ -6897,10 +6931,12 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
   const initialParentId = item.parentId || findParentIdOf(item.id);
   let savedParentId = initialParentId; // サーバー上の現在の親（保存の途中経過に合わせて更新する）
   const hasChildren = (item.children && item.children.length > 0) || item.childrenTotal > 0;
+  const parentCrumbSlotEl = body.querySelector('#edit-task-parent-crumb-slot'); // BM-110
   const parentField = setupParentField(body.querySelector('#edit-task-parent-field'), {
     getProject: () => projectInput.value,
     excludeId: item.id,
-    onChange: () => updateSaveState(),
+    // BM-110: 親欄の変更をヘッダー先頭のパンくずにも反映する（CSSトランジションで滑らかに出現/消失）
+    onChange: () => { updateSaveState(); updateParentCrumbSlot(parentCrumbSlotEl, parentField.getValue()); },
   });
   parentField.setValue(initialParentId, item.parentTitle || '');
   if (hasChildren) parentField.setDisabled(true, '子タスクを持つタスクは親を設定できないよ');
@@ -8841,6 +8877,7 @@ function getOrCreateAddForm() {
     <div class="modal-content add-task-modal add-task-form-wide">
       <button class="modal-close" id="add-form-close">&times;</button>
       <h3 class="add-form-title">タスク追加</h3>
+      ${renderParentCrumbSlotHtml('add-task', '', '')}
       <div class="detail-layout">
         <div class="detail-main">
           <div class="settings-group">
@@ -8994,6 +9031,8 @@ function syncAddFormParent() {
   }
   form.querySelector('.add-form-title').textContent = parentId ? `子タスク追加 (${parentId})` : 'タスク追加';
   projectSelect.disabled = !!parentId;
+  // BM-110: ヘッダー先頭のパンくずも親欄に合わせて更新する（CSSトランジションで滑らかに出現/消失）
+  updateParentCrumbSlot(form.querySelector('#add-task-parent-crumb-slot'), parentId);
 }
 
 function openAddTaskForm(defaultStatus, defaultProject, parentId, defaults) {
