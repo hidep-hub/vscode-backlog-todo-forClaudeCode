@@ -3,6 +3,10 @@
 // 週報(BT-291)。task_events(履歴)とtasks(期日・現在のステータス)の両方を見て、期間内にやったこと・
 // 期日が絡むタスクをワークスペース単位のMarkdown表にする。読み取りのみ。
 // 日付はすべてJST基準(csv-export.jsと同じ)。
+//
+// BM-121: EPIC(子タスクを持つ親)は週報では1行に集約する。子タスクを個別行として並べるのはやめ、
+// EPIC単位で区分・期日・担当者等を集約した1行として出す(単発タスクは従来どおり1件=1行)。
+// カテゴリはEPIC/単発のみが意味を持つ属性として扱い、子タスク自身のcategory列は週報では参照しない。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -60,7 +64,7 @@ const PLACEHOLDERS = [
   { name: 'doingCount', scope: 'ワークスペースの囲み内', description: '対応中(DO/READY)の件数', example: '2' },
   { name: 'overdueCount', scope: 'ワークスペースの囲み内', description: '期限超過(未完了で期日が今日より前)の件数', example: '1' },
   { name: 'count', scope: 'ワークスペースの囲み内', description: 'このワークスペースの出力件数', example: '6' },
-  { name: 'table', scope: 'ワークスペースの囲み内', description: 'タスクの表。期限超過 → 完了 → 対応中(DO/READY) → 未着手(TODO)の順に見出しを分け、該当が無い見出しは出さない。子タスクは件名の頭に親のIDと件名を小さく付ける', example: '(表)' },
+  { name: 'table', scope: 'ワークスペースの囲み内', description: 'タスクの表。期限超過 → 完了 → 対応中(DO/READY) → 未着手(TODO)の順に見出しを分け、該当が無い見出しは出さない(カテゴリで章を分けている時は、章の中では見出しを分けず1つの表にする。BM-121)。EPIC(子タスクを持つ親)はヒットした子タスクをまとめて1行にし、件名の下に子タスクの件名を小さく列挙する(BM-121)', example: '(表)' },
 ];
 
 function jstParts(ms) {
@@ -127,6 +131,14 @@ function categoryOf(row) {
   return row.category && row.category !== '-' ? row.category : '';
 }
 
+// タスク1件分の実効カテゴリ。子タスクは親(EPIC)のカテゴリを使う
+// (BM-121: カテゴリはEPIC/単発のみが意味を持つ属性。子自身のcategory列は週報では見ない)
+function effectiveCategory(row, byId) {
+  if (row.parent_id === null) return categoryOf(row);
+  const parent = byId.get(row.parent_id);
+  return parent ? categoryOf(parent) : categoryOf(row);
+}
+
 // 表の見出しの並び(BT-438)。単発/EPICの区分けはせず、区分ごとに1つの表にする。
 const SECTIONS = [
   { kind: '期限超過', heading: '期限超過' },
@@ -134,10 +146,22 @@ const SECTIONS = [
   { kind: '対応中', heading: '対応中（DO/READY）' },
   { kind: '未着手', heading: '未着手（TODO）' },
 ];
+const KIND_PRIORITY = SECTIONS.map(s => s.kind); // 見出しを分けない表(カテゴリ章)での並び順に使う(BM-121)
+
+// カテゴリ章のように見出しを分けない1枚の表で使う並び順。
+// 区分(期限超過→完了→対応中→未着手)を優先し、同じ区分内は更新が新しい順(toSections内のsortと同じ基準)。
+function sortByKindPriority(items) {
+  return [...items].sort((a, b) => {
+    const diff = KIND_PRIORITY.indexOf(a.kind) - KIND_PRIORITY.indexOf(b.kind);
+    return diff !== 0 ? diff : (a.updatedAtRaw < b.updatedAtRaw ? 1 : -1);
+  });
+}
 
 /**
  * ワークスペース1つ分の、週報の元になる集計素材を読む(論理削除済みは除く)。
  *  movedTo: task_id -> 期間内に変わったステータスの集合 / lastChange: task_id -> 最終のステータス変更日時(全期間)
+ *  candidates: EPIC自身(子を持つ親)を除いた、単発+子のみの行。EPIC行の採否はcollectWeeklyReport側で
+ *  「ヒットした子が1件以上あるか」から決めるため、ここではEPIC自身のpickIncluded判定は行わない(BM-121)。
  */
 function analyzeWorkspace(db, project, from, to) {
   const rows = db.prepare('SELECT * FROM tasks WHERE workspace = ? AND deleted_at IS NULL ORDER BY sort_order').all(project.file);
@@ -167,7 +191,7 @@ function analyzeWorkspace(db, project, from, to) {
 }
 
 /**
- * 週報に出すタスクを選ぶ。
+ * 週報に出すタスクを選ぶ(単発+子。EPIC自身は対象にしない)。
  *   A) 期間内に、選ばれたステータスへ変わった(task_eventsのstatus_changed)
  *   B) 期日が期間内、または期日が期間より前で未完了(ステータス不問)
  */
@@ -184,6 +208,7 @@ function pickIncluded(analysis, selected, from, to) {
 /**
  * ステータス別の件数。出力ステータスの選択には依存せず、4ステータスすべてを選んだ前提で対象を選ぶ。
  * active[s]は「現在sのタスクのうち、期間内にsへ変わった(todoは期間内の新規作成を含む)ものがある」か。
+ * BM-121のEPIC集約の対象外(単発+子を個別に数える。粒度は従来どおり)。
  */
 function statusCountsFor(analysis, from, to) {
   const included = pickIncluded(analysis, new Set(STATUS_CODES), from, to);
@@ -198,9 +223,61 @@ function statusCountsFor(analysis, from, to) {
   return { counts, active };
 }
 
+// 子タスクの区分から、EPIC行の区分を決める(BM-121)。
+// 優先順位: 期限超過(子に1件でも) > 対応中(子にdo/readyが1件でも) > 未着手(子が全部todo) > 完了(子が全部done)
+// いずれにも当てはまらない混在(例: 完了と未着手が同時に残る)は、まだ作業が残っているとみなし対応中として扱う。
+function aggregateKind(kinds) {
+  if (kinds.includes('期限超過')) return '期限超過';
+  if (kinds.includes('対応中')) return '対応中';
+  if (kinds.every(k => k === '未着手')) return '未着手';
+  if (kinds.every(k => k === '完了')) return '完了';
+  return '対応中';
+}
+
+// 値の一覧から、空を除き重複を除いて', '区切りで並べる(EPIC行の担当者・タグ・コミット等の集約に使う)
+function dedupJoin(list) {
+  return [...new Set(list.filter(Boolean))].join(', ');
+}
+
+/**
+ * EPIC(子タスクを持つ親)1行分のitemを、ヒットした子タスク(leaves)から組み立てる(BM-121)。
+ *  - category: EPIC自身のカテゴリ(子のcategoryは見ない)
+ *  - kind: aggregateKind()。EPIC自身のstatus/due_dateは見ない(子の状態だけで決める)
+ *  - dueDate: ヒットした子の期日のうち最大(最も遅い)日付。子がいくつか集まって目的を達成する構造のため
+ *  - assignee/tags/commit/issue/externalLinks: ヒットした子の範囲から重複を除いて列挙
+ */
+function buildEpicItem(epicRow, leaves) {
+  const dueDates = leaves.map(l => l.dueDate).filter(Boolean);
+  const dueDate = dueDates.length ? dueDates.reduce((max, d) => (d > max ? d : max)) : '';
+  const updatedAtRaw = leaves.reduce((max, l) => (l.updatedAtRaw > max ? l.updatedAtRaw : max), leaves[0].updatedAtRaw);
+  const linkMap = new Map();
+  for (const l of leaves) for (const link of l.externalLinks) linkMap.set(`${link.source}:${link.key}`, link);
+  // GitHub Issueは複数件ありうるので、リンクがあれば子ごとにMarkdownリンク化してから列挙する
+  const issueTexts = leaves.map(l => (l.issue ? (l.issueUrl ? `[${l.issue}](${l.issueUrl})` : l.issue) : '')).filter(Boolean);
+  return {
+    id: epicRow.display_id,
+    title: epicRow.title,
+    isEpic: true,
+    childLeaves: leaves, // 件名セルで「ヒットした子タスク」を列挙するために保持
+    status: '',
+    statusLabel: dedupJoin(leaves.map(l => l.statusLabel)),
+    kind: aggregateKind(leaves.map(l => l.kind)),
+    category: categoryOf(epicRow),
+    updatedAt: toJstDateTime(updatedAtRaw),
+    updatedAtRaw,
+    dueDate,
+    assignee: dedupJoin(leaves.map(l => l.assignee)),
+    tags: dedupJoin(leaves.flatMap(l => (l.tags ? l.tags.split(', ') : []))),
+    commit: dedupJoin(leaves.map(l => l.commit)),
+    issue: dedupJoin(issueTexts),
+    issueUrl: '',
+    externalLinks: [...linkMap.values()],
+  };
+}
+
 /**
  * 週報の元データを集める。対象になるタスクの選び方はpickIncluded()を参照(EPIC自身は含めない)。
- * 子タスクは親のIDと件名を持つ(表示側で件名の頭に付ける)。
+ * EPIC(子タスクを持つ親)は、ヒットした子タスクを1行に集約する(BM-121)。単発タスクは1件=1行のまま。
  * @returns {{from, to, today, statuses, workspaces: Array}}
  */
 function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today = todayJst(), groupByCategory = false, categories }) {
@@ -213,11 +290,12 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
   for (const project of projects) {
     const analysis = analyzeWorkspace(db, project, from, to);
     const { byId, lastChange } = analysis;
-    const included = pickIncluded(analysis, selected, from, to);
+    const includedRows = pickIncluded(analysis, selected, from, to); // 単発+子のみ(EPIC自身は含まない)
 
-    const tagsByTask = tagsRepo.listTagsForTasks(db, included.map(r => r.id));
-    const linksByTask = externalLinksRepo.listLinksForTasks(db, included.map(r => r.id));
-    const toItem = r => {
+    const tagsByTask = tagsRepo.listTagsForTasks(db, includedRows.map(r => r.id));
+    const linksByTask = externalLinksRepo.listLinksForTasks(db, includedRows.map(r => r.id));
+
+    const toLeafItem = r => {
       const overdue = Boolean(r.due_date) && r.status !== 'done' && r.due_date < today;
       let kind;
       if (r.status === 'done') kind = '完了';
@@ -225,16 +303,12 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
       else if (r.status === 'todo') kind = '未着手';
       else kind = '対応中'; // do / ready
       const updated = lastChange.get(r.id) || r.created_at;
-      const parent = r.parent_id !== null ? byId.get(r.parent_id) : null;
       return {
         id: r.display_id,
         title: r.title,
-        parentId: parent ? parent.display_id : '',
-        parentTitle: parent ? parent.title : '',
         status: r.status,
         statusLabel: STATUS_LABEL[r.status] || r.status,
         kind,
-        category: categoryOf(r),
         updatedAt: toJstDateTime(updated),
         updatedAtRaw: updated,
         dueDate: r.due_date || '',
@@ -247,7 +321,26 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
       };
     };
 
-    const items = included.map(toItem)
+    // 単発は1件=1行
+    const soloItems = includedRows
+      .filter(r => r.parent_id === null)
+      .map(r => ({ ...toLeafItem(r), isEpic: false, childLeaves: null, category: categoryOf(r) }));
+
+    // 子はEPIC(親)単位でまとめ、ヒットした子だけを1行に集約する(BM-121)
+    const childrenByParent = new Map();
+    for (const r of includedRows) {
+      if (r.parent_id === null) continue;
+      if (!childrenByParent.has(r.parent_id)) childrenByParent.set(r.parent_id, []);
+      childrenByParent.get(r.parent_id).push(toLeafItem(r));
+    }
+    const epicItems = [];
+    for (const [parentId, leaves] of childrenByParent) {
+      const epicRow = byId.get(parentId);
+      if (!epicRow) continue; // 親が見つからない(想定外。子を持つタスクの削除はAPI側で拒否されるため通常発生しない)
+      epicItems.push(buildEpicItem(epicRow, leaves));
+    }
+
+    const items = [...soloItems, ...epicItems]
       .filter(i => !categoryFilter || categoryFilter.has(i.category))
       .sort((a, b) => (a.updatedAtRaw < b.updatedAtRaw ? 1 : -1));
     const toSections = list => SECTIONS
@@ -255,6 +348,9 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
       .filter(s => s.items.length > 0);
     const sections = toSections(items);
     // カテゴリの章: マスタ順 → マスタに無い値(移行前の自由入力)→ カテゴリなし。期間内に該当タスクが無いカテゴリは出さない
+    // BM-121: カテゴリで章を分けた場合、章の中でさらにステータス区分の見出しは作らない(カテゴリとステータスは
+    // 別軸であり、章の下に見出しを重ねるのは冗長)。1つの表にまとめ、並び順だけ期限超過→完了→対応中→未着手の
+    // 優先度を保つ(区分自体は表の「区分」列に出る)。
     let categoryGroups = null;
     if (groupByCategory) {
       const present = [...new Set(items.map(i => i.category).filter(Boolean))];
@@ -263,7 +359,7 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
         ...present.filter(n => !masterOrder.includes(n)).sort(),
         ...(items.some(i => !i.category) ? [''] : []),
       ];
-      categoryGroups = names.map(name => ({ name, sections: toSections(items.filter(i => i.category === name)) }));
+      categoryGroups = names.map(name => ({ name, items: sortByKindPriority(items.filter(i => i.category === name)) }));
     }
 
     result.push({
@@ -271,7 +367,7 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
       prefix: project.prefix || '',
       name: project.name || project.file,
       sections,
-      categoryGroups, // groupByCategory時のみ [{name('':カテゴリなし), sections}]
+      categoryGroups, // groupByCategory時のみ [{name('':カテゴリなし), items}](BM-121: ステータス見出しは分けない)
       count: items.length,
       counts: {
         done: items.filter(i => i.kind === '完了').length,
@@ -294,9 +390,10 @@ function buildWeeklyCounts(db, config, input) {
   const workspaces = (config.projects || []).filter(p => opts.workspaces.includes(p.file)).map(project => {
     const analysis = analyzeWorkspace(db, project, opts.from, opts.to);
     // カテゴリ別の件数(BT-442): 選択ステータスで出力対象になるタスクを数える。''はカテゴリなし
+    // BM-121: 子タスクは親(EPIC)のカテゴリとして数える(週報本体のカテゴリ集約と一致させる)
     const categories = {};
     for (const r of pickIncluded(analysis, new Set(opts.statuses), opts.from, opts.to)) {
-      const name = categoryOf(r);
+      const name = effectiveCategory(r, analysis.byId);
       categories[name] = (categories[name] || 0) + 1;
     }
     return { file: project.file, ...statusCountsFor(analysis, opts.from, opts.to), categories };
@@ -319,10 +416,12 @@ function renderStatusCounts({ counts, active }) {
 
 const EXTERNAL_SOURCE_LABEL = { redmine: 'Redmine', gitlab: 'GitLab' };
 
+// 件名セル。EPIC(集約行)はタイトルの下に、ヒットした子タスクだけを<small>+<br/>+「└」で列挙する(BM-121)。
+// 単発タスクはタイトルだけ。
 function renderTitleCell(item) {
-  if (!item.parentId) return cell(item.title);
-  // 親は小さく、子は次の行に「└」でぶら下げる(<small>と<br/>はプレビューでも許可している)
-  return `<small>${cell(item.parentId)} ${cell(item.parentTitle)}</small><br/>└ ${cell(item.title)}`;
+  if (!item.isEpic) return cell(item.title);
+  const childLines = item.childLeaves.map(c => `└ ${cell(c.title)}`).join('<br/>');
+  return `${cell(item.title)}<br/><small>${childLines}</small>`;
 }
 
 function renderExternal(item) {
@@ -356,12 +455,10 @@ const NO_CATEGORY_TOKEN = '__none__'; // GETのクエリで「カテゴリなし
 function renderWorkspaceTable(ws, columns) {
   if (ws.sections.length === 0) return '(該当するタスクはありません)';
   if (ws.categoryGroups) {
-    // カテゴリ > ステータス区分 > 表 を3段の箇条書きツリーにする(見出しの下はインデントが効かないため。表を左端から出さない)
-    const indent = (text, n) => text.split('\n').map(l => ' '.repeat(n) + l).join('\n');
-    return ws.categoryGroups.map(g => {
-      const body = g.sections.map(s => `  - **${s.heading}**\n\n${indent(renderTable(s.items, columns), 4)}`).join('\n\n');
-      return `- **カテゴリ名：${g.name || NO_CATEGORY_HEADING}**\n\n${body}`;
-    }).join('\n\n');
+    // カテゴリごとに見出し(###、カテゴリ名そのまま)+表の1枚構成にする(BM-121)。カテゴリとステータスは
+    // 別軸のため、見出しの中でさらにステータス区分の見出しには分けない(区分は表の「区分」列に出る)。
+    // 箇条書き(字下げ)はやめ、見出しレベルにすることでアウトライン/目次に拾われやすくする(2026-10-20の要望)。
+    return ws.categoryGroups.map(g => `### ${g.name || NO_CATEGORY_HEADING}\n\n${renderTable(g.items, columns)}`).join('\n\n');
   }
   return ws.sections.map(s => `### ${s.heading}\n\n${renderTable(s.items, columns)}`).join('\n\n');
 }
