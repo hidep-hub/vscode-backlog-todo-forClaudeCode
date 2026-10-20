@@ -7744,7 +7744,10 @@ function buildMiniBoard(epic) {
       card.dataset.taskId = child.id;
 
       card.addEventListener('dragstart', (e) => {
-        dragData = { id: child.id, sourceColId: col.id };
+        // BM-113: setupDropZone側はlaneKey省略でnull固定のため、ここもlane: nullを
+        // 明示しないとBM-049のレーン一致ガード(dragData.lane !== laneKey)で
+        // undefined !== null が常にtrueになり、ドロップが毎回弾かれてしまう
+        dragData = { id: child.id, sourceColId: col.id, lane: null };
         card.classList.add('card-dragging');
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', child.id);
