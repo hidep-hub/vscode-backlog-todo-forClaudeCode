@@ -97,6 +97,9 @@
   let tipEl = null;
   let tipShowTimer = null;
   let tipHideTimer = null;
+  // BM-129: 開閉したEPICラベルの上では、カーソルがそこを離れるまでTIPを出さない(再描画後にブラウザが
+  // カーソル下の新しい要素へmouseoverを出し直し、開いたばかりの子の行にTIPが被るのを防ぐ)
+  let epicTipSuppressedId = null;
 
   const isDone = (item) => item.statusCode === 'done';
 
@@ -154,6 +157,7 @@
     const dated = []; // 範囲決定用の非完了日付
     const keys = [];  // 折りたためるグループのキー(「全部折りたたむ」用。ワークスペース折りたたみ中の分も含める)
     const epicKeys = []; // BT-453: EPICのidだけ(「EPICだけ折りたたむ」用。単発の束・カテゴリは含めない)
+    const epicTips = new Map(); // BM-129: EPIC id → { epic, children(子の全件・ID順), done }。EPICラベルのTIP用(lookupは子・単発だけなので別に持つ)
 
     // BT-424: 並びはID順(プレフィクス→番号の数値順)で固定する。BT-364で日付では入れ替えないようにしたが、
     // カンバンの並びのままだとステータスを変えた時に別の列の位置へ飛ぶため、ステータスにも左右されない並びにする
@@ -259,6 +263,8 @@
         }
         keys.push(g.epic.id);
         epicKeys.push(g.epic.id);
+        // BM-129: 閉じたままでも中身が分かるよう、完了済みを含む子の全件を持たせる(allChildrenは元配列なので複製して並べる)
+        epicTips.set(g.epic.id, { epic: g.epic, children: [...g.allChildren].sort(byId), done });
         emitIn({ type: 'epic', epic: g.epic, span: min ? { start: min, end: max } : null, done, total: g.allChildren.length, marks, inCat: catLevel });
         const show = !wsCollapsed && !catHidden && !state.collapsed.has(g.epic.id);
         g.children.forEach((c, i) => pushItem(c, g.epic, show, i === g.children.length - 1, false, ck, g.epic.id, catLevel));
@@ -271,7 +277,7 @@
       }
       }
     }
-    return { rows, lookup, stats, dated, keys, epicKeys };
+    return { rows, lookup, stats, dated, keys, epicKeys, epics: epicTips };
   }
 
   function computeRange(today, dated) {
@@ -299,7 +305,7 @@
     const prevLeft = prev ? prev.scrollLeft : 0;
     const prevTop = prev ? prev.scrollTop : 0;
 
-    const { rows, lookup, stats, dated, keys, epicKeys } = collectRows(ctx);
+    const { rows, lookup, stats, dated, keys, epicKeys, epics } = collectRows(ctx);
     // BM-093: 「遅延」ボタンの巡回順は期日が古い順(stats.overdueItemsはプロジェクト→表示順で積まれているため並べ直す)
     stats.overdueItems.sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0));
     // フィルタ・ワークスペース切替で表示内容が変わったら、巡回位置を先頭に戻す(存在しないタスクを指し続けないようにする)
@@ -549,7 +555,9 @@
       ${footer}`;
 
     const scrollEl = container.querySelector('.gantt-scroll');
-    current = { container, ctx, scrollEl, lookup, range, dw, stats, keys, epicKeys };
+    // BM-129: epicDescはEPICのTIPで非同期取得した説明文のキャッシュ(描画ごとに作り直す)。
+    // board用のitemにdescriptionを書くとapp.jsが「完全なitem」と見なしてしまうため、itemは書き換えずここに持つ
+    current = { container, ctx, scrollEl, lookup, range, dw, stats, keys, epicKeys, epics, epicDesc: new Map() };
     bind(container, scrollEl);
     scrollEl.addEventListener('scroll', onGanttScroll,{ passive: true });
 
@@ -754,7 +762,9 @@
       return;
     }
     if (act === 'toggle-epic') {
+      hideTip(); // BM-129: 開閉で行が入れ替わるため、出ているTIPは消し、カーソルが離れるまで出し直さない
       const id = actEl.dataset.epicId;
+      epicTipSuppressedId = id;
       if (state.collapsed.has(id)) state.collapsed.delete(id); else state.collapsed.add(id);
       rerender();
       return;
@@ -1082,13 +1092,37 @@
     return `<div class="gantt-tip-head"><span class="gantt-tip-id">${esc(item.id)}</span><span class="gantt-tip-title">${esc(item.title || '')}</span></div>${warn}<div class="gantt-tip-meta">${meta.join('')}</div><div class="gantt-tip-desc">${descHtml}</div>`;
   }
 
-  function onMouseOver(e) {
-    if (!current || drag) return;
-    if (e.target.closest('.gantt-bar-epic')) return;
-    const el = e.target.closest('[data-task-id].gantt-bar, [data-task-id].gantt-label-task, [data-task-id].gantt-marker');
-    if (!el) return;
-    const info = current.lookup.get(el.dataset.taskId);
-    if (!info) return;
+  // BM-129: EPICの説明文。board用の軽量itemにはdescriptionキーが無く、itemへ書き込むとapp.jsが「完全なitem」と
+  // 見なしてしまうため、取得済みの本文は描画ごとのキャッシュ(current.epicDesc)から引く。未取得ならundefined
+  function epicDescOf(entry) {
+    if (Object.prototype.hasOwnProperty.call(entry.epic, 'description')) return entry.epic.description;
+    return current.epicDesc.get(entry.epic.id);
+  }
+
+  // BM-129: EPICラベルのTIP。ID・タイトル・状態・進捗・説明文に加え、子タスクを完了済みも含めて全件並べる
+  // (閉じたままでも中身を把握できるようにするのが狙い)。EPIC自身の開始日・期日は子から導出するので出さず、期限超過の警告も付けない
+  function epicTipHtml(entry, ctx) {
+    const esc = ctx.escapeHtml;
+    const { epic, children, done } = entry;
+    const total = children.length;
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    const meta = [
+      `<span>状態: ${esc(epic.status || epic.statusCode)}</span>`,
+      `<span>進捗: ${done}/${total} (${pct}%)</span>`,
+    ];
+    if (epic.assignee) meta.push(`<span>担当: ${esc(epic.assignee)}</span>`);
+    const desc = epicDescOf(entry);
+    const descHtml = desc === undefined
+      ? '<span class="gantt-tip-none">読み込み中...</span>'
+      : (desc ? esc(desc) : '<span class="gantt-tip-none">説明はありません</span>');
+    const childHtml = total === 0
+      ? '<span class="gantt-tip-none">子タスクはありません</span>'
+      : `<ul class="gantt-tip-children">${children.map((c) => `<li class="gantt-tip-child${isDone(c) ? ' is-done' : ''}"><span class="gantt-tip-child-id">${esc(c.id)}</span><span class="gantt-status-text st-${esc(c.statusCode)}">${esc(String(c.statusCode).toUpperCase())}</span><span class="gantt-tip-child-title">${esc(c.title || '')}</span></li>`).join('')}</ul>`;
+    return `<div class="gantt-tip-head"><span class="gantt-tip-id">${esc(epic.id)}</span><span class="gantt-tip-title">${esc(epic.title || '')}</span></div><div class="gantt-tip-meta">${meta.join('')}</div><div class="gantt-tip-desc">${descHtml}</div><div class="gantt-tip-children-head">子タスク (${total})</div>${childHtml}`;
+  }
+
+  // ホバー位置でTIPを遅延表示する。opts: { id, render(): 表示するHTML, needsDetail(): 本文が未取得か, applyDetail(full): 取得結果の反映 }
+  function showTipLater(e, opts) {
     clearTimeout(tipHideTimer);
     clearTimeout(tipShowTimer);
     const x = e.clientX;
@@ -1096,8 +1130,8 @@
     tipShowTimer = setTimeout(() => {
       if (!current || drag) return;
       const tip = ensureTip();
-      const taskId = info.item.id;
-      tip.innerHTML = tipHtml(info.item, current.ctx);
+      const taskId = opts.id;
+      tip.innerHTML = opts.render();
       tip.style.left = '0px';
       tip.style.top = '0px';
       tip.classList.add('gantt-tip-visible');
@@ -1108,21 +1142,54 @@
       // まずwindow側のキャッシュ(public/app.jsが持つlastRenderedFullItemById)にあれば
       // それを使い、無ければ/api/task/:idを取得する。ホバーが外れてTIPが消えている/
       // 別タスクに移っていた場合は再描画しない。
-      if (!Object.prototype.hasOwnProperty.call(info.item, 'description') && typeof window.fetchTaskDetail === 'function') {
+      if (opts.needsDetail() && typeof window.fetchTaskDetail === 'function') {
         const cached = typeof window.getCachedFullTaskItem === 'function' ? window.getCachedFullTaskItem(taskId) : null;
         const applyFull = (full) => {
-          if (!full) return;
+          if (!full || !current) return;
           if (!tip.classList.contains('gantt-tip-visible')) return;
           const tipIdEl = tip.querySelector('.gantt-tip-id');
           if (!tipIdEl || tipIdEl.textContent !== (taskId || '-')) return;
-          Object.assign(info.item, full);
-          tip.innerHTML = tipHtml(info.item, current.ctx);
+          opts.applyDetail(full);
+          tip.innerHTML = opts.render();
           positionGanttTip(tip, x, y);
         };
         if (cached) applyFull(cached);
         else window.fetchTaskDetail(taskId).then(applyFull);
       }
     }, TIP_DELAY);
+  }
+
+  function onMouseOver(e) {
+    if (!current || drag) return;
+    const epicLabel = e.target.closest('.gantt-label-epic[data-task-id]');
+    if (epicTipSuppressedId && (!epicLabel || epicLabel.dataset.taskId !== epicTipSuppressedId)) epicTipSuppressedId = null; // 開閉したラベルを離れた
+    if (e.target.closest('.gantt-bar-epic')) return;
+    // BM-129: EPICラベル(タイトルを含む左の見出しセル)。子タスク追加ボタンと幅変更のつかみは固有のtitleがあるので重ねない
+    if (epicLabel) {
+      if (e.target.closest('.gantt-add-child, .gantt-resizer')) return;
+      const epicId = epicLabel.dataset.taskId;
+      if (epicId === epicTipSuppressedId) return;
+      if (!current.epics.has(epicId)) return;
+      // 描画し直されても古いEPICを掴み続けないよう、表示のたびにcurrentから引き直す
+      const entryOf = () => current && current.epics.get(epicId);
+      showTipLater(e, {
+        id: epicId,
+        render: () => { const entry = entryOf(); return entry ? epicTipHtml(entry, current.ctx) : ''; },
+        needsDetail: () => { const entry = entryOf(); return !!entry && epicDescOf(entry) === undefined; },
+        applyDetail: (full) => { current.epicDesc.set(epicId, full.description || ''); },
+      });
+      return;
+    }
+    const el = e.target.closest('[data-task-id].gantt-bar, [data-task-id].gantt-label-task, [data-task-id].gantt-marker');
+    if (!el) return;
+    const info = current.lookup.get(el.dataset.taskId);
+    if (!info) return;
+    showTipLater(e, {
+      id: info.item.id,
+      render: () => tipHtml(info.item, current.ctx),
+      needsDetail: () => !Object.prototype.hasOwnProperty.call(info.item, 'description'),
+      applyDetail: (full) => { Object.assign(info.item, full); },
+    });
   }
 
   // ツールチップの位置決め(カーソル追従、画面端での折り返し)。再描画(description取得後)でも

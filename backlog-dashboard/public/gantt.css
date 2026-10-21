@@ -683,6 +683,15 @@ body.gantt-dragging, body.gantt-dragging * { cursor: grabbing !important; user-s
 
 .gantt-tip-none { color: var(--text-muted); }
 
+/* BM-129: EPICラベルのTIP。子タスクを完了済みも含めて全件並べる(多い時は一覧だけスクロール) */
+.gantt-tip-children-head { margin: 8px 0 4px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 0.7rem; color: var(--text-muted); }
+.gantt-tip-children { list-style: none; margin: 0; padding: 0; max-height: 200px; overflow-y: auto; }
+.gantt-tip-child { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; }
+.gantt-tip-child-id { flex: none; font-size: 0.7rem; color: var(--text-muted); }
+.gantt-tip-child .gantt-status-text { flex: none; }
+.gantt-tip-child-title { min-width: 0; word-break: break-word; }
+.gantt-tip-child.is-done .gantt-tip-child-title { color: var(--text-muted); text-decoration: line-through; }
+
 /* ---- ワークスペース見出し(ALL表示時): スクロールしても日付ヘッダーの直下に残す ---- */
 .gantt-row-ws {
   position: sticky;
