@@ -7345,6 +7345,16 @@ mark.activity-hit {
   z-index: 1250;
 }
 
+/* BT-452: カテゴリ管理だけは、閉じるボタンをヘッダーの右端へ置く。
+   タグ管理はワークスペース選択など別のヘッダー要素を持つため、共通ルールにはしない。 */
+.category-modal-overlay .tag-modal-header h3 {
+  flex: 1;
+}
+
+.category-modal-overlay .tag-modal-close {
+  margin-left: auto;
+}
+
 .category-filter-btn {
   position: relative;
 }
