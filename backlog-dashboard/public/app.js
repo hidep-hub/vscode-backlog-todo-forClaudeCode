@@ -4033,6 +4033,7 @@ function renderBoard(data) {
           <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集"><span class="material-icon icon-edit"></span></button>
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
+          <button class="card-action-btn card-redmine-link-btn" data-task-id="${item.id}" title="Redmineチケットと紐づける">${REDMINE_MARK_SVG}</button>
           ${!isEpic ? `<button class="card-action-btn card-delete-btn danger" data-task-id="${item.id}" title="削除"><span class="material-icon icon-delete"></span></button>` : ''}
         </div>`;
       }
@@ -4351,6 +4352,16 @@ function renderBoard(data) {
       e.preventDefault();
       const item = findItemById(btn.dataset.taskId);
       if (item) openGithubCreateConfirm(item, btn.dataset.isChild === 'true');
+    });
+  });
+
+  // Redmineチケット紐付けボタンのイベントリスナー（BM-126）
+  boardEl.querySelectorAll('.card-redmine-link-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const item = findItemById(btn.dataset.taskId);
+      if (item) openRedmineLinkModal(item);
     });
   });
 
@@ -6750,6 +6761,11 @@ function openChildModal(item, parentEpic = null) {
     ? `<button class="add-child-btn btn-add" id="modal-github-create-btn"><span class="material-icon icon-upload"></span> GitHub Issueを新規作成</button>`
     : '';
 
+  // Redmineチケット紐付けボタン（BM-126: GitHubと同様にカードと詳細モーダルの両方に配備。上書き許可のため常に表示）
+  const redmineLinkBtnHtml = (item.id && item.id !== '-')
+    ? `<button class="add-child-btn" id="modal-redmine-link-btn">${REDMINE_MARK_SVG} Redmineチケットと紐づける</button>`
+    : '';
+
   // ワークスペース導線ボタン（BT-053）
   const workspaceActionHtml = buildWorkspaceActionHtml(item);
 
@@ -6769,7 +6785,7 @@ function openChildModal(item, parentEpic = null) {
       ${project}${githubBadge}${redmineBadge}${gitlabBadge}
     </div>
     <h3 class="detail-title">${escapeHtml(item.title)}${titlePinBtnHtml}</h3>
-    ${actionsRow(stopRunningBtnHtml, editBtnHtml, copyBtnHtml, deleteBtnHtml, workspaceActionHtml, moveActionHtml, detachBtn, githubLinkBtnHtml, githubCreateBtnHtml)}
+    ${actionsRow(stopRunningBtnHtml, editBtnHtml, copyBtnHtml, deleteBtnHtml, workspaceActionHtml, moveActionHtml, detachBtn, githubLinkBtnHtml, githubCreateBtnHtml, redmineLinkBtnHtml)}
   `;
 
   body.innerHTML = `
@@ -6822,6 +6838,12 @@ function openChildModal(item, parentEpic = null) {
   const githubCreateBtnEl = body.querySelector('#modal-github-create-btn');
   if (githubCreateBtnEl) {
     githubCreateBtnEl.addEventListener('click', () => openGithubCreateConfirm(item, true));
+  }
+
+  // Redmineチケット紐付けボタンのイベント（BM-126）
+  const redmineLinkBtnEl = body.querySelector('#modal-redmine-link-btn');
+  if (redmineLinkBtnEl) {
+    redmineLinkBtnEl.addEventListener('click', () => openRedmineLinkModal(item));
   }
 
   // 編集ボタンのイベント（BT-036: 子タスクは常に説明編集可）
@@ -7358,6 +7380,96 @@ function openGithubLinkModal(item) {
   el.classList.add('modal-visible');
 }
 
+// --- Redmineチケット紐付けダイアログ (BM-126: 既存タスクカードへ後から紐付ける。GitHubのopenGithubLinkModalと同じパターン) ---
+function getOrCreateRedmineLinkModal() {
+  let el = document.getElementById('redmine-link-overlay');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'redmine-link-overlay';
+  el.className = 'modal-overlay modal-front';
+  el.innerHTML = `<div class="modal-content github-link-modal"></div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', (e) => {
+    if (e.target === el) closeRedmineLinkModal();
+  });
+  closeOnEscape(el, 'modal-visible', closeRedmineLinkModal);
+  return el;
+}
+
+function closeRedmineLinkModal() {
+  const el = document.getElementById('redmine-link-overlay');
+  if (el) el.classList.remove('modal-visible');
+}
+
+// チケット番号の生入力("123" / "#123" / チケットURL)から番号だけを取り出す(GitHubのparseIssueNumberInputと同じ考え方)
+function parseRedmineIssueKeyInput(raw) {
+  const s = (raw || '').trim();
+  const urlMatch = /\/issues\/(\d+)/.exec(s);
+  if (urlMatch) return urlMatch[1];
+  const hashMatch = /^#?(\d+)$/.exec(s);
+  if (hashMatch) return hashMatch[1];
+  return s;
+}
+
+/**
+ * Redmineチケット紐付けモーダルを開く(BM-126: 上書き許可のため、既にリンク済みでも常に開ける。
+ * 既存リンクがあれば入力欄にプレフィルする)
+ * @param {object} item - 紐付け対象タスク
+ */
+function openRedmineLinkModal(item) {
+  const el = getOrCreateRedmineLinkModal();
+  document.body.appendChild(el);
+  const content = el.querySelector('.modal-content');
+  const existing = (item.externalLinks || []).find((l) => l.source === 'redmine');
+  const existingNote = existing
+    ? `<p class="delete-confirm-text">現在 Redmine #${escapeHtml(existing.key)} に紐づいているよ。別のチケット番号を入れると上書きされるよ。</p>`
+    : '';
+  content.innerHTML = `
+    <button class="modal-close" id="redmine-link-close">&times;</button>
+    <h3 class="add-form-title"><span class="material-icon icon-link"></span> Redmineチケットと紐づける</h3>
+    <p class="delete-confirm-text">「${escapeHtml(item.title)}」(${escapeHtml(item.id)}) に紐づけるチケット番号かURLを入力してね。</p>
+    ${existingNote}
+    <input type="text" id="redmine-link-input" class="parent-picker-search" placeholder="例: 123 / #123 / https://redmine.example.com/issues/123" value="${existing ? escapeHtml(existing.key) : ''}">
+    <p class="delete-confirm-error" style="display:none;"></p>
+    <div class="edit-form-actions">
+      <button class="add-task-submit" id="redmine-link-ok">紐づける</button>
+      <button class="add-child-btn" id="redmine-link-cancel">キャンセル</button>
+    </div>
+  `;
+
+  content.querySelector('#redmine-link-close').addEventListener('click', closeRedmineLinkModal);
+  content.querySelector('#redmine-link-cancel').addEventListener('click', closeRedmineLinkModal);
+  content.querySelector('#redmine-link-ok').addEventListener('click', async () => {
+    const errorEl = content.querySelector('.delete-confirm-error');
+    const issueKey = parseRedmineIssueKeyInput(content.querySelector('#redmine-link-input').value);
+    if (!issueKey) {
+      errorEl.textContent = 'チケット番号を入力してね';
+      errorEl.style.display = 'block';
+      return;
+    }
+    try {
+      const resp = await fetch('/api/its-link-issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: item.id, source: 'redmine', issueKey }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        errorEl.textContent = data.error || '紐づけに失敗したよ';
+        errorEl.style.display = 'block';
+        return;
+      }
+      closeRedmineLinkModal();
+    } catch (e) {
+      console.error('[redmine-link] Network error:', e);
+      errorEl.textContent = 'ネットワークエラーが発生したよ';
+      errorEl.style.display = 'block';
+    }
+  });
+
+  el.classList.add('modal-visible');
+}
+
 // --- GitHub Issue新規作成確認ダイアログ (BT-134: backlogタスク→GitHub Issue新規作成、Epicはsub-issue化) ---
 function getOrCreateGithubCreateConfirm() {
   let el = document.getElementById('github-create-confirm-overlay');
@@ -7602,6 +7714,11 @@ function renderModalContent(item) {
     ? `<button class="add-child-btn btn-add" id="modal-github-create-btn"><span class="material-icon icon-upload"></span> GitHub Issueを新規作成</button>`
     : '';
 
+  // Redmineチケット紐付けボタン（BM-126: GitHubと同様にカードと詳細モーダルの両方に配備。上書き許可のため常に表示）
+  const redmineLinkBtnHtml = (item.id && item.id !== '-')
+    ? `<button class="add-child-btn" id="modal-redmine-link-btn">${REDMINE_MARK_SVG} Redmineチケットと紐づける</button>`
+    : '';
+
   // ワークスペース導線ボタン（BT-053）
   const workspaceActionHtml = buildWorkspaceActionHtml(item);
 
@@ -7621,7 +7738,7 @@ function renderModalContent(item) {
       ${project}${githubBadge}${redmineBadge}${gitlabBadge}
     </div>
     <h3 class="detail-title"><span class="detail-title-text">${isEpic ? '<span class="epic-title-chip" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : ''}${escapeHtml(item.title)}</span>${titlePinBtnHtml}</h3>
-    ${actionsRow(stopRunningBtnHtml, editBtnHtml, copyBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml)}
+    ${actionsRow(stopRunningBtnHtml, editBtnHtml, copyBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml, redmineLinkBtnHtml)}
   `;
 
   body.innerHTML = `
@@ -7685,6 +7802,12 @@ function renderModalContent(item) {
   const githubCreateBtnEl = body.querySelector('#modal-github-create-btn');
   if (githubCreateBtnEl) {
     githubCreateBtnEl.addEventListener('click', () => openGithubCreateConfirm(item, false));
+  }
+
+  // Redmineチケット紐付けボタンのイベント（BM-126）
+  const redmineLinkBtnEl = body.querySelector('#modal-redmine-link-btn');
+  if (redmineLinkBtnEl) {
+    redmineLinkBtnEl.addEventListener('click', () => openRedmineLinkModal(item));
   }
 
   // 編集ボタンのイベント（BT-036: 完了済み単発タスクは説明編集不可）
@@ -7893,6 +8016,7 @@ function buildMiniBoard(epic) {
             <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集"><span class="material-icon icon-edit"></span></button>
             ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
             ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-create-btn" data-task-id="${child.id}" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
+            <button class="card-action-btn card-child-redmine-link-btn" data-task-id="${child.id}" title="Redmineチケットと紐づける">${REDMINE_MARK_SVG}</button>
             <button class="card-action-btn card-child-delete-btn danger" data-task-id="${child.id}" title="削除"><span class="material-icon icon-delete"></span></button>
           </div>`
         : '';
@@ -7987,6 +8111,17 @@ function buildMiniBoard(epic) {
           e.preventDefault();
           const childWithProject = { ...child, project: epic.project };
           openGithubCreateConfirm(childWithProject, true);
+        });
+      }
+
+      // Redmineチケット紐付けボタンのイベント（BM-126）
+      const childRedmineLinkBtnEl = card.querySelector('.card-child-redmine-link-btn');
+      if (childRedmineLinkBtnEl) {
+        childRedmineLinkBtnEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const childWithProject = { ...child, project: epic.project };
+          openRedmineLinkModal(childWithProject);
         });
       }
 

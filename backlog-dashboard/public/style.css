@@ -4505,6 +4505,21 @@ body {
   color: #e53e3e;
 }
 
+/* BM-126: Redmine紐付けボタンはmaterial-icon(1em=0.7rem相当)ではなくSVGマークのため、
+   他のcard-action-btnアイコンと高さを揃える(インラインのwidth/height=16を上書き) */
+.card-action-btn .redmine-mark-icon {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+/* BM-126: detail-actions-row内のテキスト付きボタン(add-child-btn)でも同様にアイコンを縮小する */
+.add-child-btn .redmine-mark-icon {
+  width: 0.85em;
+  height: 0.85em;
+  vertical-align: -0.1em;
+  margin-right: 2px;
+}
+
 /* --- 期日カレンダー / クイック選択 (BT-354) --- */
 .due-picker {
   position: fixed;
