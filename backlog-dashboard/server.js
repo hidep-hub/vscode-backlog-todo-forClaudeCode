@@ -2059,7 +2059,7 @@ function serveStatic(req, res) {
   // 更新できるよう統合した(BT-187決定)。渡されたフィールドのみ更新する。
   // artifactsはBT-225で追加(成果物パスの配列、渡すと丸ごと入れ替え)
   if (req.url === '/api/update-task' && req.method === 'POST') {
-    readRequestBody(req).then(({ taskId, title, description, category, assignee, startDate, dueDate, artifacts }) => {
+    readRequestBody(req).then(({ taskId, title, description, category, assignee, startDate, dueDate, completedAt, artifacts }) => {
       if (!taskId) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'taskId is required' }));
@@ -2072,9 +2072,10 @@ function serveStatic(req, res) {
       if (assignee !== undefined) fields.assignee = assignee;
       if (startDate !== undefined) fields.startDate = startDate;
       if (dueDate !== undefined) fields.dueDate = dueDate;
+      if (completedAt !== undefined) fields.completedAt = completedAt;
       if (Object.keys(fields).length === 0 && artifacts === undefined) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ error: 'at least one field (title/description/category/assignee/startDate/dueDate/artifacts) is required' }));
+        res.end(JSON.stringify({ error: 'at least one field (title/description/category/assignee/startDate/dueDate/completedAt/artifacts) is required' }));
         return;
       }
       if (fields.title !== undefined && !fields.title.trim()) {
@@ -2095,6 +2096,27 @@ function serveStatic(req, res) {
         res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: `Task not found: ${taskId}` }));
         return;
+      }
+      if (fields.completedAt !== undefined) {
+        const parsed = new Date(fields.completedAt);
+        const isoWithOffset = typeof fields.completedAt === 'string'
+          && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(fields.completedAt);
+        if (existing.status !== 'done') {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'completedAt can only be changed for tasks with status "done"' }));
+          return;
+        }
+        if (!isoWithOffset || Number.isNaN(parsed.getTime())) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'completedAt must be an ISO 8601 date-time string with an offset' }));
+          return;
+        }
+        if (parsed.getTime() > Date.now()) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'completedAt must not be in the future' }));
+          return;
+        }
+        fields.completedAt = parsed.toISOString();
       }
       // BM-105: categoryはマスタ(categoriesテーブル、ワークスペース横断で一意)に存在する
       // 名前のみ受け付ける。空文字/nullは「カテゴリなし」として常に許可する(resolveCategoryName側の仕様)。

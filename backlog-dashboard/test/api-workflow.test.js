@@ -81,9 +81,19 @@ test('serves the core task workflow through the REST API', async () => {
     assert.equal((await request(baseUrl, '/api/toggle-today', { taskId, value: true, actor: 'codex' })).body.pinned, true);
     assert.equal((await request(baseUrl, '/api/toggle-running', { taskId, value: true, actor: 'codex' })).body.running, true);
     assert.equal((await request(baseUrl, '/api/update-status', { taskId, newStatus: 'done', actor: 'codex' })).body.ok, true);
+    const correctedAt = '2026-10-01T09:30:00+09:00';
+    assert.equal((await request(baseUrl, '/api/update-task', { taskId, completedAt: correctedAt })).body.ok, true);
     const detail = await request(baseUrl, `/api/task/${taskId}`);
     assert.equal(detail.body.statusCode, 'done');
+    assert.equal(detail.body.completedDate, '2026-10-01');
+    assert.equal(detail.body.completedTs, '09:30:00');
     assert.deepEqual(detail.body.artifacts, ['docs/result.txt']);
+    const completeEvents = await request(baseUrl, '/api/activity');
+    assert.ok(completeEvents.body.some(event => event.taskId === taskId
+      && event.eventType === 'completed_at_changed'
+      && event.newValue === '2026-10-01T00:30:00.000Z'));
+    const notDone = await request(baseUrl, '/api/add-task', { title: 'Not done', project: 'extra', status: 'todo' });
+    assert.equal((await request(baseUrl, '/api/update-task', { taskId: notDone.body.id, completedAt: correctedAt })).status, 400);
     const board = (await request(baseUrl, '/api/board')).body;
     assert.ok(board.columns.length >= 4);
     // BM-020: ヘッダーティッカー用の直近イベントがboard broadcastに相乗りしていることを確認する

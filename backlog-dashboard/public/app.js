@@ -6990,6 +6990,13 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
               <option value="done"${item.statusCode === 'done' ? ' selected' : ''}>DONE</option>
             </select>
           </div>
+          ${item.statusCode === 'done' ? `<div class="settings-group" id="edit-task-completed-group">
+            <label>完了日時</label>
+            <div class="add-task-completed-row">
+              ${renderDateFieldHtml('edit-task-completed-date', item.completedDate || '')}
+              <input type="time" id="edit-task-completed-time" class="time-field" value="${escapeHtml((item.completedTs || '').slice(0, 5))}">
+            </div>
+          </div>` : ''}
           <div class="settings-group">
             <label>カテゴリ（任意）</label>
             <div class="category-select-row">
@@ -7028,6 +7035,8 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
   const assigneeInput = body.querySelector('#edit-task-assignee');
   const startDateInput = body.querySelector('#edit-task-start-date');
   const dueDateInput = body.querySelector('#edit-task-due-date');
+  const completedDateInput = body.querySelector('#edit-task-completed-date');
+  const completedTimeInput = body.querySelector('#edit-task-completed-time');
   const errorEl = body.querySelector('.edit-task-error');
   const saveBtn = body.querySelector('#edit-task-save');
   const cancelBtn = body.querySelector('#edit-task-cancel');
@@ -7063,6 +7072,8 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
     assignee: assigneeInput.value.trim(),
     startDate: startDateInput.value,
     dueDate: dueDateInput.value,
+    completedDate: completedDateInput ? completedDateInput.value : '',
+    completedTime: completedTimeInput ? completedTimeInput.value : '',
   });
   const initialValues = readFormValues();
   const updateSaveState = () => {
@@ -7075,7 +7086,7 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
     overlayEl._hasUnsavedChanges = () => saveBtn.isConnected && hasFormChanged(initialValues, readFormValues());
   }
   [titleInput, descInput, assigneeInput].forEach(el => { if (el) el.addEventListener('input', updateSaveState); });
-  [projectInput, statusInput, categoryInput, startDateInput, dueDateInput].forEach(el => el.addEventListener('change', updateSaveState));
+  [projectInput, statusInput, categoryInput, startDateInput, dueDateInput, completedDateInput, completedTimeInput].filter(Boolean).forEach(el => el.addEventListener('change', updateSaveState));
   // BT-432: 親は同じワークスペースの中から選ぶため、ワークスペースを変えたら他ワークスペースの親は外す
   projectInput.addEventListener('change', () => {
     const current = parentField.getValue();
@@ -7111,6 +7122,20 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
       dueDate: dueDateInput.value,
     };
     if (descInput) payload.description = descInput.value;
+    if (completedDateInput) {
+      if (!completedDateInput.value) {
+        errorEl.textContent = '完了日時を入力してね';
+        errorEl.style.display = 'block';
+        return;
+      }
+      const completedAt = `${completedDateInput.value}T${completedTimeInput.value || '00:00'}:00+09:00`;
+      if (new Date(completedAt).getTime() > Date.now()) {
+        errorEl.textContent = '完了日時は現在より未来にできないよ';
+        errorEl.style.display = 'block';
+        return;
+      }
+      payload.completedAt = completedAt;
+    }
 
     // BM-054: 送信中はボタンをdisabled化し、処理中であることを示す(連打による多重送信を防ぐ)
     saveBtn.disabled = true;
@@ -7200,6 +7225,10 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
       item.assignee = assigneeInput.value.trim() || null;
       item.startDate = startDateInput.value || null;
       item.dueDate = dueDateInput.value || null;
+      if (completedDateInput) {
+        item.completedDate = completedDateInput.value;
+        item.completedTs = `${completedTimeInput.value || '00:00'}:00`;
+      }
       item.statusCode = statusInput.value;
       if (updatedId !== item.id) lastRenderedFullItemById.delete(item.id);
       item.id = updatedId;
