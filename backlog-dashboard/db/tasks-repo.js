@@ -303,7 +303,7 @@ function setArtifacts(db, displayId, artifacts) {
  * categoryが渡され、かつ実際に変化した場合(null/空文字は同一視)はcategory_changedを記録する(BM-105)。
  */
 function updateFields(db, displayId, fields) {
-  const allowed = { title: 'title', description: 'description', category: 'category', assignee: 'assignee', startDate: 'start_date', dueDate: 'due_date' };
+  const allowed = { title: 'title', description: 'description', category: 'category', assignee: 'assignee', startDate: 'start_date', dueDate: 'due_date', completedAt: 'completed_at' };
   const sets = [];
   const values = [];
   for (const [key, column] of Object.entries(allowed)) {
@@ -321,6 +321,8 @@ function updateFields(db, displayId, fields) {
     && existing && (existing.due_date || null) !== (fields.dueDate || null);
   const categoryChanged = Object.prototype.hasOwnProperty.call(fields, 'category')
     && existing && (existing.category || null) !== (fields.category || null);
+  const completedAtChanged = Object.prototype.hasOwnProperty.call(fields, 'completedAt')
+    && existing && existing.completed_at !== fields.completedAt;
 
   sets.push('updated_at = ?', 'updated_by = ?');
   values.push(nowIso(), 'user');
@@ -344,6 +346,12 @@ function updateFields(db, displayId, fields) {
       insertEvent(db, {
         taskId: existing.id, taskDisplayId: displayId, eventType: 'category_changed',
         oldValue: existing.category || null, newValue: fields.category || null, actor: 'user',
+      });
+    }
+    if (completedAtChanged) {
+      insertEvent(db, {
+        taskId: existing.id, taskDisplayId: displayId, eventType: 'completed_at_changed',
+        oldValue: existing.completed_at, newValue: fields.completedAt, actor: 'user',
       });
     }
     db.exec('COMMIT');

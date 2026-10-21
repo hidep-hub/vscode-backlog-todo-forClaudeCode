@@ -68,6 +68,24 @@ test('create with non-done status ignores completedAt and keeps the single creat
   }
 });
 
+test('updates a DONE task completed_at and records the correction event', () => {
+  const fixture = createTestDb();
+  try {
+    const task = tasksRepo.create(fixture.db, { workspace: 'test', title: 'late update', status: 'done' });
+    const original = task.completed_at;
+    const corrected = '2026-09-01T06:30:00.000Z';
+    const updated = tasksRepo.updateFields(fixture.db, task.display_id, { completedAt: corrected });
+    assert.equal(updated.completed_at, corrected);
+    const correction = events(fixture.db, task.id).at(-1);
+    assert.deepEqual(
+      { event_type: correction.event_type, old_value: correction.old_value, new_value: correction.new_value },
+      { event_type: 'completed_at_changed', old_value: original, new_value: corrected },
+    );
+  } finally {
+    cleanup(fixture);
+  }
+});
+
 test('board shows the JST completed date and time for a past DONE task', () => {
   const fixture = createTestDb();
   try {

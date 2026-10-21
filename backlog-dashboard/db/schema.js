@@ -199,6 +199,7 @@ const EVENT_TYPE_SEED = [
   { code: 'tag_removed', label: 'タグ解除', sort_order: 11 },
   // BM-105: カテゴリ変更。old_value/new_valueにはカテゴリ名(無しはnull)を記録する
   { code: 'category_changed', label: 'カテゴリ変更', sort_order: 12 },
+  { code: 'completed_at_changed', label: '完了日時変更', sort_order: 13 },
 ];
 
 /**
