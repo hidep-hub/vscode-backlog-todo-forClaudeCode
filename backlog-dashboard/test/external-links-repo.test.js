@@ -84,6 +84,34 @@ test('tasksRepo.create() with externalLink registers the link in the same transa
   }
 });
 
+test('setLink inserts when no link exists yet, and overwrites an existing link to the same task+source (BM-126)', () => {
+  const f = createTestDb();
+  try {
+    const task = tasksRepo.create(f.db, { workspace: 'test', title: 't', status: 'todo' });
+
+    // 新規設定(insertLink相当)
+    externalLinksRepo.setLink(f.db, {
+      taskId: task.id, source: 'redmine', host: 'http://host/redmine', projectRef: 'proj',
+      issueKey: 42, issueUrl: 'http://host/redmine/issues/42', linkedBy: 'kiro',
+    });
+    let links = externalLinksRepo.listLinksForTasks(f.db, [task.id]);
+    assert.deepEqual(links[task.id], [{ source: 'redmine', key: '42', url: 'http://host/redmine/issues/42', projectRef: 'proj' }]);
+
+    // 同一タスク+sourceへの再設定は上書きになる(間違えた場合の修正を想定、ユーザー合意事項)
+    externalLinksRepo.setLink(f.db, {
+      taskId: task.id, source: 'redmine', host: 'http://host/redmine', projectRef: 'proj',
+      issueKey: 99, issueUrl: 'http://host/redmine/issues/99', linkedBy: 'kiro',
+    });
+    links = externalLinksRepo.listLinksForTasks(f.db, [task.id]);
+    assert.deepEqual(links[task.id], [{ source: 'redmine', key: '99', url: 'http://host/redmine/issues/99', projectRef: 'proj' }]);
+
+    // 古いキー(42)への紐づけは消えている
+    assert.equal(externalLinksRepo.findLinkedTask(f.db, { source: 'redmine', host: 'http://host/redmine', projectRef: 'proj', issueKey: 42 }), null);
+  } finally {
+    cleanup(f);
+  }
+});
+
 test('board and task detail expose externalLinks (GitHub fields untouched)', () => {
   const f = createTestDb();
   try {

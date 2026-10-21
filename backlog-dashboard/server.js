@@ -19,6 +19,7 @@ const { createTagsApi } = require('./tags-api');
 const { createCategoriesApi } = require('./categories-api');
 const { createItsSettingsApi } = require('./its-settings-api');
 const { createItsImportApi } = require('./its-import-api');
+const { createItsLinkApi } = require('./its-link-api');
 const { createRulesApi } = require('./rules-sync-api');
 const { createRecentCommitsApi } = require('./recent-commits-api');
 const { version: API_VERSION } = require('./package.json');
@@ -837,6 +838,16 @@ const handleItsImportApi = createItsImportApi({
   onChange: () => broadcast(buildBoard()),
 });
 
+// 外部ITS(現時点ではRedmineのみ)の個別タスクへの紐づけAPI(BM-126)。GitHubのgithub-link-issue相当。
+const handleItsLinkApi = createItsLinkApi({
+  config,
+  credentialsPath: ITS_CREDENTIALS_PATH,
+  getDb: () => getDb(BACKLOG_DIR),
+  tasksRepo,
+  readRequestBody,
+  onChange: () => broadcast(buildBoard()),
+});
+
 function serveStatic(req, res) {
   console.log(`[http] ${req.method} ${req.url}`);
 
@@ -1024,6 +1035,9 @@ function serveStatic(req, res) {
 
   // API: 外部ITS(現時点ではRedmineのみ)の取り込み(BM-072)
   if (handleItsImportApi(req, res)) return;
+
+  // API: 外部ITS(現時点ではRedmineのみ)の個別タスクへの紐づけ(BM-126)
+  if (handleItsLinkApi(req, res)) return;
 
   // API: エージェント運用ルールの同期状況の確認・同期(BT-439)
   if (handleRulesApi(req, res)) return;

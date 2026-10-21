@@ -83,9 +83,30 @@ function insertLink(db, { taskId, source, host, projectRef, issueKey, issueUrl, 
   `).run(taskId, source, host, projectRef, String(issueKey), issueUrl, now, linkedBy);
 }
 
+/**
+ * タスクに外部リンクを1件設定する(BM-126: 既存タスクへ後から紐づける/上書きする用。
+ * insertLink()と異なり、同一(task_id, source)が既にあれば上書きする(間違えた場合の修正を想定)。
+ * UNIQUE(task_id, source)に対するON CONFLICTで、INSERTとUPDATEを1文にまとめている。
+ */
+function setLink(db, { taskId, source, host, projectRef, issueKey, issueUrl, linkedBy = 'user', linkedAt = null }) {
+  const now = linkedAt || new Date().toISOString();
+  db.prepare(`
+    INSERT INTO task_external_links (task_id, source, host, project_ref, issue_key, issue_url, linked_at, linked_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(task_id, source) DO UPDATE SET
+      host = excluded.host,
+      project_ref = excluded.project_ref,
+      issue_key = excluded.issue_key,
+      issue_url = excluded.issue_url,
+      linked_at = excluded.linked_at,
+      linked_by = excluded.linked_by
+  `).run(taskId, source, host, projectRef, String(issueKey), issueUrl, now, linkedBy);
+}
+
 module.exports = {
   findLinkedTask,
   findLinkedTasksByKeys,
   listLinksForTasks,
   insertLink,
+  setLink,
 };
