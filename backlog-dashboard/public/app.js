@@ -4795,26 +4795,126 @@ let searchIncludeBody = false;
 // 現在進行中のfetchの世代カウンタ。入力が速いと複数のfetchが同時に飛ぶことがあるため、
 // 最新の入力に対する結果だけを描画する(古い結果が後から返ってきて上書きする事故を防ぐ)。
 let searchRequestSeq = 0;
+// BT-459: 「他のワークスペースも検索」のON/OFF。選択中プロジェクトがある時だけ意味を持つ
+// (All Projects選択中は常に全ワークスペース検索)。
+let searchIncludeOtherWorkspaces = false;
+// 右ペインのプレビュー取得の世代カウンタ(選択が素早く切り替わった時に古い結果で上書きしない)
+let searchPreviewSeq = 0;
+
+// 検索対象のワークスペースキー(projects[].file)。nullなら全ワークスペース横断。
+function getSearchWorkspaceKey() {
+  if (!currentFilter || searchIncludeOtherWorkspaces || !workspaceFilterMap) return null;
+  const key = Object.keys(workspaceFilterMap).find(k => workspaceFilterMap[k] === currentFilter);
+  return key || null;
+}
+
+function syncSearchWorkspaceToggle() {
+  const el = document.getElementById('search-modal-include-other-ws');
+  if (!el) return;
+  const hasProject = !!currentFilter;
+  el.disabled = !hasProject;
+  el.checked = hasProject && searchIncludeOtherWorkspaces;
+  const label = el.closest('label');
+  if (label) label.classList.toggle('search-toggle-disabled', !hasProject);
+  const span = label && label.querySelector('span');
+  if (span) span.textContent = '他のワークスペースも検索';
+  if (label) label.title = hasProject ? `現在のプロジェクト: ${currentFilter}（チェックで全ワークスペースへ広げる）` : 'All Projects選択中は全ワークスペースが対象です';
+}
+
+// BT-459: 一覧(左)とプレビュー(右)の境界のツマミ。ドラッグで左ペインの幅(%)を変え、ダブルクリックで既定に戻す。
+// 幅はブラウザに記憶する(localStorageが使えない環境でも動作はする)。
+const SEARCH_LIST_PCT_DEFAULT = 42;
+const SEARCH_LIST_PCT_MIN = 20;
+const SEARCH_LIST_PCT_MAX = 80;
+
+function setupSearchSplitter(overlayEl) {
+  const splitEl = overlayEl.querySelector('.search-modal-split');
+  const listEl = overlayEl.querySelector('#search-result-list');
+  const handleEl = overlayEl.querySelector('#search-splitter');
+  const applyPct = (pct) => { listEl.style.flex = `0 0 ${pct}%`; };
+  let saved = SEARCH_LIST_PCT_DEFAULT;
+  try {
+    const v = Number(localStorage.getItem('searchListWidthPct'));
+    if (v >= SEARCH_LIST_PCT_MIN && v <= SEARCH_LIST_PCT_MAX) saved = v;
+  } catch (e) { /* 記憶できなくても既定幅で動く */ }
+  applyPct(saved);
+
+  const save = (pct) => { try { localStorage.setItem('searchListWidthPct', String(pct)); } catch (e) { /* 無視 */ } };
+  handleEl.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    try { handleEl.setPointerCapture(e.pointerId); } catch (err) { /* キャプチャできなくても移動は追従する */ }
+    handleEl.classList.add('dragging');
+    // flexの%はパディングを除いた内側の幅が基準なので、それに合わせて計算する
+    const box = splitEl.getBoundingClientRect();
+    const cs = getComputedStyle(splitEl);
+    const innerLeft = box.left + parseFloat(cs.paddingLeft);
+    const innerWidth = box.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const onMove = (ev) => {
+      const pct = ((ev.clientX - innerLeft) / innerWidth) * 100;
+      applyPct(Math.round(Math.max(SEARCH_LIST_PCT_MIN, Math.min(SEARCH_LIST_PCT_MAX, pct)) * 10) / 10);
+    };
+    const onUp = () => {
+      handleEl.classList.remove('dragging');
+      handleEl.removeEventListener('pointermove', onMove);
+      handleEl.removeEventListener('pointerup', onUp);
+      handleEl.removeEventListener('pointercancel', onUp);
+      save(Math.round((listEl.getBoundingClientRect().width / innerWidth) * 1000) / 10);
+    };
+    handleEl.addEventListener('pointermove', onMove);
+    handleEl.addEventListener('pointerup', onUp);
+    handleEl.addEventListener('pointercancel', onUp);
+  });
+  handleEl.addEventListener('dblclick', () => {
+    applyPct(SEARCH_LIST_PCT_DEFAULT);
+    save(SEARCH_LIST_PCT_DEFAULT);
+  });
+}
 
 function getOrCreateSearchModal() {
   let el = document.getElementById('search-modal-overlay');
   if (el) return el;
   el = document.createElement('div');
   el.id = 'search-modal-overlay';
-  el.className = 'modal-overlay modal-front';
+  // 詳細モーダル(1000)・子詳細(1100)より背面に置き、検索から開いたタスクが検索画面の前に出るようにする。
+  // 検索画面は背景クリックでは閉じず、Escでのみ閉じる(BT-459)。
+  el.className = 'modal-overlay search-overlay';
   el.innerHTML = `
     <div class="modal-content search-modal-content">
-      <button class="modal-close" id="search-modal-close">&times;</button>
-      <input type="text" class="search-modal-input" id="search-modal-input" placeholder="タイトル・ID・担当で検索">
-      <label class="search-modal-body-toggle"><input type="checkbox" id="search-modal-include-body"><span>本文も検索する（3文字以上）</span></label>
-      <div class="search-result-list" id="search-result-list"></div>
+      <div class="search-modal-header">
+        <h3>検索</h3>
+        <button type="button" class="search-modal-close" id="search-modal-close" title="閉じる（Esc）">&times;</button>
+      </div>
+      <div class="search-modal-toolbar">
+      <div class="search-modal-inputrow">
+        <input type="text" class="search-modal-input" id="search-modal-input" placeholder="タイトル・ID・担当で検索">
+        <span class="search-hit-count" id="search-hit-count"></span>
+      </div>
+      <div class="search-modal-options">
+        <label class="search-modal-body-toggle"><input type="checkbox" id="search-modal-include-body"><span>本文も検索する（3文字以上）</span></label>
+        <label class="search-modal-body-toggle"><input type="checkbox" id="search-modal-include-other-ws"><span>他のワークスペースも検索</span></label>
+        <label class="search-modal-body-toggle"><input type="checkbox" id="search-modal-group-category" checked><span>カテゴリでグループ化</span></label>
+      </div>
+      </div>
+      <div class="search-modal-split">
+        <div class="search-result-list" id="search-result-list"></div>
+        <div class="search-splitter" id="search-splitter" role="separator" aria-orientation="vertical" title="ドラッグで左右の幅を調整（ダブルクリックで元に戻す）"></div>
+        <div class="search-preview-pane" id="search-preview-pane"><div class="search-result-empty">タスクを選ぶと内容を表示するよ</div></div>
+      </div>
     </div>
   `;
   document.body.appendChild(el);
-  el.addEventListener('click', (e) => {
-    if (e.target === el) closeSearchModal();
-  });
   el.querySelector('#search-modal-close').addEventListener('click', closeSearchModal);
+  setupSearchSplitter(el);
+  const groupCatEl = el.querySelector('#search-modal-group-category');
+  groupCatEl.checked = searchGroupByCategory;
+  groupCatEl.addEventListener('change', (e) => {
+    searchGroupByCategory = e.target.checked;
+    if (searchLastResults.length) renderSearchResults(searchLastResults, { query: searchLastQuery, bodySearchSkipped: false });
+  });
+  el.querySelector('#search-modal-include-other-ws').addEventListener('change', (e) => {
+    searchIncludeOtherWorkspaces = e.target.checked;
+    scheduleSearchFetch(el.querySelector('#search-modal-input').value, { immediate: true });
+  });
   closeOnEscape(el, 'modal-visible', closeSearchModal);
   const inputEl = el.querySelector('#search-modal-input');
   inputEl.addEventListener('input', (e) => {
@@ -4851,6 +4951,7 @@ function openSearchModal(initialQuery = '') {
   const el = getOrCreateSearchModal();
   const input = el.querySelector('#search-modal-input');
   input.value = initialQuery;
+  syncSearchWorkspaceToggle();
   el.classList.add('modal-visible');
   input.focus();
   scheduleSearchFetch(initialQuery, { immediate: true });
@@ -4886,7 +4987,7 @@ function groupSearchResults(results) {
       // 子タスクのマッチ: 親Epic行が無ければダミーで作っておき、後からchildrenだけ積む
       if (!projEntry.epics.has(r.parentId)) {
         projEntry.epics.set(r.parentId, {
-          epic: { id: r.parentId, title: r.parentTitle, status: r.parentStatus, project: proj },
+          epic: { id: r.parentId, title: r.parentTitle, status: r.parentStatus, project: proj, category: r.parentCategory },
           children: [],
           epicMatchedDirectly: false,
         });
@@ -4908,19 +5009,49 @@ function groupSearchResults(results) {
   return projectMap;
 }
 
+// BT-459: 「カテゴリでグループ化」(ワークスペース＞カテゴリ＞EPIC＞子タスク)。マスタ順→マスタ外→カテゴリなし。
+let searchGroupByCategory = true;
+let searchCategoryOrder = []; // カテゴリマスタの並び順(名前の配列)
+let searchLastResults = []; // チェックボックス切替時に再取得せず描画し直すため
+
+// 旧データの'-'はカテゴリなし('')として扱う(週報と同じ)
+function searchCategoryName(c) {
+  return !c || c === '-' ? '' : c;
+}
+
 function buildFilteredEntries(results) {
   const tree = groupSearchResults(results);
   const entries = [];
+  const baseIndent = searchGroupByCategory ? 2 : 1;
   for (const [projName, projEntry] of tree) {
-    entries.push({ type: 'header', label: projName });
-    for (const { epic, children } of projEntry.epics.values()) {
-      entries.push({ type: 'task', item: epic, isChild: false, isEpic: true, indent: 1 });
-      for (const c of children) {
-        entries.push({ type: 'task', item: c, isChild: true, indent: 2 });
-      }
+    entries.push({ type: 'header', level: 'ws', label: projName });
+    // ブロック = EPIC(＋ヒットした子)または単発1件。罫線はブロックの先頭行に付ける(子の間には付けない)
+    const blocks = [];
+    // isHit: 検索にヒットした行か。子だけがヒットして文脈として出している親EPICは false（薄く表示する）
+    for (const { epic, children, epicMatchedDirectly } of projEntry.epics.values()) {
+      const rows = [{ type: 'task', item: epic, isChild: false, isEpic: true, indent: baseIndent, isHit: !!epicMatchedDirectly, blockStart: true, hasChildren: children.length > 0 }];
+      children.forEach((c, i) => rows.push({
+        type: 'task', item: c, isChild: true, indent: baseIndent + 1, isHit: true, treeMark: i === children.length - 1 ? '└' : '├',
+      }));
+      blocks.push({ category: searchCategoryName(epic.category), rows });
     }
     for (const s of projEntry.singles) {
-      entries.push({ type: 'task', item: s, isChild: false, indent: 1 });
+      blocks.push({ category: searchCategoryName(s.category), rows: [{ type: 'task', item: s, isChild: false, indent: baseIndent, isHit: true, blockStart: true }] });
+    }
+    if (!searchGroupByCategory) {
+      for (const b of blocks) entries.push(...b.rows);
+      continue;
+    }
+    const names = [...new Set(blocks.map(b => b.category))];
+    const rank = (name) => {
+      if (name === '') return 2e9; // カテゴリなしは最後
+      const i = searchCategoryOrder.indexOf(name);
+      return i < 0 ? 1e9 : i; // マスタ外はマスタ順の後
+    };
+    names.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ja'));
+    for (const name of names) {
+      entries.push({ type: 'header', level: 'cat', label: name || 'カテゴリなし' });
+      for (const b of blocks) if (b.category === name) entries.push(...b.rows);
     }
   }
   return entries;
@@ -4936,17 +5067,28 @@ async function fetchAndRenderSearchResults(rawQuery) {
     searchSelectableIndices = [];
     searchSelectedPos = 0;
     listEl.innerHTML = `<div class="search-result-empty">キーワードを入力してね</div>`;
+    setSearchHitCount(null);
+    renderSearchPreview(null);
     return;
   }
 
   const seq = ++searchRequestSeq;
   listEl.innerHTML = `<div class="search-result-empty">検索中...</div>`;
+  setSearchHitCount(null);
 
   let data;
   try {
     const params = new URLSearchParams({ q: query, includeBody: String(searchIncludeBody) });
-    const res = await fetch(`/api/search?${params.toString()}`);
+    const workspaceKey = getSearchWorkspaceKey();
+    if (workspaceKey) params.set('workspace', workspaceKey);
+    const [res, catRes] = await Promise.all([
+      fetch(`/api/search?${params.toString()}`),
+      fetch('/api/categories').catch(() => null),
+    ]);
     data = await res.json();
+    try {
+      if (catRes && catRes.ok) searchCategoryOrder = ((await catRes.json()).categories || []).map(c => c.name);
+    } catch (e) { /* 並び順が取れなくても検索結果は出す */ }
   } catch (e) {
     if (seq !== searchRequestSeq) return; // より新しい入力に対する結果が既に処理されている
     listEl.innerHTML = `<div class="search-result-empty">検索に失敗したよ。もう一度試してね</div>`;
@@ -4957,9 +5099,55 @@ async function fetchAndRenderSearchResults(rawQuery) {
   renderSearchResults(data.results || [], { bodySearchSkipped: !!data.bodySearchSkipped, query });
 }
 
+// 検索ヒット件数(オプション行の右端)。nullで非表示。
+function setSearchHitCount(count) {
+  const el = document.getElementById('search-hit-count');
+  if (el) el.textContent = count === null ? '' : `${count}件ヒット`;
+}
+
+// 検索語をテキスト内で大文字小文字を区別せずハイライトしたHTMLを返す(全体をエスケープ済み)。
+function highlightQueryHtml(text, query) {
+  const s = String(text == null ? '' : text);
+  if (!query) return escapeHtml(s);
+  const lower = s.toLowerCase();
+  const q = query.toLowerCase();
+  let out = '';
+  let i = 0;
+  for (;;) {
+    const j = lower.indexOf(q, i);
+    if (j < 0) { out += escapeHtml(s.slice(i)); break; }
+    out += `${escapeHtml(s.slice(i, j))}<mark class="search-hit">${escapeHtml(s.slice(j, j + q.length))}</mark>`;
+    i = j + q.length;
+  }
+  return out;
+}
+
+// 描画済みのHTML内のテキストノードだけを対象に検索語をハイライトする(タグ・リンク先は壊さない)。
+function highlightQueryInElement(root, query) {
+  if (!root || !query) return;
+  const q = query.toLowerCase();
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const node of nodes) {
+    if (node.parentElement && node.parentElement.closest('mark, script, style')) continue;
+    const text = node.nodeValue;
+    if (!text.toLowerCase().includes(q)) continue;
+    const holder = document.createElement('span');
+    holder.innerHTML = highlightQueryHtml(text, query);
+    node.replaceWith(...holder.childNodes);
+  }
+}
+
+// 現在表示中の検索結果に対する検索語(右ペインのハイライトで使う)
+let searchLastQuery = '';
+
 function renderSearchResults(results, { bodySearchSkipped = false, query = '' } = {}) {
   const listEl = document.getElementById('search-result-list');
   if (!listEl) return;
+  searchLastQuery = query;
+  searchLastResults = results;
+  setSearchHitCount(results.length);
 
   searchEntries = buildFilteredEntries(results);
   searchSelectableIndices = [];
@@ -4972,21 +5160,25 @@ function renderSearchResults(results, { bodySearchSkipped = false, query = '' } 
 
   if (searchSelectableIndices.length === 0) {
     listEl.innerHTML = `${skipNoticeHtml}<div class="search-result-empty">見つからなかったよ</div>`;
+    setSearchHitCount(0);
+    renderSearchPreview(null);
     return;
   }
 
   const rowsHtml = searchEntries.map((entry, idx) => {
     if (entry.type === 'header') {
-      return `<div class="search-group-header">${escapeHtml(entry.label)}</div>`;
+      return `<div class="search-group-header search-group-${entry.level}">${escapeHtml(entry.label)}</div>`;
     }
+    // 子タスクのツリー線はCSS(疑似要素)で描く。├=続きあり / └=最後の子
+    const treeClass = entry.treeMark ? (entry.treeMark === '└' ? ' search-tree-child search-tree-last' : ' search-tree-child') : '';
     const epicIcon = entry.isEpic ? '<span class="epic-icon" title="Epic"><span class="material-icon icon-stacks"></span></span>' : '';
     const snippetHtml = entry.item.snippet
-      ? `<div class="search-result-snippet">${escapeSearchSnippet(entry.item.snippet)}</div>`
+      ? `<div class="search-result-snippet${entry.isEpic ? ' search-snippet-epic' : ''}">${escapeSearchSnippet(entry.item.snippet)}</div>`
       : '';
-    return `<div class="search-result-item search-indent-${entry.indent}" data-entry-idx="${idx}">
+    return `<div class="search-result-item search-indent-${entry.indent}${treeClass}${entry.hasChildren ? ' search-has-children' : ''}${entry.isHit ? '' : ' search-result-context'}${entry.blockStart ? (entry.isEpic ? ' search-block-start search-block-epic' : ' search-block-start') : ''}" data-entry-idx="${idx}"${entry.isHit ? '' : ' title="検索にはヒットしていない親タスク（文脈として表示）"'}>
       <div class="search-result-row">
-        ${epicIcon}<span class="search-result-id">${escapeHtml(entry.item.id)}</span>
-        <span class="search-result-title">${escapeHtml(entry.item.title)}</span>
+        ${epicIcon}<span class="search-result-id">${highlightQueryHtml(entry.item.id, query)}</span>
+        <span class="search-result-title">${highlightQueryHtml(entry.item.title, query)}</span>
         <span class="search-result-status">${escapeHtml(entry.item.status || '-')}</span>
       </div>
       ${snippetHtml}
@@ -4996,17 +5188,18 @@ function renderSearchResults(results, { bodySearchSkipped = false, query = '' } 
 
   listEl.querySelectorAll('.search-result-item').forEach(itemEl => {
     const entryIdx = Number(itemEl.dataset.entryIdx);
+    // BT-459: クリック/↑↓は右ペインに内容を出すだけ。タスクを開くのはダブルクリック・Enter・「タスクを開く」ボタン。
     itemEl.addEventListener('click', () => {
       const pos = searchSelectableIndices.indexOf(entryIdx);
       if (pos < 0) return;
       searchSelectedPos = pos;
-      activateSearchSelection();
+      updateSearchHighlight();
     });
-    itemEl.addEventListener('mouseenter', () => {
+    itemEl.addEventListener('dblclick', () => {
       const pos = searchSelectableIndices.indexOf(entryIdx);
       if (pos < 0) return;
       searchSelectedPos = pos;
-      updateSearchHighlight();
+      activateSearchSelection();
     });
   });
 
@@ -5024,6 +5217,110 @@ function updateSearchHighlight() {
     el.classList.add('search-result-selected');
     el.scrollIntoView({ block: 'nearest' });
   }
+  const entry = searchEntries[entryIdx];
+  renderSearchPreview(entry || null);
+}
+
+// 検索結果の説明欄をMarkdownで描画する(生HTML・画像・http(s)以外のリンクは無効化)。
+let searchPreviewMarked = null;
+function getSearchPreviewMarked() {
+  if (searchPreviewMarked) return searchPreviewMarked;
+  if (typeof marked === 'undefined') return null;
+  searchPreviewMarked = new marked.Marked({
+    gfm: true,
+    breaks: true,
+    renderer: {
+      html(token) { return escapeHtml(token.text); },
+      image(token) { return escapeHtml(token.text || ''); },
+      link(token) {
+        const inner = this.parser.parseInline(token.tokens);
+        return /^https?:\/\//i.test(token.href) ? `<a href="${escapeHtml(token.href)}" target="_blank" rel="noopener noreferrer">${inner}</a>` : inner;
+      },
+    },
+  });
+  return searchPreviewMarked;
+}
+
+// 右ペイン: 選択中の検索結果の内容を/api/task/:idから取得して表示する。
+async function renderSearchPreview(entry) {
+  const paneEl = document.getElementById('search-preview-pane');
+  if (!paneEl) return;
+  const seq = ++searchPreviewSeq;
+  if (!entry) {
+    paneEl.innerHTML = `<div class="search-result-empty">タスクを選ぶと内容を表示するよ</div>`;
+    return;
+  }
+  paneEl.innerHTML = `<div class="search-result-empty">読み込み中...</div>`;
+  let full = null;
+  try {
+    full = await fetchTaskDetail(entry.item.id);
+  } catch (e) {
+    full = null;
+  }
+  if (seq !== searchPreviewSeq) return; // 選択がさらに切り替わっていた
+  if (!full) {
+    paneEl.innerHTML = `<div class="search-result-empty">内容を取得できなかったよ</div>`;
+    return;
+  }
+  const md = getSearchPreviewMarked();
+  const desc = full.description || '';
+  const descHtml = desc
+    ? (md ? md.parse(desc) : `<pre class="search-preview-plain">${escapeHtml(desc)}</pre>`)
+    : '<span class="search-preview-nodesc">説明はありません</span>';
+  const tags = (full.tags || []).map(t => `<span class="search-preview-tag">${escapeHtml(t.name)}</span>`).join('');
+  const dates = [full.startDate ? `開始 ${escapeHtml(full.startDate)}` : '', full.dueDate ? `期日 ${escapeHtml(full.dueDate)}` : ''].filter(Boolean).join(' / ');
+  const parentLine = entry.item.parentId
+    ? `<div class="search-preview-meta">親: ${escapeHtml(entry.item.parentId)} ${escapeHtml(entry.item.parentTitle || '')}</div>`
+    : '';
+  paneEl.innerHTML = `
+    <div class="search-preview-fixed">
+    <div class="search-preview-head">
+      <div class="search-preview-title"><span class="search-result-id">${highlightQueryHtml(full.id, searchLastQuery)}</span> ${highlightQueryHtml(full.title, searchLastQuery)}</div>
+      <div class="search-preview-actions">
+        <button class="search-preview-open" id="search-preview-goto" title="ボード上のタスクの場所へ移動して開く">場所へ行く</button>
+        <button class="search-preview-open" id="search-preview-open">タスクを開く</button>
+      </div>
+    </div>
+    <div class="search-preview-meta">${escapeHtml(entry.item.project || '')} ・ ${escapeHtml(full.status || '-')}${full.assignee ? ` ・ 担当: ${escapeHtml(full.assignee)}` : ''}${dates ? ` ・ ${dates}` : ''}</div>
+    ${parentLine}
+    ${tags ? `<div class="search-preview-tags">${tags}</div>` : ''}
+    </div>
+    <div class="search-preview-desc">${descHtml}</div>
+  `;
+  highlightQueryInElement(paneEl.querySelector('.search-preview-desc'), searchLastQuery);
+  paneEl.querySelector('#search-preview-open').addEventListener('click', activateSearchSelection);
+  paneEl.querySelector('#search-preview-goto').addEventListener('click', goToSearchSelectionOnBoard);
+}
+
+// BT-459: 検索画面を閉じ、ボード上のタスクの場所へスクロールして開く。
+// 子タスクは親EPICを開いて子をハイライト(履歴・URL起動と同じ openEpicWithHighlight)。
+async function goToSearchSelectionOnBoard() {
+  const entryIdx = searchSelectableIndices[searchSelectedPos];
+  const entry = entryIdx === undefined ? null : searchEntries[entryIdx];
+  if (!entry) return;
+  const item = entry.item;
+  const projectName = item.project;
+  const taskId = entry.isChild ? item.parentId : item.id;
+  closeSearchModal();
+  // 選択中プロジェクトが別なら、そのプロジェクトへ切り替える(All Projectsはそのまま)
+  if (currentFilter && projectName && currentFilter !== projectName) applyMainFilter(projectName);
+  const boardItem = findItemById(taskId);
+  if (!boardItem) {
+    // ボードの再送に乗っていない場合の救済: 詳細だけ開く
+    const resolved = await resolveFullItemForDetail(item);
+    if (!resolved) return;
+    if (entry.isChild) openChildModal(resolved.item, resolved.parentEpic);
+    else openCardDetail(resolved.item);
+    return;
+  }
+  const cardEl = boardEl.querySelector(`.card[data-task-id="${CSS.escape(taskId)}"]`);
+  if (cardEl) {
+    cardEl.scrollIntoView({ block: 'center' });
+    cardEl.classList.add('card-highlight-pulse');
+    setTimeout(() => cardEl.classList.remove('card-highlight-pulse'), 1300);
+  }
+  if (entry.isChild) openEpicWithHighlight(boardItem, [item.id]);
+  else openCardDetail(boardItem);
 }
 
 // サーバーのsnippet()が'['/']'でヒット箇所を囲んで返す(db/tasks-repo.js searchByBody)。
@@ -5073,7 +5370,7 @@ async function activateSearchSelection() {
   if (entryIdx === undefined) return;
   const entry = searchEntries[entryIdx];
   if (!entry) return;
-  closeSearchModal();
+  // BT-459: 検索画面は閉じずに残す(詳細モーダルは検索画面より前面に開く)
   const resolved = await resolveFullItemForDetail(entry.item);
   if (!resolved) return;
   if (entry.isChild) openChildModal(resolved.item, resolved.parentEpic);

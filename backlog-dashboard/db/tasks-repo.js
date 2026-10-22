@@ -597,13 +597,14 @@ function escapeLikePattern(value) {
  * @returns {Array} tasks行の配列(deleted_at IS NULL、SELECT *なのでdescriptionも含むが
  *   呼び出し側(server.js)でレスポンスに含めるかどうかを判断する)
  */
-function searchByTitleIdAssignee(db, query, { limit = 50 } = {}) {
+function searchByTitleIdAssignee(db, query, { limit = 50, workspace = null } = {}) {
   const pattern = `%${escapeLikePattern(query)}%`;
   return db.prepare(`SELECT * FROM tasks
     WHERE deleted_at IS NULL
+      AND (? IS NULL OR workspace = ?)
       AND (title LIKE ? ESCAPE '\\' OR display_id LIKE ? ESCAPE '\\' OR assignee LIKE ? ESCAPE '\\')
     ORDER BY workspace, sort_order
-    LIMIT ?`).all(pattern, pattern, pattern, limit);
+    LIMIT ?`).all(workspace, workspace, pattern, pattern, pattern, limit);
 }
 
 // FTS5のMATCH右辺はクエリ構文(AND/OR/-/*/"等)として解釈される。ユーザー入力をそのまま渡すと
@@ -614,20 +615,20 @@ function quoteForFtsPhrase(query) {
 }
 
 /**
- * 本文(description)をFTS5(trigram)で検索する(ワークスペース横断、常に全件)。
+ * 本文(description)をFTS5(trigram)で検索する(workspace指定でそのワークスペースのみ、省略時は横断)。
  * trigramは3文字未満のクエリだと常に0件になる(インデックス構造上の制約、実機検証済み)ため、
  * 呼び出し側で3文字未満の場合はこの関数を呼ばず空配列を返す運用にする。
  * @returns {Array<{task: object, snippet: string}>} タスク行とスニペット(本文中のヒット箇所抜粋)の配列
  */
-function searchByBody(db, query, { limit = 50 } = {}) {
+function searchByBody(db, query, { limit = 50, workspace = null } = {}) {
   if (!query || query.length < 3) return [];
   const ftsQuery = quoteForFtsPhrase(query);
   const rows = db.prepare(`SELECT t.*, snippet(tasks_fts, 1, '[', ']', '...', 12) AS snippet
     FROM tasks_fts
     JOIN tasks t ON t.id = tasks_fts.rowid
-    WHERE tasks_fts MATCH ? AND t.deleted_at IS NULL
+    WHERE tasks_fts MATCH ? AND t.deleted_at IS NULL AND (? IS NULL OR t.workspace = ?)
     ORDER BY t.workspace, t.sort_order
-    LIMIT ?`).all(ftsQuery, limit);
+    LIMIT ?`).all(ftsQuery, workspace, workspace, limit);
   return rows.map(r => ({ task: r, snippet: r.snippet }));
 }
 

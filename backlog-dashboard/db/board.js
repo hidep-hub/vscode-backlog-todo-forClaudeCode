@@ -395,7 +395,7 @@ function buildTaskDetail(db, config, displayId) {
  * @param {boolean} opts.includeBody - trueの時のみ本文(description)もFTS5で検索対象にする
  * @param {number} opts.limit - タイトル検索・本文検索それぞれの上限件数(デフォルト50)
  */
-function buildSearchResults(db, config, query, { includeBody = false, limit = 50 } = {}) {
+function buildSearchResults(db, config, query, { includeBody = false, limit = 50, workspace = null } = {}) {
   const trimmed = (query || '').trim();
   if (!trimmed) return { results: [], bodySearchSkipped: false };
 
@@ -407,12 +407,12 @@ function buildSearchResults(db, config, query, { includeBody = false, limit = 50
     if (p.file) workspaceToProjectName[p.file] = p.name;
   }
 
-  const titleRows = tasksRepo.searchByTitleIdAssignee(db, trimmed, { limit });
+  const titleRows = tasksRepo.searchByTitleIdAssignee(db, trimmed, { limit, workspace });
   // trigramの制約(3文字未満は常に0件)により、本文検索は3文字以上の時だけ実行する。
   // 2文字以下でincludeBody=trueが指定された場合、呼び出し側(server.js)に
   // 「本文検索はスキップされた」ことを伝え、UIで案内できるようにする。
   const bodySearchSkipped = includeBody && trimmed.length < 3;
-  const bodyMatches = includeBody && !bodySearchSkipped ? tasksRepo.searchByBody(db, trimmed, { limit }) : [];
+  const bodyMatches = includeBody && !bodySearchSkipped ? tasksRepo.searchByBody(db, trimmed, { limit, workspace }) : [];
 
   // タイトル/ID/担当者ヒットと本文ヒットをタスクID基準でマージする(両方にヒットした場合はsnippetを残す)。
   const merged = new Map(); // taskId -> { row, snippet }
@@ -429,12 +429,14 @@ function buildSearchResults(db, config, query, { includeBody = false, limit = 50
     let parentId = null;
     let parentTitle = null;
     let parentStatusCode = null;
+    let parentCategory = null;
     if (row.parent_id !== null) {
       const parentRow = tasksRepo.getById(db, row.parent_id);
       if (parentRow) {
         parentId = parentRow.display_id;
         parentTitle = parentRow.title;
         parentStatusCode = parentRow.status;
+        parentCategory = parentRow.category || null;
       }
     }
     const childCount = row.parent_id === null ? tasksRepo.countChildren(db, row.id) : 0;
@@ -445,6 +447,9 @@ function buildSearchResults(db, config, query, { includeBody = false, limit = 50
       statusCode: row.status,
       project: projectName,
       assignee: row.assignee || null,
+      // BT-459: カテゴリでグループ化するため。カテゴリはEPIC/単発自身の値を使い、子は親(parentCategory)に従う
+      category: row.category || null,
+      parentCategory,
       parentId,
       parentTitle,
       // BM-082: 検索結果はEpic配下の子マッチも親行として表示するグルーピング(buildSearchTree相当)を
