@@ -1,6 +1,6 @@
 # バックログ管理ルール（backlog-dashboard 連携・共通正本）
 
-> 対応API version: 2.23.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099、BT-291、BT-438、BM-105、BT-444、BT-442、BT-446、BM-121、BM-112、BT-450、BM-126、BT-458、BM-135。このバージョンより古いAPIには一部の記述が適用されない場合がある）
+> 対応API version: 2.24.0（BT-212、BT-336、BT-372、BT-377、BT-393、BT-408、BM-071、BM-072、BT-412、BM-074、BM-099、BT-291、BT-438、BM-105、BT-444、BT-442、BT-446、BM-121、BM-112、BT-450、BM-126、BT-458、BM-135、BM-136。このバージョンより古いAPIには一部の記述が適用されない場合がある）
 
 > ⚠️ **【最重要・読み飛ばし禁止】このファイル（`AGENTS.md.sample`）を編集したら、必ず `scripts/install-agent-rules.ps1` を実行して反映する。** 配布先（リポジトリ内の`.claude`・`.kiro`の`assets/backlog-hub-rules.md`、端末の`~/.claude`・`~/.codex`・`~/.kiro`）を手で編集・コピーしてはならない。手順は次々節「ルール正本と配布方式」にある。
 
@@ -104,6 +104,14 @@ AGENTS.md.sample（Git管理の唯一の正本）
     - 履歴: 付け外しは`tag_added`/`tag_removed`として`/api/activity`に残る（`newValue`/`oldValue`はタグ名）。`move-task`でワークスペースを移すと、タグはワークスペース単位のため解除され`tag_removed`が記録される
     - **AIがタグを付ける・作る場合の作法**: 付与の前に`GET /api/tags`で既存タグを確認し、似た名前があれば新規作成せず既存タグを使う。新規作成が必要な場合も、自己判断で`confirmSimilar:true`を付けず、ユーザーに確認してから行う
     - **【BM-112, API 2.19.0】並べ替え**: `POST /api/reorder-tags {workspace, orderedIds: [tagId, ...], actor?}`（2件以上）— 同一ワークスペース内のタグ同士でのみ並べ替え可能。別ワークスペースのタグが混ざっていると400 `workspace_mismatch`。渡した順に`sort_order`を1,2,3...へ振り直す（タスクの`/api/reorder`と同じ骨格）
+  - **タスクコメント（BM-136、API 2.24.0）**: タスクに「ちょっとした状況」を日時つきで残す仕組み。`task_comments`テーブル（既存テーブルは拡張しない）に持ち、カードの1行表示・右クリックTIP・詳細モーダル・週報の「コメント」列に出る。編集はできず、追加と削除だけ
+    - 追加: `POST /api/add-task-comment {taskId, body, actor?}` → `{ok, taskId, comment:{id,body,createdAt,createdBy}, commentCount}`。`body`は1〜1000文字（前後の空白は除き、改行はLFにそろえる）。空・長すぎは400 `invalid_body`、存在しない（論理削除済み含む）タスクは404 `not_found`。**AIが状況を残す場合は`actor`に自身の識別子（`"kiro"`/`"claude-code"`/`"codex"`）を渡す**（未指定は`"user"`）
+    - 一覧: `GET /api/task-comments?taskId=XX-001` → `{taskId, comments:[{id,body,createdAt,createdBy}]}`（新しい順）。`taskId`が無ければ400、存在しなければ404
+    - 削除: `POST /api/delete-task-comment {commentId}` → `{ok, taskId, commentCount}`（誤入力の取り消し用）。存在しないIDは404 `comment_not_found`、整数以外は400
+    - **サイレント**: コメントの追加・削除は履歴（`task_events`、`/api/activity`）に記録せず、`tasks.updated_at`/`updated_by`も更新しない（モーダルの「更新者」がコメント投稿者に書き換わらないようにするため）。コメントの日時と投稿者はコメント自身が持つ
+    - 取得: `GET /api/board`・`GET /api/task/:id`のitem（子にも）に`commentCount`と`latestComment:{id,body,createdAt,createdBy}`（無ければ`null`）が付く。**boardの`latestComment.body`は先頭120文字まで**（配信の肥大化を避けるため。全文・全件は`GET /api/task/:id`のitemが持つ`comments`（新しい順）か、`GET /api/task-comments`で取る）。EPICの`commentCount`/`latestComment`はEPIC自身のコメントのみで、子の分は含まない。タスクを`move-task`でワークスペース移管してもコメントは付いてくる
+    - **週報のコメント列（`columns`にキー`comment`、ラベル「コメント」）**: 既定の列には入っておらず、選んだ時だけ出る。**集計期間内（JSTのfrom 0:00〜to翌日0:00）に投稿された最新の1件**を出し、期間外の古いコメントは出さない（無ければ空欄）。EPIC行は、EPIC自身とヒットした子の「期間内の最新コメント」のうち、いちばん新しい1件を出す。子のコメントには、どの子の話か分かるよう先頭に子のID（`XX-001: …`）が付く。ヒットしない子のコメントは出さない
+    - **AIがコメントを残す場合の作法**: 作業の節目（方針に合意した、調査で原因が分かった、レビュー待ち、など報告に値する状況）で、1〜2文の短い状況を`add-task-comment`で残す。**説明欄（`description`）の代わりにはしない**（説明欄は対象範囲・合意した方針・作業結果を残す恒久的な記録で、コメントは時系列の状況メモ）
   - **外部ITS連携（BM-071、API 2.6.0）**: GitHub以外の外部チケット（Redmine/GitLab）とタスクの紐づけ。`GET /api/board`・`GET /api/task/:id`のitem（子にも）に`externalLinks: [{source, key, url, projectRef}]`が付く。**GitHub分は従来どおり`githubIssueNumber`/`githubIssueUrl`で、`externalLinks`には含まれない**。1タスクにつきsourceごとに1件まで
     - 設定API: `GET /api/its-settings?prefix=XX`（`prefix`は`projects[].prefix`）/ `POST /api/its-settings {prefix, source, projectUrl?, token?}` / `GET /api/its-host-status?source=&url=`。**トークンは秘密情報のため、AIは扱わない（設定の入力・参照・ログ出力をしない）。設定はユーザーがUIで行う**
   - **Redmine取り込み（BM-072、API 2.7.0）**: 外部への書き戻しはしない読み取り専用の取り込み

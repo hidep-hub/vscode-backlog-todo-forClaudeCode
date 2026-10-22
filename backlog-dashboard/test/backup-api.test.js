@@ -42,7 +42,7 @@ test('backup APIs: 作成・一覧・状態・削除保護(BT-370)', async () =>
     projects: [{ file: 'test', prefix: 'TS', name: 'Test', workspace: fixtureRoot }],
   };
   fs.mkdirSync(dataDir, { recursive: true });
-  for (const entry of ['server.js', 'tags-api.js', 'categories-api.js', 'its-settings-api.js', 'its-credentials.js', 'its-import-api.js', 'its-link-api.js', 'rules-sync-api.js', 'recent-commits-api.js', 'redmine-client.js', 'gitlab-client.js', 'github-client.js', 'package.json']) {
+  for (const entry of ['server.js', 'tags-api.js', 'comments-api.js', 'categories-api.js', 'its-settings-api.js', 'its-credentials.js', 'its-import-api.js', 'its-link-api.js', 'rules-sync-api.js', 'recent-commits-api.js', 'redmine-client.js', 'gitlab-client.js', 'github-client.js', 'package.json']) {
     fs.copyFileSync(path.join(sourceRoot, entry), path.join(fixtureRoot, entry));
   }
   fs.cpSync(path.join(sourceRoot, 'db'), path.join(fixtureRoot, 'db'), { recursive: true });

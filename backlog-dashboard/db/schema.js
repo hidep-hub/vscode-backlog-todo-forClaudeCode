@@ -146,6 +146,18 @@ const DDL = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_task_external_links_issue
     ON task_external_links(source, host, project_ref, issue_key)`,
+  // BM-136: タスクへのコメント(状況メモ)。日時つきで追記していき、カード・TIP・詳細・週報に出す。
+  // 既存テーブルは拡張せず新テーブルだけで持つ。履歴(task_events)には記録しない(サイレント)。
+  // display_idはワークスペース移管で変わるため持たず、task_idで引く。
+  `CREATE TABLE IF NOT EXISTS task_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_task_comments_task
+    ON task_comments(task_id, created_at, id)`,
 ];
 
 // BM-081: タイトル・本文(description)のサーバー側全文検索用FTS5仮想テーブル。

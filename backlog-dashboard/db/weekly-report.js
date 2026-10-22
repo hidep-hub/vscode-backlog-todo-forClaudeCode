@@ -13,6 +13,7 @@ const path = require('node:path');
 const tagsRepo = require('./tags-repo');
 const externalLinksRepo = require('./external-links-repo');
 const categoriesRepo = require('./categories-repo');
+const commentsRepo = require('./comments-repo');
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -29,6 +30,7 @@ const COLUMN_DEFS = [
   { key: 'commit', label: 'コミット' },
   { key: 'issue', label: 'GitHub Issue' },
   { key: 'external', label: '外部ITS Issue' }, // Redmine/GitLab(BT-438)
+  { key: 'comment', label: 'コメント' }, // 集計期間内の最新1件(BM-136)
 ];
 const DEFAULT_COLUMNS = ['id', 'title', 'kind', 'status', 'updatedAt', 'dueDate'];
 
@@ -90,6 +92,11 @@ function todayJst() {
 function addDays(dateStr, n) {
   const ms = Date.parse(`${dateStr}T00:00:00Z`) + n * 86400000;
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+// JSTの日付文字列(YYYY-MM-DD)のn日後の0:00(JST)を、DBのcreated_atと比較できるUTCのISO文字列にする(BM-136)
+function jstDayStartIso(dateStr, plusDays) {
+  return new Date(Date.parse(`${addDays(dateStr, plusDays)}T00:00:00+09:00`)).toISOString();
 }
 
 // YYYY-MM-DD → YYYY-MM-DD（曜）
@@ -246,7 +253,7 @@ function dedupJoin(list) {
  *  - dueDate: ヒットした子の期日のうち最大(最も遅い)日付。子がいくつか集まって目的を達成する構造のため
  *  - assignee/tags/commit/issue/externalLinks: ヒットした子の範囲から重複を除いて列挙
  */
-function buildEpicItem(epicRow, leaves) {
+function buildEpicItem(epicRow, leaves, epicComment) {
   const dueDates = leaves.map(l => l.dueDate).filter(Boolean);
   const dueDate = dueDates.length ? dueDates.reduce((max, d) => (d > max ? d : max)) : '';
   const updatedAtRaw = leaves.reduce((max, l) => (l.updatedAtRaw > max ? l.updatedAtRaw : max), leaves[0].updatedAtRaw);
@@ -272,7 +279,24 @@ function buildEpicItem(epicRow, leaves) {
     issue: dedupJoin(issueTexts),
     issueUrl: '',
     externalLinks: [...linkMap.values()],
+    ...pickEpicComment(epicComment, leaves),
   };
+}
+
+/**
+ * EPIC行のコメント(BM-136)。EPIC自身と、ヒットした子の「期間内の最新コメント」の中から、いちばん新しい1件を選ぶ。
+ * 子のコメントは、どの子の話か分かるよう先頭に子のIDを付ける(EPIC自身のコメントはそのまま)。
+ * 同時刻ならコメントIDが大きい方(後から入力した方)を選ぶ。
+ */
+function pickEpicComment(epicComment, leaves) {
+  const candidates = [];
+  if (epicComment) candidates.push({ text: epicComment.body, at: epicComment.createdAt, id: epicComment.id });
+  for (const l of leaves) {
+    if (l.comment) candidates.push({ text: `${l.id}: ${l.comment}`, at: l.commentAtRaw, id: l.commentId });
+  }
+  if (candidates.length === 0) return { comment: '', commentAtRaw: '', commentId: null };
+  const latest = candidates.reduce((best, c) => (c.at > best.at || (c.at === best.at && c.id > best.id) ? c : best));
+  return { comment: latest.text, commentAtRaw: latest.at, commentId: latest.id };
 }
 
 /**
@@ -294,6 +318,12 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
 
     const tagsByTask = tagsRepo.listTagsForTasks(db, includedRows.map(r => r.id));
     const linksByTask = externalLinksRepo.listLinksForTasks(db, includedRows.map(r => r.id));
+
+    // BM-136: コメント列は、集計期間内(JSTのfrom 0:00〜to翌日0:00)に投稿された最新の1件。期間外の古いコメントは出さない。
+    // EPIC行はヒットした子に加えてEPIC自身のコメントも対象にするため、親のIDも一緒に引く。
+    const epicParentIds = [...new Set(includedRows.filter(r => r.parent_id !== null).map(r => r.parent_id))];
+    const commentsByTask = commentsRepo.latestInRangeForTasks(
+      db, [...includedRows.map(r => r.id), ...epicParentIds], jstDayStartIso(from, 0), jstDayStartIso(to, 1));
 
     const toLeafItem = r => {
       const overdue = Boolean(r.due_date) && r.status !== 'done' && r.due_date < today;
@@ -318,6 +348,9 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
         issue: r.github_issue_number ? `#${r.github_issue_number}` : '',
         issueUrl: r.github_issue_url || '',
         externalLinks: (linksByTask[r.id] || []).map(l => ({ source: l.source, key: l.key, url: l.url })),
+        comment: commentsByTask[r.id] ? commentsByTask[r.id].body : '',
+        commentAtRaw: commentsByTask[r.id] ? commentsByTask[r.id].createdAt : '',
+        commentId: commentsByTask[r.id] ? commentsByTask[r.id].id : null,
       };
     };
 
@@ -337,7 +370,7 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
     for (const [parentId, leaves] of childrenByParent) {
       const epicRow = byId.get(parentId);
       if (!epicRow) continue; // 親が見つからない(想定外。子を持つタスクの削除はAPI側で拒否されるため通常発生しない)
-      epicItems.push(buildEpicItem(epicRow, leaves));
+      epicItems.push(buildEpicItem(epicRow, leaves, commentsByTask[epicRow.id]));
     }
 
     const items = [...soloItems, ...epicItems]

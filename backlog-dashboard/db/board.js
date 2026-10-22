@@ -8,6 +8,7 @@
 const tasksRepo = require('./tasks-repo');
 const tagsRepo = require('./tags-repo');
 const externalLinksRepo = require('./external-links-repo');
+const commentsRepo = require('./comments-repo');
 
 function getStatusList(db) {
   return db.prepare('SELECT code, label, sort_order FROM statuses ORDER BY sort_order').all();
@@ -74,6 +75,10 @@ function toTaskItem(row, { statusLabelMap, projectName }) {
     // BM-071: Redmine/GitLab取り込みリンク({source,key,url,projectRef}の配列)。GitHubは
     // 既存のgithubIssueNumber/githubIssueUrlのまま、こちらにはGitHub分は含めない。
     externalLinks: row.__externalLinks || [],
+    // BM-136: コメントの件数と最新1件(本文は先頭120文字)。全件はboardに載せず、GET /api/task/:idの
+    // comments(buildTaskDetail)で返す。全件を載せるとWebSocket配信が際限なく膨らむため。
+    commentCount: row.__commentSummary ? row.__commentSummary.count : 0,
+    latestComment: row.__commentSummary ? row.__commentSummary.latest : null,
   };
 }
 
@@ -172,11 +177,13 @@ function buildBoardFromDb(db, config, workspace = null) {
   // workspace指定時のみIN句で絞る(All Projects時は全件取得、deliverables等と同じ方針)
   const tagsByTaskId = noRowsInScope ? {} : tagsRepo.listTagsForTasks(db, idPlaceholders ? taskIds : null);
   const externalLinksByTaskId = noRowsInScope ? {} : externalLinksRepo.listLinksForTasks(db, idPlaceholders ? taskIds : null);
+  const commentSummaryByTaskId = noRowsInScope ? {} : commentsRepo.summarizeForTasks(db, idPlaceholders ? taskIds : null);
   for (const row of allRows) {
     row.__deliverables = deliverablesByTaskId[row.id] || [];
     row.__dueDateHistory = dueHistoryByTaskId[row.id] || [];
     row.__tags = tagsByTaskId[row.id] || [];
     row.__externalLinks = externalLinksByTaskId[row.id] || [];
+    row.__commentSummary = commentSummaryByTaskId[row.id] || null;
   }
 
   const rowsById = {};
@@ -330,6 +337,9 @@ function buildTaskDetail(db, config, displayId) {
   const externalLinksByTaskId = externalLinksRepo.listLinksForTasks(db, relevantIds);
   row.__externalLinks = externalLinksByTaskId[row.id] || [];
   for (const c of childRows) c.__externalLinks = externalLinksByTaskId[c.id] || [];
+  const commentSummaryByTaskId = commentsRepo.summarizeForTasks(db, relevantIds);
+  row.__commentSummary = commentSummaryByTaskId[row.id] || null;
+  for (const c of childRows) c.__commentSummary = commentSummaryByTaskId[c.id] || null;
 
   const pinnedTaskIds = new Set(db.prepare(`SELECT task_id FROM pins WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
   const runningTaskIds = new Set(db.prepare(`SELECT task_id FROM running_tasks WHERE task_id IN (${placeholders})`).all(...relevantIds).map(r => r.task_id));
@@ -346,6 +356,8 @@ function buildTaskDetail(db, config, displayId) {
   item.todayFlag = pinnedTaskIds.has(row.id);
   item.running = runningTaskIds.has(row.id);
   item.agentId = activeAgentByTaskId.get(row.id) || null;
+  // BM-136: 詳細(完全なitem)にだけコメント全件(新しい順)を載せる。子タスクの分は件数と最新1件のみ。
+  item.comments = commentsRepo.listCommentsForTaskId(db, row.id);
 
   const children = childRows.map(childRow => {
     const childItem = toTaskItem(childRow, { statusLabelMap, projectName });
