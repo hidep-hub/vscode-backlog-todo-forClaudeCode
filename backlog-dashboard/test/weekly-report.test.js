@@ -298,7 +298,7 @@ test('外部ITS列: Redmine/GitLabのチケットをリンク付きで出す', (
   cleanup(ctx);
 });
 
-test('区分: 完了/対応中/期限超過/未着手、最終ステータス更新は全期間の最後の変更', () => {
+test('区分: 完了/対応中/期限超過/未着手、最終更新日は全期間の最後の変更(日付のみ)', () => {
   const ctx = createTestDb();
   const a = addTask(ctx.db, { title: 'A', status: 'do', dueDate: '2026-10-15' });
   addStatusEvent(ctx.db, a, 'ready', '2026-10-02T01:00:00.000Z');
@@ -308,7 +308,7 @@ test('区分: 完了/対応中/期限超過/未着手、最終ステータス更
   const items = itemsOf(data.workspaces[0]);
   const byTitle = Object.fromEntries(items.map(i => [i.title, i]));
   assert.equal(byTitle.A.kind, '対応中');
-  assert.equal(byTitle.A.updatedAt, '2026-10-13 10:00');
+  assert.equal(byTitle.A.updatedAt, '2026-10-13');
   assert.equal(byTitle.B.kind, '期限超過');
   cleanup(ctx);
 });
@@ -325,7 +325,7 @@ test('Markdown: ワークスペースごとの見出し・表・サマリー、�
   assert.match(markdown, /^# 週報 2026-10-12（月） 〜 2026-10-18（日）/);
   assert.match(markdown, /## AL アルファ `TODO 0` `READY 0` `DO 0` \*\*`DONE 1`\*\*\n\n完了 1件 \/ 対応中 0件/);
   assert.match(markdown, /## BE ベータ/);
-  assert.match(markdown, /\| ID \| 件名 \| ステータス \| 最終ステータス更新 \|\n\| --- \| --- \| --- \| --- \|/);
+  assert.match(markdown, /\| ID \| 件名 \| ステータス \| 最終更新日 \|\n\| --- \| --- \| --- \| --- \|/);
   assert.match(markdown, /a\\\|b 改行/);
   cleanup(ctx);
 });
