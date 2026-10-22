@@ -1219,15 +1219,22 @@ function serveStatic(req, res) {
 
   // API: GET /api/search?q=...&includeBody=true (BM-081: タイトル/ID/担当者は常にLIKE、
   // includeBody=trueの時のみ本文(description)もFTS5(trigram)で検索する。
-  // ワークスペース横断・常に全件対象(boardの絞り込み状態と無関係)。
+  // BT-459:workspace=<projects[].file>を付けるとそのワークスペースだけを対象にする
+  // (省略時はワークスペース横断・全件対象。未登録のworkspaceは400 unknown_workspace)。
   // AIエージェント(Kiro/Claude Code/Codex)が過去タスクを本文から探す窓口としても使う想定のため、
   // 認証等は既存の他APIと同じ(ローカルループバック運用前提)扱いとする。
   if (req.url && req.url.split('?')[0] === '/api/search' && req.method === 'GET') {
     const searchParams = new URL(req.url, 'http://localhost').searchParams;
     const q = searchParams.get('q') || '';
     const includeBody = searchParams.get('includeBody') === 'true';
+    const workspace = searchParams.get('workspace') || null;
+    if (workspace && !(config.projects || []).some(p => p.file === workspace)) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'unknown_workspace', message: `未登録のワークスペースです: ${workspace}` }));
+      return;
+    }
     const db = getDb(BACKLOG_DIR);
-    const { results, bodySearchSkipped } = buildSearchResults(db, config, q, { includeBody });
+    const { results, bodySearchSkipped } = buildSearchResults(db, config, q, { includeBody, workspace });
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ results, bodySearchSkipped }));
     return;

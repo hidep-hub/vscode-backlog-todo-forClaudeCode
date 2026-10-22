@@ -1282,12 +1282,201 @@ body {
 }
 
 /* --- Search Modal --- */
+/* BT-459: 検索画面は詳細モーダル(1000)・子詳細(1100)より背面。検索から開いたタスクが前面に出る */
+.modal-overlay.search-overlay {
+  z-index: 900;
+}
+
 .search-modal-content {
-  width: 100%;
-  max-width: 560px;
-  max-height: 70vh;
+  width: 92%;
+  max-width: 1100px;
+  height: 78vh;
+  max-height: 78vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+/* 履歴画面と同じ構成: ヘッダー(タイトル＋閉じる)／検索ボックス＋件数／オプション／本体 */
+.search-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.search-modal-header h3 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.search-modal-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+.search-modal-close:hover {
+  color: var(--text);
+}
+
+.search-modal-toolbar {
+  padding: 12px 16px 6px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.search-modal-inputrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.search-modal-inputrow .search-modal-input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.search-modal-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+}
+
+.search-toggle-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.search-modal-split {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  padding: 12px 16px 16px;
+}
+
+.search-modal-split .search-result-list {
+  flex: 0 0 42%;
+  min-width: 0;
+}
+
+/* 一覧とプレビューの境界のツマミ(ドラッグで幅調整)。見た目は細く、つかみ代は広め */
+.search-splitter {
+  flex: 0 0 8px;
+  margin: 0 -6px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 1;
+  touch-action: none;
+}
+
+.search-splitter::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 1px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.search-splitter:hover::after,
+.search-splitter.dragging::after {
+  background: var(--accent);
+}
+
+.search-preview-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 12px 14px;
+}
+
+/* ヘッダー(タイトル・ボタン・メタ・タグ)は固定し、詳細(説明欄)だけスクロールする */
+.search-preview-fixed {
+  flex-shrink: 0;
+}
+
+.search-preview-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.search-preview-title {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  word-break: break-word;
+}
+
+.search-preview-open {
+  flex-shrink: 0;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 0.7375rem;
+  cursor: pointer;
+}
+
+.search-preview-meta {
+  font-size: 0.7175rem;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.search-preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.search-preview-tag {
+  font-size: 0.6375rem;
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.search-preview-desc {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 0.7875rem;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.search-preview-desc pre {
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.search-preview-nodesc {
+  color: var(--text-muted);
 }
 
 .search-modal-input {
@@ -1312,62 +1501,169 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
 }
 
 .search-group-header {
-  font-size: 0.7rem;
+  font-size: 0.6175rem;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  padding: 6px 4px 2px;
+  padding: 4px 4px 2px;
 }
 
 .search-group-header:not(:first-child) {
-  margin-top: 6px;
+  margin-top: 4px;
   border-top: 1px solid var(--border);
-  padding-top: 10px;
+  padding-top: 6px;
 }
 
+/* BT-459: 一覧は枠なしの行タイプ(1タスク1行、小さめのフォント) */
 .search-result-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--card);
-  border: 1px solid var(--border);
+  gap: 0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid transparent;
   cursor: pointer;
   text-align: left;
+  font-size: 0.7875rem;
+  line-height: 1.55;
 }
 
 .search-result-item:hover {
-  border-color: var(--accent);
+  background: var(--card);
 }
 
 .search-result-item.search-result-selected {
   border-color: var(--accent);
   background: var(--badge-done-bg, var(--card));
-  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* 検索にヒットしていない親(文脈表示)は薄くする */
+.search-result-item.search-result-context {
+  opacity: 0.5;
 }
 
 .search-result-row {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
+  min-height: 1.32rem;
 }
 
-.search-indent-1 {
-  margin-left: 14px;
+/* EPICアイコン(16px)。ツリーの縦線はこのアイコンの中心から降ろす */
+.search-result-row .epic-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
 }
 
-.search-indent-2 {
-  margin-left: 32px;
+.search-indent-1 { margin-left: 6px; }
+.search-indent-2 { margin-left: 28px; }
+.search-indent-3 { margin-left: 50px; }
+
+/* BT-459: 仕切り罫線。EPICは実線、単発タスクは点線。EPIC配下の子タスクには付けない */
+.search-block-start {
+  margin-top: 4px;
+  border-top: 1px dotted var(--border);
+}
+
+.search-block-start.search-block-epic {
+  border-top: 1px solid var(--text-muted);
+}
+
+.search-group-header + .search-block-start,
+.search-group-header + .search-block-start.search-block-epic {
+  border-top-color: transparent;
+  margin-top: 0;
+}
+
+.search-group-cat {
+  font-size: 0.6575rem;
+  text-transform: none;
+  color: var(--text);
+  margin-top: 6px;
+  padding-left: 8px;
+  border-top: none !important;
+  border-left: 3px solid var(--accent);
+}
+
+/* 子タスクのツリー線(CSSで描画)。縦線は親EPICのアイコン下に揃え、行をまたいで連続させる。
+   ├=縦線が下まで続く / └=縦線がエルボー位置で止まる。エルボーは1行目の中央 */
+.search-result-item {
+  position: relative;
+}
+
+.search-tree-child::before,
+.search-tree-child::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--text-muted) 55%, transparent);
+}
+
+.search-tree-child::before {
+  left: -6.5px;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+}
+
+.search-tree-child.search-tree-last::before {
+  bottom: auto;
+  height: calc(0.66rem + 3px);
+}
+
+.search-tree-child::after {
+  left: -6.5px;
+  top: calc(0.66rem + 2px);
+  width: 11px;
+  height: 1px;
+}
+
+/* 子を持つEPIC: アイコンの中心(左から16px)から縦線を降ろす。EPICにスニペット行があっても途切れない */
+.search-has-children::before {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  left: 15.5px;
+  top: calc(0.66rem + 2px + 8px);
+  bottom: -2px;
+  width: 1px;
+  background: color-mix(in srgb, var(--text-muted) 55%, transparent);
+}
+
+.search-snippet-epic {
+  padding-left: 22px;
+}
+
+.search-hit {
+  background: rgba(255, 214, 0, 0.5);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.search-hit-count {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.search-preview-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .search-result-id {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   color: var(--text-muted);
   flex-shrink: 0;
 }
@@ -1380,14 +1676,14 @@ body {
 }
 
 .search-result-status {
-  font-size: 0.7rem;
+  font-size: 0.6575rem;
   color: var(--text-muted);
   flex-shrink: 0;
 }
 
 /* BM-082: 本文検索ヒット時のスニペット(ヒット箇所抜粋)。snippet()が返す[...]をハイライトする */
 .search-result-snippet {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1404,14 +1700,14 @@ body {
   color: var(--text-muted);
   text-align: center;
   padding: 24px 0;
-  font-size: 0.85rem;
+  font-size: 0.7875rem;
 }
 
 .search-result-notice {
   color: var(--text-muted);
   text-align: center;
   padding: 6px 0;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
 }
 
 .search-modal-body-toggle {
