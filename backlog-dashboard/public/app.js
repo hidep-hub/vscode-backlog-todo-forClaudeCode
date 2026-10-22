@@ -94,7 +94,9 @@ function hasFormChanged(initialValues, currentValues) {
 function closeOnBackdropClick(el, close) {
   el.addEventListener('click', (e) => {
     if (e.target !== el) return;
-    if (el._hasUnsavedChanges && el._hasUnsavedChanges()) {
+    // BM-136: コメント欄に書きかけの文字がある間も、背景クリックでは閉じない
+    const hasCommentDraftHere = typeof hasCommentDraft === 'function' && hasCommentDraft(el);
+    if ((el._hasUnsavedChanges && el._hasUnsavedChanges()) || hasCommentDraftHere) {
       const content = el.querySelector('.modal-content');
       if (content && content.animate) {
         // CSSのanimationプロパティを上書きすると、終了時に本来の表示アニメーション(modalSlideIn)が
@@ -3802,6 +3804,7 @@ function hideBoardInitialLoading() {
 function renderBoard(data) {
   hideBoardInitialLoading();
   lastBoardData = data;
+  suppressQuickTipScrollClose(); // BM-136: スクロール位置の書き戻しで右クリックTIPが閉じないようにする
 
   // BM-078: ピン留め等でWebSocket再描画が入ると列が丸ごと作り直されるため、
   // 破棄前に各列のスクロール位置を保存し、再構築後に書き戻して先頭ジャンプを防ぐ
@@ -4030,6 +4033,7 @@ function renderBoard(data) {
           <button class="card-action-btn card-due-btn" data-task-id="${item.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
           <button class="card-action-btn card-tag-btn" data-task-id="${item.id}" title="タグを付け外し"><span class="material-icon icon-tag"></span></button>
           <button class="card-action-btn card-category-btn" data-task-id="${item.id}" title="カテゴリを設定"><span class="material-icon icon-stacks"></span></button>
+          <button class="card-action-btn card-comment-btn" data-task-id="${item.id}" title="コメントを書く"><span class="material-icon icon-add-comment"></span></button>
           <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集"><span class="material-icon icon-edit"></span></button>
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
@@ -4038,7 +4042,12 @@ function renderBoard(data) {
         </div>`;
       }
 
-      card.innerHTML = `${pinHtml}${cardActionsHtml}${idHtml}${titleHtml}${metaHtml}`;
+      // BM-136: 最新コメントを1行で出す（コメントなしのカードは行を出さず、高さを変えない）。
+      // 完了カラム(compact)にも出す（完了時点の最後の状況が分かるように）。文字サイズはcompact用の変数に連動する。
+      // EPICはEPIC自身のコメントのみ。
+      const commentLineHtml = commentLogic.buildCardCommentHtml(item.latestComment);
+
+      card.innerHTML = `${pinHtml}${cardActionsHtml}${idHtml}${titleHtml}${metaHtml}${commentLineHtml}`;
 
       // 親Epicリンクのクリック（BT-201）: カード自体のクリック（子タスク詳細を開く）とは独立させ、
       // 親Epicの詳細（ミニボード）をこのカードをハイライトした状態で開く
@@ -4303,6 +4312,15 @@ function renderBoard(data) {
       e.stopPropagation();
       e.preventDefault();
       openCardCategoryPicker(btn);
+    });
+  });
+
+  // カードのコメントボタン（BM-136）: 右クリックTIPを開いて入力欄にフォーカスする
+  boardEl.querySelectorAll('.card-comment-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      openCardCommentTip(btn);
     });
   });
 
@@ -6093,6 +6111,7 @@ function renderPlanBoard() {
 
   const bucketDefs = planBucketDef();
   const buckets = planBuildBuckets(bucketDefs);
+  suppressQuickTipScrollClose(); // BM-136: スクロール位置の書き戻しで右クリックTIPが閉じないようにする
   container.innerHTML = '';
 
   // BM-078: VS Code Simple Browser等のwebview環境では、appendChild直後は
@@ -6522,6 +6541,8 @@ function refreshModalIfOpen() {
   refreshChildModalIfOpen();
   if (!currentModalItemId || !modalEl || !modalEl.classList.contains('modal-visible')) return;
   if (modalEl.querySelector('#edit-task-title')) return;
+  // BM-136: コメント欄に書きかけの文字がある間は、入力が消えないよう再描画しない（編集フォームと同じ扱い）
+  if (hasCommentDraft(modalEl)) return;
   const item = findItemById(currentModalItemId);
   if (item) renderModalContent(mergeKeepingDescription(item));
 }
@@ -6533,6 +6554,7 @@ function refreshChildModalIfOpen() {
   const el = document.getElementById('child-modal-overlay');
   if (!el || !el.classList.contains('modal-visible')) return;
   if (el.querySelector('#edit-task-title')) return;
+  if (hasCommentDraft(el)) return; // BM-136: 書きかけのコメントを守る
   const item = mergeKeepingDescription(findChildItemById(currentChildModalItemId) || findItemById(currentChildModalItemId));
   if (item) openChildModal(item);
 }
@@ -6788,10 +6810,16 @@ function openChildModal(item, parentEpic = null) {
     ${actionsRow(stopRunningBtnHtml, editBtnHtml, copyBtnHtml, deleteBtnHtml, workspaceActionHtml, moveActionHtml, detachBtn, githubLinkBtnHtml, githubCreateBtnHtml, redmineLinkBtnHtml)}
   `;
 
+  // BM-136: コメント欄は右カラムの情報の下・成果物の上に置く。再描画で入力中の状態を失わないよう控えて戻す
+  const prevCommentDraft = captureCommentDraft(body);
+  const commentHtml = buildTaskCommentSectionHtml(item, 'modal');
+  suppressQuickTipScrollClose();
   body.innerHTML = `
     ${buildDetailColumnsHtml(headerHtml, metaHtml)}
-    ${buildScrollableDetailHtml(desc, artifactsHtml)}
+    ${buildScrollableDetailHtml(desc, commentHtml + artifactsHtml)}
   `;
+  restoreCommentDraft(body, prevCommentDraft);
+  hydrateCommentSections(body, item);
 
   // BM-078: スクロール位置の復元。rAF2段はwebview環境でのレイアウト確定遅延への保険(ボードと同じ対策)。
   if (prevScrollTop != null) {
@@ -7770,10 +7798,16 @@ function renderModalContent(item) {
     ${actionsRow(stopRunningBtnHtml, editBtnHtml, copyBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml, redmineLinkBtnHtml)}
   `;
 
+  // BM-136: コメント欄は右カラムの情報の下・成果物の上に置く。再描画で入力中の状態を失わないよう控えて戻す
+  const prevCommentDraft = captureCommentDraft(body);
+  const commentHtml = buildTaskCommentSectionHtml(item, 'modal');
+  suppressQuickTipScrollClose();
   body.innerHTML = `
     ${buildDetailColumnsHtml(headerHtml, metaHtml)}
-    ${buildScrollableDetailHtml(desc, artifactsHtml, miniBoard)}
+    ${buildScrollableDetailHtml(desc, commentHtml + artifactsHtml, miniBoard)}
   `;
+  restoreCommentDraft(body, prevCommentDraft);
+  hydrateCommentSections(body, item);
 
   // BM-078: スクロール位置の復元。rAF2段はwebview環境でのレイアウト確定遅延への保険(ボードと同じ対策)。
   if (prevScrollTop != null) {
@@ -8042,6 +8076,7 @@ function buildMiniBoard(epic) {
             <button class="card-action-btn card-child-due-btn" data-task-id="${child.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
             <button class="card-action-btn card-tag-btn" data-task-id="${child.id}" title="タグを付け外し"><span class="material-icon icon-tag"></span></button>
             <button class="card-action-btn card-category-btn" data-task-id="${child.id}" title="カテゴリを設定"><span class="material-icon icon-stacks"></span></button>
+            <button class="card-action-btn card-comment-btn" data-task-id="${child.id}" title="コメントを書く"><span class="material-icon icon-add-comment"></span></button>
             <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集"><span class="material-icon icon-edit"></span></button>
             ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
             ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-create-btn" data-task-id="${child.id}" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
@@ -8087,6 +8122,16 @@ function buildMiniBoard(epic) {
           e.stopPropagation();
           e.preventDefault();
           openCardCategoryPicker(childCategoryBtnEl);
+        });
+      }
+
+      // コメントボタンのイベント（BM-136）
+      const childCommentBtnEl = card.querySelector('.card-comment-btn');
+      if (childCommentBtnEl) {
+        childCommentBtnEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          openCardCommentTip(childCommentBtnEl);
         });
       }
 
@@ -8285,6 +8330,13 @@ function setupCardClick(card, item, isChildCard = false) {
 let taskQuickTipEl = null;
 let taskQuickTipOrigin = { x: 0, y: 0 }; // 直近に右クリックした座標（編集モード切替時の再配置に使う）
 let taskQuickTipHasUnsavedChanges = null; // 編集中のみ関数が入る。表示モードの間はnull
+let taskQuickTipScrollSuppressUntil = 0; // この時刻(performance.now)まではscrollでTIPを閉じない（BM-136）
+
+// BM-136: 再描画がスクロール位置を書き戻した直後のscrollでTIPが閉じないよう、短時間だけ無視する。
+// 書き戻しは描画の次フレーム以降に発火するため、余裕を見て数百ミリ秒とする。
+function suppressQuickTipScrollClose() {
+  taskQuickTipScrollSuppressUntil = performance.now() + 500;
+}
 
 function getOrCreateTaskQuickTip() {
   if (taskQuickTipEl) return taskQuickTipEl;
@@ -8306,7 +8358,10 @@ function getOrCreateTaskQuickTip() {
   });
   window.addEventListener('resize', tryCloseTaskQuickTip);
   // キャプチャで背後のスクロールも検知するが、TIP自身のスクロールでは閉じない。
+  // BM-136: 再描画(WS更新)で列のスクロール位置を書き戻すと、人がスクロールしていなくてもscrollが発火して
+  // TIPが閉じてしまう。再描画の直後だけは無視する(suppressQuickTipScrollClose)。
   window.addEventListener('scroll', (e) => {
+    if (performance.now() < taskQuickTipScrollSuppressUntil) return;
     if (!taskQuickTipEl.contains(e.target)) tryCloseTaskQuickTip();
   }, true);
   return taskQuickTipEl;
@@ -8315,7 +8370,9 @@ function getOrCreateTaskQuickTip() {
 // BM-076: 未保存の変更がある間は閉じずに揺らすだけ（closeOnBackdropClickと同じ視覚フィードバック）。
 // 無ければ通常通り閉じる。
 function tryCloseTaskQuickTip() {
-  if (taskQuickTipHasUnsavedChanges && taskQuickTipHasUnsavedChanges()) {
+  // BM-136: 編集中の未保存に加え、コメント欄の書きかけの文字も守る
+  const hasCommentDraftInTip = typeof hasCommentDraft === 'function' && taskQuickTipEl && hasCommentDraft(taskQuickTipEl);
+  if ((taskQuickTipHasUnsavedChanges && taskQuickTipHasUnsavedChanges()) || hasCommentDraftInTip) {
     if (taskQuickTipEl && taskQuickTipEl.animate) {
       taskQuickTipEl.animate(
         [{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }],
@@ -8371,7 +8428,16 @@ function buildTaskQuickTipHtml(item) {
     <div class="task-quick-tip-description">${buildTaskQuickTipDescriptionInner(item)}</div>
     ${meta.length ? `<div class="task-quick-tip-meta">${meta.join('')}</div>` : ''}
     ${artifacts ? `<div class="task-quick-tip-artifacts"><span>成果物</span><ul>${artifacts}${moreArtifacts}</ul></div>` : ''}
+    ${buildTaskCommentSectionHtml(item, 'tip')}
   `;
+}
+
+// BM-136: TIPの表示モードを描画する（HTML・編集ボタン・コメント一覧の取得をまとめて行う）。
+// 右クリックで開く時、編集からの戻り、全文取得後の再描画の3か所で同じ手順を踏むため共通化した。
+function renderTaskQuickTipView(tip, item) {
+  tip.innerHTML = buildTaskQuickTipHtml(item);
+  wireTaskQuickTipEditButton(tip, item);
+  hydrateCommentSections(tip, item);
 }
 
 // BM-076: TIP内インライン編集フォーム。enterEditMode(モーダル編集)と同じ考え方(変更検知・未保存ガード・
@@ -8425,8 +8491,7 @@ function enterTaskQuickTipEditMode(tip, item) {
 
   const backToViewMode = () => {
     taskQuickTipHasUnsavedChanges = null;
-    tip.innerHTML = buildTaskQuickTipHtml(item);
-    wireTaskQuickTipEditButton(tip, item);
+    renderTaskQuickTipView(tip, item);
     positionTaskQuickTip(tip);
   };
   cancelBtn.addEventListener('click', backToViewMode);
@@ -8502,37 +8567,57 @@ function wireTaskQuickTipEditButton(tip, item) {
   });
 }
 
+// BM-136: 右クリックTIPを指定位置に開く。コメントボタン（focusComment=true）からも使うため、
+// 右クリックのハンドラから切り出した。focusCommentを付けるとコメント入力欄にフォーカスする。
+function openTaskQuickTip(item, x, y, { focusComment = false } = {}) {
+  const tip = getOrCreateTaskQuickTip();
+  taskQuickTipHasUnsavedChanges = null; // 新しいTIPを開くたびに前回の編集状態をリセット
+  taskQuickTipOrigin = { x, y };
+  renderTaskQuickTipView(tip, item);
+  tip.classList.add('task-quick-tip-visible');
+  positionTaskQuickTip(tip);
+  if (focusComment) focusCommentInput(tip);
+
+  // BM-084: board用の軽量item(descriptionキー無し)の場合、表示直後に完全なデータを
+  // 非同期取得して再描画する(BM-083のloadFullDescriptionIfMissingと同じパターン)。
+  // TIPが開いたままタスクIDが変わっていない場合のみ再描画する(閉じた後に遅れて
+  // 結果が返ってきて別タスクのTIPを上書きする事故を防ぐ。TIPはモーダルと違う独自の
+  // 開閉状態を持つため、isStillValidコールバックで判定方法を差し替える)。
+  const targetId = item.id;
+  const isTipStillShowingThisTask = () => {
+    if (!tip.classList.contains('task-quick-tip-visible')) return false;
+    if (tip.querySelector('.task-quick-tip-edit-form')) return false; // 編集フォーム表示中は壊さない
+    const currentIdEl = tip.querySelector('.task-quick-tip-id');
+    return !!currentIdEl && currentIdEl.textContent === (targetId || '-');
+  };
+  loadFullDescriptionIfMissing(item, targetId, (full) => {
+    Object.assign(item, full); // 以後のwireTaskQuickTipEditButton等が同じitem参照を使うため上書きする
+    // BM-136: 取得を待つ間にコメントを書き始めていても消えないよう、入力欄の状態を控えて戻す
+    const draft = captureCommentDraft(tip);
+    renderTaskQuickTipView(tip, item);
+    restoreCommentDraft(tip, draft);
+    positionTaskQuickTip(tip);
+  }, isTipStillShowingThisTask);
+}
+
 function setupTaskQuickTip(card, item) {
   card.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    const tip = getOrCreateTaskQuickTip();
-    taskQuickTipHasUnsavedChanges = null; // 新しいTIPを開くたびに前回の編集状態をリセット
-    taskQuickTipOrigin = { x: e.clientX, y: e.clientY };
-    tip.innerHTML = buildTaskQuickTipHtml(item);
-    wireTaskQuickTipEditButton(tip, item);
-    tip.classList.add('task-quick-tip-visible');
-    positionTaskQuickTip(tip);
-
-    // BM-084: board用の軽量item(descriptionキー無し)の場合、表示直後に完全なデータを
-    // 非同期取得して再描画する(BM-083のloadFullDescriptionIfMissingと同じパターン)。
-    // TIPが開いたままタスクIDが変わっていない場合のみ再描画する(閉じた後に遅れて
-    // 結果が返ってきて別タスクのTIPを上書きする事故を防ぐ。TIPはモーダルと違う独自の
-    // 開閉状態を持つため、isStillValidコールバックで判定方法を差し替える)。
-    const targetId = item.id;
-    const isTipStillShowingThisTask = () => {
-      if (!tip.classList.contains('task-quick-tip-visible')) return false;
-      if (tip.querySelector('.task-quick-tip-edit-form')) return false; // 編集フォーム表示中は壊さない
-      const currentIdEl = tip.querySelector('.task-quick-tip-id');
-      return !!currentIdEl && currentIdEl.textContent === (targetId || '-');
-    };
-    loadFullDescriptionIfMissing(item, targetId, (full) => {
-      Object.assign(item, full); // 以後のwireTaskQuickTipEditButton等が同じitem参照を使うため上書きする
-      tip.innerHTML = buildTaskQuickTipHtml(item);
-      wireTaskQuickTipEditButton(tip, item);
-      positionTaskQuickTip(tip);
-    }, isTipStillShowingThisTask);
+    openTaskQuickTip(item, e.clientX, e.clientY);
   });
+}
+
+// BM-136: カードのコメントボタン。右クリックTIPをボタンの下に開き、コメント入力欄にフォーカスする。
+// EPICのミニボード上の子カードにも付く（タグボタンと同じく、子はprojectを持たないため親EPICから補う）。
+function openCardCommentTip(btn) {
+  const taskId = btn.dataset.taskId;
+  const parentEpic = findItemById(taskId) ? null : findParentEpicOfChildId(taskId);
+  const found = findItemById(taskId) || findChildItemById(taskId);
+  if (!found) return;
+  const item = parentEpic ? { ...found, project: parentEpic.project } : found;
+  const rect = btn.getBoundingClientRect();
+  openTaskQuickTip(item, rect.left, rect.bottom + 6, { focusComment: true });
 }
 
 // --- 複数選択→親付け (BT-034) ---

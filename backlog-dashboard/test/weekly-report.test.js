@@ -461,3 +461,104 @@ test('BT-442 旧データのカテゴリ「-」はカテゴリなしとして扱
   assert.deepEqual(data.workspaces[0].categoryGroups.map(g => g.name), ['']);
   cleanup(ctx);
 });
+
+// --- BM-136: コメント列(集計期間内の最新1件) ---
+
+function addComment(db, task, body, createdAt, createdBy = 'user') {
+  const r = db.prepare('INSERT INTO task_comments (task_id, body, created_at, created_by) VALUES (?, ?, ?, ?)')
+    .run(task.id, body, createdAt, createdBy);
+  return Number(r.lastInsertRowid);
+}
+
+const COMMENT_COLUMNS = [...wr.DEFAULT_COLUMNS, 'comment'];
+
+test('BM-136 コメント列は選べる列に出るが、既定の列には入っていない', () => {
+  assert.ok(wr.COLUMN_DEFS.some(c => c.key === 'comment' && c.label === 'コメント'));
+  assert.ok(!wr.DEFAULT_COLUMNS.includes('comment'));
+  // 保存済みの書式に無くても壊れず、選んだ時だけ列として残る
+  assert.ok(!wr.normalizeColumns(['id', 'title']).includes('comment'));
+  assert.ok(wr.normalizeColumns(['id', 'title', 'comment']).includes('comment'));
+});
+
+test('BM-136 単発タスクは、集計期間内に投稿された最新のコメント1件だけを出す。期間外のコメントは出さない', () => {
+  const ctx = createTestDb();
+  const solo = addTask(ctx.db, { title: '単発', status: 'done' });
+  addStatusEvent(ctx.db, solo, 'done', IN_PERIOD);
+  addComment(ctx.db, solo, '期間より前のコメント', '2026-10-10T01:00:00.000Z');
+  addComment(ctx.db, solo, '期間内の古いコメント', '2026-10-13T01:00:00.000Z');
+  addComment(ctx.db, solo, '期間内の最新コメント', '2026-10-15T01:00:00.000Z');
+  addComment(ctx.db, solo, '期間より後のコメント', '2026-10-20T01:00:00.000Z');
+
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  assert.equal(itemsOf(data.workspaces[0])[0].comment, '期間内の最新コメント');
+  const { markdown } = wr.renderWeeklyReport(data, { template: wr.DEFAULT_TEMPLATE, columns: COMMENT_COLUMNS });
+  assert.match(markdown, /\| ID \| 件名 \| 区分 \| ステータス \| 最終更新日 \| 期日 \| コメント \|/);
+  assert.match(markdown, /\| 単発 \|.*\| 期間内の最新コメント \|/);
+  assert.doesNotMatch(markdown, /期間より前|期間より後|期間内の古い/);
+  cleanup(ctx);
+});
+
+test('BM-136 コメントが期間内に無ければ空欄。列を選ばなければ表に出ない', () => {
+  const ctx = createTestDb();
+  const solo = addTask(ctx.db, { title: '単発', status: 'done' });
+  addStatusEvent(ctx.db, solo, 'done', IN_PERIOD);
+  addComment(ctx.db, solo, '先週のコメント', '2026-10-08T01:00:00.000Z');
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  assert.equal(itemsOf(data.workspaces[0])[0].comment, '');
+  const withCol = wr.renderWeeklyReport(data, { template: wr.DEFAULT_TEMPLATE, columns: COMMENT_COLUMNS }).markdown;
+  assert.match(withCol, /\| 単発 \|.*\| {2}\|$/m, '空欄のセルになる');
+  const withoutCol = wr.renderWeeklyReport(data, { template: wr.DEFAULT_TEMPLATE, columns: wr.DEFAULT_COLUMNS }).markdown;
+  assert.doesNotMatch(withoutCol, /コメント|先週/);
+  cleanup(ctx);
+});
+
+test('BM-136 期間の境目はJSTで判定する(UTCでは前日でもJSTでは期間初日の0:30なら入る)', () => {
+  const ctx = createTestDb();
+  const solo = addTask(ctx.db, { title: '単発', status: 'done' });
+  addStatusEvent(ctx.db, solo, 'done', IN_PERIOD);
+  addComment(ctx.db, solo, '期間初日の0:30(JST)', '2026-10-11T15:30:00.000Z'); // JST 10/12 00:30
+  addComment(ctx.db, solo, '前日の23:59(JST)', '2026-10-11T14:59:00.000Z'); // JST 10/11 23:59
+  let item = itemsOf(wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD).workspaces[0])[0];
+  assert.equal(item.comment, '期間初日の0:30(JST)');
+
+  addComment(ctx.db, solo, '期間最終日の23:59(JST)', '2026-10-18T14:59:00.000Z'); // JST 10/18 23:59
+  addComment(ctx.db, solo, '翌日の0:00(JST)', '2026-10-18T15:00:00.000Z'); // JST 10/19 00:00
+  item = itemsOf(wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD).workspaces[0])[0];
+  assert.equal(item.comment, '期間最終日の23:59(JST)');
+  cleanup(ctx);
+});
+
+test('BM-136 EPIC行は、EPIC自身とヒットした子の期間内コメントのうち最新の1件を出し、子のコメントには子IDを前置する', () => {
+  const ctx = createTestDb();
+  const epic = addTask(ctx.db, { title: '大きな話', status: 'do' });
+  const k1 = addTask(ctx.db, { title: '子1', status: 'done', parentId: epic.id });
+  const k2 = addTask(ctx.db, { title: '子2', status: 'done', parentId: epic.id });
+  const quiet = addTask(ctx.db, { title: '子3(ヒットしない)', status: 'todo', parentId: epic.id });
+  addStatusEvent(ctx.db, k1, 'done', IN_PERIOD);
+  addStatusEvent(ctx.db, k2, 'done', IN_PERIOD);
+  addComment(ctx.db, k1, '子1の古いコメント', '2026-10-13T01:00:00.000Z');
+  addComment(ctx.db, k2, '子2のコメント', '2026-10-14T01:00:00.000Z');
+  addComment(ctx.db, quiet, 'ヒットしない子のコメントは出さない', '2026-10-16T01:00:00.000Z');
+  addComment(ctx.db, epic, 'EPIC自身の古いコメント', '2026-10-12T05:00:00.000Z');
+
+  let item = itemsOf(wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD).workspaces[0]).find(i => i.isEpic);
+  assert.equal(item.comment, `${k2.displayId}: 子2のコメント`, '子のコメントが最新なら子IDを前置');
+
+  addComment(ctx.db, epic, 'EPIC自身の最新コメント', '2026-10-17T01:00:00.000Z');
+  item = itemsOf(wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD).workspaces[0]).find(i => i.isEpic);
+  assert.equal(item.comment, 'EPIC自身の最新コメント', 'EPIC自身が最新ならそのまま出す');
+
+  const { markdown } = wr.renderWeeklyReport(wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD), { template: wr.DEFAULT_TEMPLATE, columns: COMMENT_COLUMNS });
+  assert.doesNotMatch(markdown, /ヒットしない子のコメント/);
+  cleanup(ctx);
+});
+
+test('BM-136 コメントの改行とパイプは表を壊さないように整える', () => {
+  const ctx = createTestDb();
+  const solo = addTask(ctx.db, { title: '単発', status: 'done' });
+  addStatusEvent(ctx.db, solo, 'done', IN_PERIOD);
+  addComment(ctx.db, solo, '1行目\n2行目 a|b', '2026-10-15T01:00:00.000Z');
+  const { markdown } = wr.renderWeeklyReport(wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD), { template: wr.DEFAULT_TEMPLATE, columns: COMMENT_COLUMNS });
+  assert.match(markdown, /1行目 2行目 a\\\|b \|/);
+  cleanup(ctx);
+});

@@ -26,6 +26,7 @@ const COUNT_TABLES = {
   runningTasks: 'SELECT COUNT(*) AS n FROM running_tasks',
   tags: 'SELECT COUNT(*) AS n FROM tags',
   taskTags: 'SELECT COUNT(*) AS n FROM task_tags',
+  taskComments: 'SELECT COUNT(*) AS n FROM task_comments',
 };
 
 function pad(n, len = 2) {

@@ -33,6 +33,7 @@
 | タグ一覧・類似名の確認 | `GET /api/tags`, `GET /api/tags/similar` |
 | タグの作成・更新・削除・統合 | `POST /api/create-tag`, `POST /api/update-tag`, `POST /api/delete-tag`, `POST /api/merge-tags` |
 | タスクへのタグ付け外し | `POST /api/update-task-tags` |
+| タスクコメントの追加・削除・一覧 | `POST /api/add-task-comment`, `POST /api/delete-task-comment`, `GET /api/task-comments` |
 
 書き込みAPIは `application/json` のUTF-8で呼び出します。AIエージェントは状態、実行中、今日やるの各操作に自身の `actor` を渡します。
 

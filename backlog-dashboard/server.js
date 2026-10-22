@@ -16,6 +16,7 @@ const { createBackupManager } = require('./db/backup');
 const { buildTaskCsv } = require('./db/csv-export');
 const weeklyReport = require('./db/weekly-report');
 const { createTagsApi } = require('./tags-api');
+const { createCommentsApi } = require('./comments-api');
 const { createCategoriesApi } = require('./categories-api');
 const { createItsSettingsApi } = require('./its-settings-api');
 const { createItsImportApi } = require('./its-import-api');
@@ -802,6 +803,14 @@ const handleTagsApi = createTagsApi({
   onChange: () => broadcast(buildBoard()),
 });
 
+// タスクコメントAPI(BM-136)。コメントの追加・削除はカードの1行表示(boardのlatestComment)に
+// 影響するため、tagsと同様に変更のたびにboardをbroadcastする。
+const handleCommentsApi = createCommentsApi({
+  getDb: () => getDb(BACKLOG_DIR),
+  readRequestBody,
+  onChange: () => broadcast(buildBoard()),
+});
+
 // カテゴリAPI(BM-105)。カテゴリ操作(改名/削除/統合)はtasks.categoryを書き換えboard表示に
 // 影響するため、tagsと同様に変更のたびにboardをbroadcastする。
 const handleCategoriesApi = createCategoriesApi({
@@ -1026,6 +1035,9 @@ function serveStatic(req, res) {
 
   // API: タグ機能(BT-393)
   if (handleTagsApi(req, res)) return;
+
+  // API: タスクコメント機能(BM-136)
+  if (handleCommentsApi(req, res)) return;
 
   // API: カテゴリ機能(BM-105)
   if (handleCategoriesApi(req, res)) return;

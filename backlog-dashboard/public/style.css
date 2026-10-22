@@ -46,6 +46,8 @@
 .material-icon.icon-stop          { -webkit-mask-image: url('icons/stop.svg'); mask-image: url('icons/stop.svg'); }
 .material-icon.icon-calendar-month{ -webkit-mask-image: url('icons/calendar_month.svg'); mask-image: url('icons/calendar_month.svg'); }
 .material-icon.icon-history       { -webkit-mask-image: url('icons/history.svg'); mask-image: url('icons/history.svg'); }
+.material-icon.icon-chat-bubble   { -webkit-mask-image: url('icons/chat_bubble.svg'); mask-image: url('icons/chat_bubble.svg'); }
+.material-icon.icon-add-comment   { -webkit-mask-image: url('icons/add_comment.svg'); mask-image: url('icons/add_comment.svg'); }
 .material-icon.icon-psychiatry    { -webkit-mask-image: url('icons/psychiatry.svg'); mask-image: url('icons/psychiatry.svg'); }
 .material-icon.icon-timer         { -webkit-mask-image: url('icons/timer.svg'); mask-image: url('icons/timer.svg'); }
 .material-icon.icon-check-box     { -webkit-mask-image: url('icons/check_box.svg'); mask-image: url('icons/check_box.svg'); }
@@ -1852,6 +1854,16 @@ body {
 .card-compact .parent-epic-link {
   font-size: 0.6rem;
   padding: 1px 4px;
+}
+
+/* 完了カラム(compact)の最新コメント1行(BM-136)。文字サイズはタグと同じcompact用の変数(--fs-c-tag)に連動させる */
+.card-compact .card-comment {
+  gap: 4px;
+  font-size: var(--fs-c-tag, 0.6rem);
+}
+
+.card-compact .card-meta + .card-comment {
+  margin-top: 3px;
 }
 
 /* --- カード文字サイズ切替 (BT-339) ---
@@ -7606,3 +7618,207 @@ body.weekly-resizing { user-select: none; cursor: col-resize; }
 @media (prefers-reduced-motion: reduce) { .weekly-edited .weekly-primary-btn { animation: none; } }
 .weekly-source-note { padding: 5px 16px; background: var(--card); color: var(--text-muted); font-size: 0.76rem; flex-shrink: 0; }
 .weekly-source-note[hidden] { display: none; }
+
+/* --- Card: 最新コメントの1行表示 (BM-136) ---
+   コメントなしのカードには出さない。文字サイズはタグと同じ変数(--fs-tag)に連動させ、カードサイズ設定(S/M/L)に従う */
+.card-comment {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  min-width: 0;
+  font-size: var(--fs-tag, 0.65rem);
+  color: var(--text-muted);
+}
+
+/* タイトル直下はタイトル側の下余白(--card-gap-title)があるので、重ねて空けない */
+.card-title + .card-comment {
+  margin-top: 0;
+}
+
+.card-comment .material-icon {
+  width: 1.05em;
+  height: 1.05em;
+  opacity: 0.8;
+}
+
+.card-comment-date {
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+.card-comment-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- コメント欄 (BM-136): 詳細モーダルの右カラムと右クリックTIPで共通 --- */
+.comment-section h4 .comment-count {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  font-weight: 600;
+}
+
+.comment-section h4 .comment-count:empty {
+  display: none;
+}
+
+.comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.comment-input {
+  width: 100%;
+  min-height: 44px;
+  max-height: 140px;
+  padding: 6px 8px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.comment-input:focus {
+  outline: 0;
+  border-color: var(--accent);
+}
+
+.comment-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.comment-error {
+  margin-right: auto;
+  color: #e53e3e;
+  font-size: 0.68rem;
+}
+
+.comment-error[hidden] {
+  display: none;
+}
+
+.comment-submit-btn {
+  padding: 3px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.comment-submit-btn:hover {
+  opacity: 0.85;
+}
+
+/* 空の間・投稿中は押せないことが分かるようにする(.add-task-submit:disabledと同じ扱い) */
+.comment-submit-btn:disabled,
+.comment-submit-btn:disabled:hover {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.comment-list-wrap {
+  margin-top: 8px;
+}
+
+.comment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.comment-item {
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.comment-item:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.comment-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+}
+
+.comment-item-author {
+  opacity: 0.8;
+}
+
+.comment-delete-btn {
+  margin-left: auto;
+  padding: 1px 3px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.comment-item:hover .comment-delete-btn,
+.comment-delete-btn:focus-visible,
+.comment-delete-btn.confirming {
+  opacity: 1;
+}
+
+.comment-delete-btn:hover,
+.comment-delete-btn.confirming {
+  color: #e53e3e;
+}
+
+.comment-delete-btn.confirming {
+  font-size: 0.65rem;
+}
+
+.comment-item-body {
+  margin-top: 2px;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.comment-loading,
+.comment-empty {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-style: italic;
+}
+
+/* 右クリックTIPの中では、線で区切って一覧に高さの上限を付ける */
+.task-quick-tip .comment-section {
+  margin: 10px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.task-quick-tip .comment-list-wrap {
+  max-height: 150px;
+  overflow-y: auto;
+}
