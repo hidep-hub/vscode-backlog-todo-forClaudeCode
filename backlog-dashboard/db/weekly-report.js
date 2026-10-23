@@ -7,6 +7,11 @@
 // BM-121: EPIC(子タスクを持つ親)は週報では1行に集約する。子タスクを個別行として並べるのはやめ、
 // EPIC単位で区分・期日・担当者等を集約した1行として出す(単発タスクは従来どおり1件=1行)。
 // カテゴリはEPIC/単発のみが意味を持つ属性として扱い、子タスク自身のcategory列は週報では参照しない。
+//
+// BM-138: 1段目のグルーピングを groupBy で選べる。'workspace'(既定)=ワークスペース＞(カテゴリ章:任意)＞表、
+// 'category'=カテゴリ＞表(1枚)。カテゴリはシステム全体で一意なので、ワークスペースをまたいで同じカテゴリを
+// 1つの章にまとめる(ワークスペースでは分けない。IDの接頭辞で判別できる)。書式の繰り返しの枠は
+// {{#group}}…{{/group}} に一般化し、旧名の {{#workspace}}…{{/workspace}} も同じ意味で使える。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -38,14 +43,14 @@ const DEFAULT_TEMPLATE = `# 週報 {{period}}
 
 出力ステータス: {{statuses}} / 作成: {{generatedAt}}
 
-{{#workspace}}
-## {{workspaceId}} {{workspaceName}} {{statusCounts}}
+{{#group}}
+## {{groupName}} {{statusCounts}}
 
 {{summary}}
 
 {{table}}
 
-{{/workspace}}
+{{/group}}
 `;
 
 // 画面のプレースホルダー説明にも使う(name, 使える場所, 説明, 例)
@@ -56,17 +61,18 @@ const PLACEHOLDERS = [
   { name: 'statuses', scope: '全体', description: '出力対象に選んだステータス', example: 'DONE / DO' },
   { name: 'generatedAt', scope: '全体', description: '週報を作った日時', example: '2026-10-18 20:30' },
   { name: 'totalCount', scope: '全体', description: '出力したタスクの総数', example: '12' },
-  { name: '#workspace … /workspace', scope: '全体', description: 'この囲みの中身を、対象ワークスペースごとに繰り返す', example: '{{#workspace}}…{{/workspace}}' },
-  { name: 'workspaceId', scope: 'ワークスペースの囲み内', description: 'ワークスペースのプレフィクス', example: 'BT' },
-  { name: 'workspaceName', scope: 'ワークスペースの囲み内', description: 'ワークスペース名', example: 'backlog-todo' },
-  { name: 'workspaceFile', scope: 'ワークスペースの囲み内', description: 'ワークスペースの識別子(projects[].file)', example: 'backlog-todo' },
-  { name: 'statusCounts', scope: 'ワークスペースの囲み内', description: 'ステータス別の件数バッジ(TODO/READY/DO/DONE)。出力ステータスの選択に関わらず4つとも数える。期間内にそのステータスへ変わった(TODOは新規作成を含む)タスクがある数字は太字', example: '`TODO 3` `READY 2` **`DO 1`** `DONE 5`' },
-  { name: 'summary', scope: 'ワークスペースの囲み内', description: '件数のまとめ(完了/対応中/期限超過/未着手)', example: '完了 3件 / 対応中 2件 / 期限超過 1件' },
-  { name: 'doneCount', scope: 'ワークスペースの囲み内', description: '完了の件数', example: '3' },
-  { name: 'doingCount', scope: 'ワークスペースの囲み内', description: '対応中(DO/READY)の件数', example: '2' },
-  { name: 'overdueCount', scope: 'ワークスペースの囲み内', description: '期限超過(未完了で期日が今日より前)の件数', example: '1' },
-  { name: 'count', scope: 'ワークスペースの囲み内', description: 'このワークスペースの出力件数', example: '6' },
-  { name: 'table', scope: 'ワークスペースの囲み内', description: 'タスクの表。期限超過 → 完了 → 対応中(DO/READY) → 未着手(TODO)の順に見出しを分け、該当が無い見出しは出さない(カテゴリで章を分けている時は、章の中では見出しを分けず1つの表にする。BM-121)。EPIC(子タスクを持つ親)はヒットした子タスクをまとめて1行にし、件名の下に子タスクの件名を小さく列挙する(BM-121)', example: '(表)' },
+  { name: '#group … /group', scope: '全体', description: 'この囲みの中身を、1段目のグループごとに繰り返す。グルーピングがワークスペースなら対象ワークスペースごと、カテゴリならカテゴリごと(旧名の{{#workspace}}…{{/workspace}}も同じ意味で使える)', example: '{{#group}}…{{/group}}' },
+  { name: 'groupName', scope: 'グループの囲み内', description: 'グループの見出し用の名前。ワークスペースなら「プレフィクス ワークスペース名」、カテゴリならカテゴリ名(カテゴリなしは「カテゴリなし」)', example: 'BT backlog-todo ／ 調査' },
+  { name: 'workspaceId', scope: 'グループの囲み内(ワークスペース軸のみ)', description: 'ワークスペースのプレフィクス。カテゴリ軸では空になる', example: 'BT' },
+  { name: 'workspaceName', scope: 'グループの囲み内(ワークスペース軸のみ)', description: 'ワークスペース名。カテゴリ軸では空になる', example: 'backlog-todo' },
+  { name: 'workspaceFile', scope: 'グループの囲み内(ワークスペース軸のみ)', description: 'ワークスペースの識別子(projects[].file)。カテゴリ軸では空になる', example: 'backlog-todo' },
+  { name: 'statusCounts', scope: 'グループの囲み内', description: 'ステータス別の件数バッジ(TODO/READY/DO/DONE)。出力ステータスの選択に関わらず4つとも数える。期間内にそのステータスへ変わった(TODOは新規作成を含む)タスクがある数字は太字。カテゴリ軸ではそのカテゴリ(選択した全ワークスペース分)の件数', example: '`TODO 3` `READY 2` **`DO 1`** `DONE 5`' },
+  { name: 'summary', scope: 'グループの囲み内', description: '件数のまとめ(完了/対応中/期限超過/未着手)', example: '完了 3件 / 対応中 2件 / 期限超過 1件' },
+  { name: 'doneCount', scope: 'グループの囲み内', description: '完了の件数', example: '3' },
+  { name: 'doingCount', scope: 'グループの囲み内', description: '対応中(DO/READY)の件数', example: '2' },
+  { name: 'overdueCount', scope: 'グループの囲み内', description: '期限超過(未完了で期日が今日より前)の件数', example: '1' },
+  { name: 'count', scope: 'グループの囲み内', description: 'このグループの出力件数', example: '6' },
+  { name: 'table', scope: 'グループの囲み内', description: 'タスクの表。ワークスペース軸では、期限超過 → 完了 → 対応中(DO/READY) → 未着手(TODO)の順に見出しを分け、該当が無い見出しは出さない(カテゴリで章を分けている時は、章の中では見出しを分けず1つの表にする。BM-121)。カテゴリ軸では見出しを分けず、ワークスペースをまたいだ1つの表にする(BM-138)。EPIC(子タスクを持つ親)はヒットした子タスクをまとめて1行にし、件名の下に子タスクの件名を小さく列挙する(BM-121)', example: '(表)' },
 ];
 
 function jstParts(ms) {
@@ -164,6 +170,27 @@ function sortByKindPriority(items) {
   });
 }
 
+// カテゴリの章の並び: マスタ順 → マスタに無い値(移行前の自由入力) → カテゴリなし(''、該当があれば最後)。
+// 期間内に該当タスクが無いカテゴリは含めない(itemsに現れたものだけ)。ワークスペース軸の章とカテゴリ軸の1段目で共用する。
+function orderedCategoryNames(items, masterOrder) {
+  const present = [...new Set(items.map(i => i.category).filter(Boolean))];
+  return [
+    ...masterOrder.filter(n => present.includes(n)),
+    ...present.filter(n => !masterOrder.includes(n)).sort(),
+    ...(items.some(i => !i.category) ? [''] : []),
+  ];
+}
+
+// 区分別の件数(サマリー表示用)
+function countByKind(items) {
+  return {
+    done: items.filter(i => i.kind === '完了').length,
+    doing: items.filter(i => i.kind === '対応中').length,
+    overdue: items.filter(i => i.kind === '期限超過').length,
+    planned: items.filter(i => i.kind === '未着手').length, // 未着手(TODO)
+  };
+}
+
 /**
  * ワークスペース1つ分の、週報の元になる集計素材を読む(論理削除済みは除く)。
  *  movedTo: task_id -> 期間内に変わったステータスの集合 / lastChange: task_id -> 最終のステータス変更日時(全期間)
@@ -216,9 +243,10 @@ function pickIncluded(analysis, selected, from, to) {
  * ステータス別の件数。出力ステータスの選択には依存せず、4ステータスすべてを選んだ前提で対象を選ぶ。
  * active[s]は「現在sのタスクのうち、期間内にsへ変わった(todoは期間内の新規作成を含む)ものがある」か。
  * BM-121のEPIC集約の対象外(単発+子を個別に数える。粒度は従来どおり)。
+ * accept(row)を渡すと、その行だけを数える(BM-138: カテゴリ軸でカテゴリ単位の件数を出すために使う)。
  */
-function statusCountsFor(analysis, from, to) {
-  const included = pickIncluded(analysis, new Set(STATUS_CODES), from, to);
+function statusCountsFor(analysis, from, to, accept = () => true) {
+  const included = pickIncluded(analysis, new Set(STATUS_CODES), from, to).filter(accept);
   const counts = { todo: 0, ready: 0, do: 0, done: 0 };
   const active = { todo: false, ready: false, do: false, done: false };
   for (const r of included) {
@@ -228,6 +256,39 @@ function statusCountsFor(analysis, from, to) {
     if (created || (analysis.movedTo.get(r.id) || new Set()).has(r.status)) active[r.status] = true;
   }
   return { counts, active };
+}
+
+// 複数ワークスペース分のstatusCountsForの結果を合算する(件数は足し、activeはどれか1つでもtrueならtrue)
+function mergeStatusCounts(list) {
+  const counts = { todo: 0, ready: 0, do: 0, done: 0 };
+  const active = { todo: false, ready: false, do: false, done: false };
+  for (const s of list) {
+    for (const code of STATUS_CODES) {
+      counts[code] += s.counts[code];
+      if (s.active[code]) active[code] = true;
+    }
+  }
+  return { counts, active };
+}
+
+/**
+ * カテゴリ軸の1段目(BM-138)。ワークスペースをまたいで同じカテゴリを1つにまとめ、章の中は1枚の表にする
+ * (見出しは分けず、並び順だけ 期限超過→完了→対応中→未着手 の優先度を保つ。BM-121と同じ考え方)。
+ * カテゴリの並びはマスタ順→マスタ外→カテゴリなし。バッジのstatusCountsはカテゴリ単位で、EPICの子は親のカテゴリとして数える。
+ * @param items 全ワークスペースの行(カテゴリ絞り込み済み)
+ * @param analyses analyzeWorkspace()の結果の配列(ワークスペースごと)
+ */
+function buildCategoryGroups(items, analyses, masterOrder, from, to) {
+  return orderedCategoryNames(items, masterOrder).map(name => {
+    const list = sortByKindPriority(items.filter(i => i.category === name));
+    return {
+      name, // '':カテゴリなし
+      items: list,
+      count: list.length,
+      counts: countByKind(list),
+      statusCounts: mergeStatusCounts(analyses.map(a => statusCountsFor(a, from, to, r => effectiveCategory(r, a.byId) === name))),
+    };
+  });
 }
 
 // 子タスクの区分から、EPIC行の区分を決める(BM-121)。
@@ -302,15 +363,21 @@ function pickEpicComment(epicComment, leaves) {
 /**
  * 週報の元データを集める。対象になるタスクの選び方はpickIncluded()を参照(EPIC自身は含めない)。
  * EPIC(子タスクを持つ親)は、ヒットした子タスクを1行に集約する(BM-121)。単発タスクは1件=1行のまま。
- * @returns {{from, to, today, statuses, workspaces: Array}}
+ * groupBy(BM-138): 'workspace'(既定)=ワークスペース軸、'category'=カテゴリ軸。
+ *   workspaces は常に付く(JSONの互換のため)。groupBy==='category' の時だけ categories が加わる。
+ *   groupByCategory(ワークスペース軸の2段目のカテゴリ章)はワークスペース軸でのみ有効。
+ * @returns {{from, to, today, groupBy, statuses, workspaces: Array, categories?: Array}}
  */
-function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today = todayJst(), groupByCategory = false, categories }) {
+function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today = todayJst(), groupBy = 'workspace', groupByCategory = false, categories }) {
   const selected = new Set(statuses);
   const categoryFilter = Array.isArray(categories) ? new Set(categories) : null; // ''はカテゴリなし
   const masterOrder = categoriesRepo.listCategories(db).map(c => c.name);
+  const subGroupByCategory = groupBy === 'workspace' && groupByCategory; // カテゴリ軸ではカテゴリが1段目になるので2段目の章は作らない
 
   const projects = (config.projects || []).filter(p => workspaces.includes(p.file));
   const result = [];
+  const analyses = []; // カテゴリ軸でカテゴリ単位の件数を数えるために保持する
+  const allItems = [];
   for (const project of projects) {
     const analysis = analyzeWorkspace(db, project, from, to);
     const { byId, lastChange } = analysis;
@@ -385,14 +452,9 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
     // 別軸であり、章の下に見出しを重ねるのは冗長)。1つの表にまとめ、並び順だけ期限超過→完了→対応中→未着手の
     // 優先度を保つ(区分自体は表の「区分」列に出る)。
     let categoryGroups = null;
-    if (groupByCategory) {
-      const present = [...new Set(items.map(i => i.category).filter(Boolean))];
-      const names = [
-        ...masterOrder.filter(n => present.includes(n)),
-        ...present.filter(n => !masterOrder.includes(n)).sort(),
-        ...(items.some(i => !i.category) ? [''] : []),
-      ];
-      categoryGroups = names.map(name => ({ name, items: sortByKindPriority(items.filter(i => i.category === name)) }));
+    if (subGroupByCategory) {
+      categoryGroups = orderedCategoryNames(items, masterOrder)
+        .map(name => ({ name, items: sortByKindPriority(items.filter(i => i.category === name)) }));
     }
 
     result.push({
@@ -400,18 +462,17 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
       prefix: project.prefix || '',
       name: project.name || project.file,
       sections,
-      categoryGroups, // groupByCategory時のみ [{name('':カテゴリなし), items}](BM-121: ステータス見出しは分けない)
+      categoryGroups, // ワークスペース軸でgroupByCategory時のみ [{name('':カテゴリなし), items}](BM-121: ステータス見出しは分けない)
       count: items.length,
-      counts: {
-        done: items.filter(i => i.kind === '完了').length,
-        doing: items.filter(i => i.kind === '対応中').length,
-        overdue: items.filter(i => i.kind === '期限超過').length,
-        planned: items.filter(i => i.kind === '未着手').length, // 未着手(TODO)
-      },
+      counts: countByKind(items),
       statusCounts: statusCountsFor(analysis, from, to),
     });
+    analyses.push(analysis);
+    allItems.push(...items);
   }
-  return { from, to, today, statuses: [...selected].map(c => STATUS_LABEL[c] || c), workspaces: result };
+  const data = { from, to, today, groupBy, statuses: [...selected].map(c => STATUS_LABEL[c] || c), workspaces: result };
+  if (groupBy === 'category') data.categories = buildCategoryGroups(allItems, analyses, masterOrder, from, to);
+  return data;
 }
 
 /**
@@ -485,11 +546,15 @@ function renderTable(items, columns) {
   return [header, sep, ...lines].join('\n');
 }
 
-const NO_CATEGORY_HEADING = 'なし';
+const NO_CATEGORY_HEADING = 'なし'; // ワークスペース軸の2段目(カテゴリ章)の見出し
+const NO_CATEGORY_GROUP_NAME = 'カテゴリなし'; // カテゴリ軸の1段目の名前(BM-138。親の文脈が無いので「なし」だけでは分かりにくい)
 const NO_CATEGORY_TOKEN = '__none__'; // GETのクエリで「カテゴリなし」を表す
+const EMPTY_TABLE_TEXT = '(該当するタスクはありません)';
+const GROUP_BY_VALUES = ['workspace', 'category']; // 1段目のグルーピング(BM-138)
+const GROUP_BLOCK = /\{\{\s*#(group|workspace)\s*\}\}([\s\S]*?)\{\{\s*\/\1\s*\}\}/; // workspaceはgroupの旧名(互換)
 
 function renderWorkspaceTable(ws, columns) {
-  if (ws.sections.length === 0) return '(該当するタスクはありません)';
+  if (ws.sections.length === 0) return EMPTY_TABLE_TEXT;
   if (ws.categoryGroups) {
     // カテゴリごとに見出し(###、カテゴリ名そのまま)+表の1枚構成にする(BM-121)。カテゴリとステータスは
     // 別軸のため、見出しの中でさらにステータス区分の見出しには分けない(区分は表の「区分」列に出る)。
@@ -511,16 +576,39 @@ function renderWeeklyReport(data, { template, columns }) {
   const cols = normalizeColumns(columns);
   const text = typeof template === 'string' && template.trim() ? template : DEFAULT_TEMPLATE;
   const known = new Set(PLACEHOLDERS.map(p => p.name).filter(n => /^[A-Za-z]+$/.test(n)));
+  const blockTokens = new Set(['#group', '/group', '#workspace', '/workspace']);
   const warnings = [];
   for (const m of text.matchAll(/\{\{\s*([^}]*?)\s*\}\}/g)) {
     const n = m[1];
-    if (n !== '#workspace' && n !== '/workspace' && !known.has(n) && !warnings.includes(`未知のプレースホルダー: {{${n}}}`)) {
+    if (!blockTokens.has(n) && !known.has(n) && !warnings.includes(`未知のプレースホルダー: {{${n}}}`)) {
       warnings.push(`未知のプレースホルダー: {{${n}}}`);
     }
   }
-  const opens = (text.match(/\{\{\s*#workspace\s*\}\}/g) || []).length;
-  const closes = (text.match(/\{\{\s*\/workspace\s*\}\}/g) || []).length;
-  if (opens !== closes || opens > 1) warnings.push('{{#workspace}}と{{/workspace}}は1組だけ、対で書いてください');
+  const opens = (text.match(/\{\{\s*#(?:group|workspace)\s*\}\}/g) || []).length;
+  const closes = (text.match(/\{\{\s*\/(?:group|workspace)\s*\}\}/g) || []).length;
+  if (opens !== closes || opens > 1 || (opens === 1 && !GROUP_BLOCK.test(text))) {
+    warnings.push('{{#group}}と{{/group}}(旧名の{{#workspace}}と{{/workspace}}も可)は1組だけ、開始と終了の名前をそろえて書いてください');
+  }
+
+  // 1段目のグループ(ワークスペース軸=ワークスペース、カテゴリ軸=カテゴリ)を、書式から見て同じ形にそろえる(BM-138)
+  const isCategoryAxis = data.groupBy === 'category';
+  const groups = isCategoryAxis
+    ? (data.categories || []).map(g => ({
+      groupName: g.name || NO_CATEGORY_GROUP_NAME, workspaceId: '', workspaceName: '', workspaceFile: '',
+      counts: g.counts, statusCounts: g.statusCounts, count: g.count,
+      renderBody: () => (g.items.length === 0 ? EMPTY_TABLE_TEXT : renderTable(g.items, cols)),
+    }))
+    : data.workspaces.map(ws => ({
+      groupName: `${ws.prefix ? `${ws.prefix} ` : ''}${ws.name}`, workspaceId: ws.prefix, workspaceName: ws.name, workspaceFile: ws.file,
+      counts: ws.counts, statusCounts: ws.statusCounts, count: ws.count,
+      renderBody: () => renderWorkspaceTable(ws, cols),
+    }));
+  if (isCategoryAxis) {
+    const inner = (text.match(GROUP_BLOCK) || [])[2] || '';
+    if (/\{\{\s*workspace(?:Id|Name|File)\s*\}\}/.test(inner)) {
+      warnings.push('カテゴリ軸では{{workspaceId}}・{{workspaceName}}・{{workspaceFile}}は空になります。見出しには{{groupName}}を使ってください');
+    }
+  }
 
   const totalCount = data.workspaces.reduce((n, w) => n + w.count, 0);
   const global = {
@@ -532,21 +620,24 @@ function renderWeeklyReport(data, { template, columns }) {
     totalCount,
   };
 
-  const block = /\{\{\s*#workspace\s*\}\}([\s\S]*?)\{\{\s*\/workspace\s*\}\}/;
-  // 全体のプレースホルダーを先に展開し、そのあとでワークスペースの表を差し込む(表の中身は再展開しない)
-  const rendered = replaceVars(text, global).replace(block, (m, inner) => data.workspaces.map(ws => {
-    const c = ws.counts;
-    const parts = [`完了 ${c.done}件`, `対応中 ${c.doing}件`];
-    if (c.overdue) parts.push(`期限超過 ${c.overdue}件`);
-    if (c.planned) parts.push(`未着手 ${c.planned}件`);
-    // {{table}}の中身にプレースホルダー風の文字列(タスク件名など)が入っても再展開しないよう、最後に差し込む
-    const body = replaceVars(inner, {
-      workspaceId: ws.prefix, workspaceName: ws.name, workspaceFile: ws.file,
-      summary: parts.join(' / '), statusCounts: renderStatusCounts(ws.statusCounts), doneCount: c.done, doingCount: c.doing, overdueCount: c.overdue, count: ws.count,
-      table: '\u0000TABLE\u0000',
-    });
-    return body.replace('\u0000TABLE\u0000', () => renderWorkspaceTable(ws, cols));
-  }).join(''));
+  // 全体のプレースホルダーを先に展開し、そのあとでグループごとの表を差し込む(表の中身は再展開しない)
+  const rendered = replaceVars(text, global).replace(GROUP_BLOCK, (m, name, inner) => {
+    // カテゴリ軸で該当タスクがひとつも無い時は、枠が0回の繰り返しで消えてしまわないよう「該当なし」を出す
+    if (isCategoryAxis && groups.length === 0) return EMPTY_TABLE_TEXT;
+    return groups.map(g => {
+      const c = g.counts;
+      const parts = [`完了 ${c.done}件`, `対応中 ${c.doing}件`];
+      if (c.overdue) parts.push(`期限超過 ${c.overdue}件`);
+      if (c.planned) parts.push(`未着手 ${c.planned}件`);
+      // {{table}}の中身にプレースホルダー風の文字列(タスク件名など)が入っても再展開しないよう、最後に差し込む
+      const body = replaceVars(inner, {
+        groupName: g.groupName, workspaceId: g.workspaceId, workspaceName: g.workspaceName, workspaceFile: g.workspaceFile,
+        summary: parts.join(' / '), statusCounts: renderStatusCounts(g.statusCounts), doneCount: c.done, doingCount: c.doing, overdueCount: c.overdue, count: g.count,
+        table: '\u0000TABLE\u0000',
+      });
+      return body.replace('\u0000TABLE\u0000', () => g.renderBody());
+    }).join('');
+  });
   const markdown = rendered.replace(/\n{3,}/g, '\n\n').trim() + '\n';
   return { markdown, warnings, totalCount };
 }
@@ -568,6 +659,14 @@ function parseReportOptions(input, config, db) {
   const statuses = Array.isArray(input.statuses) ? input.statuses : ['done', 'do'];
   const badStatus = statuses.find(s => !validStatuses.includes(s));
   if (badStatus) return { error: 'invalid_status', message: `不正なステータスです: ${badStatus}` };
+  // groupBy(BM-138): 未指定/空は 'workspace'。それ以外の不正値は400
+  let groupBy = 'workspace';
+  if (input.groupBy !== undefined && input.groupBy !== null && input.groupBy !== '') {
+    if (!GROUP_BY_VALUES.includes(input.groupBy)) {
+      return { error: 'invalid_group_by', message: `groupByはworkspaceまたはcategoryで指定してください: ${String(input.groupBy)}` };
+    }
+    groupBy = input.groupBy;
+  }
   const groupByCategory = input.groupByCategory === true || input.groupByCategory === '1' || input.groupByCategory === 'true';
   // categories未指定=絞り込まない。配列の''(またはGETの__none__)はカテゴリなし
   let categories;
@@ -575,7 +674,7 @@ function parseReportOptions(input, config, db) {
     if (input.categories.some(c => typeof c !== 'string')) return { error: 'invalid_category', message: 'categoriesは文字列の配列で指定してください' };
     categories = input.categories.map(c => (c === NO_CATEGORY_TOKEN ? '' : c));
   }
-  return { from, to, workspaces, statuses, groupByCategory, categories };
+  return { from, to, workspaces, statuses, groupBy, groupByCategory, categories };
 }
 
 function buildWeeklyReport(db, config, input, { template, columns }) {

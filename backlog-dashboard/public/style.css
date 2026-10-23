@@ -7871,7 +7871,10 @@ mark.activity-hit {
 .weekly-check-list { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; }
 .weekly-check-list label, .weekly-radio-row label { display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.82rem; }
 .weekly-custom-range { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
-.weekly-custom-range[hidden] { display: none; }
+.weekly-custom-range[hidden], .weekly-check-list[hidden] { display: none; } /* .weekly-check-listのdisplay:flexがhidden属性に勝たないようにする(BM-138) */
+/* 項目選択(BM-138): ワークスペース・カテゴリ・ステータス・列の4つの選択欄をひとまとまりにし、左の線でグルーピングの下位だと分かるようにする */
+.weekly-select-group { display: flex; flex-direction: column; gap: 14px; padding-left: 10px; border-left: 2px solid var(--border); }
+.weekly-select-group > .weekly-select-title { margin: 0 0 -4px; font-size: 0.82rem; }
 /* 日付欄は履歴ヘッダーの期間欄と同じ見た目(枠線・角丸・カレンダー記号)にそろえる */
 .weekly-custom-range input.date-field {
   width: 132px; padding: 5px 8px 5px 28px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface);
