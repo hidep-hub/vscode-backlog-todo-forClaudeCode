@@ -2527,9 +2527,8 @@ body {
   animation: modalSlideIn 0.2s ease-out;
 }
 
-/* 単発/子タスクの詳細は、説明欄だけを内部スクロールにして
-   ヘッダー/タイトル/アクション/右カラムは常に見える状態を保つ（BT-261）。
-   EPIC(modal-wide)はmini-boardを含み縦に伸びる想定のため対象外、従来通りモーダル全体スクロール。
+/* 詳細モーダル(単発/子/EPIC共通)は、モーダル自体はスクロールさせず、内部の領域だけをスクロールにして
+   ヘッダー/タイトル/アクションや右カラムの情報は常に見える状態を保つ（BT-261。左右別スクロールはBM-137）。
    対象は.detail-modal-content(詳細/子詳細モーダル)のみに限定する。他の.modal-content利用先
    (削除確認/GitHubリンク/親ピッカー/検索/タスク追加/ワークスペース作成)には影響させない(BT-263で発覚した副作用の修正)。 */
 .modal-content.detail-modal-content {
@@ -2541,11 +2540,6 @@ body {
   max-width: 860px;
 }
 
-.modal-content.detail-modal-content .detail-fixed-layout > .detail-side,
-.modal-content.detail-modal-content .detail-scroll-side {
-  flex: 0 0 250px;
-}
-
 .modal-content.detail-modal-content .modal-body {
   flex: 1;
   min-height: 0;
@@ -2554,11 +2548,44 @@ body {
   flex-direction: column;
 }
 
-.modal-content.detail-modal-content .detail-fixed-layout {
+/* BM-137: 詳細モーダルは左右2カラムに分け、それぞれ「固定部＋独立スクロール部」にする。
+     左: ID/タイトル/ボタン行を固定し、説明（EPICはミニボードも）がスクロール
+     右: カテゴリ/タグ/情報を固定し、コメント・成果物がスクロール
+   左の説明がボタン行の真下から始まるため、右の「情報」の高さに引っ張られる空白は出ない。
+   .modal-bodyは編集フォームも入るflexコンテナなので、その直下に1枚の.detail-splitを置く。
+   各段にmin-height:0を付けるのは、flexの子が内容の高さ以下に縮まれず、スクロールにならないのを防ぐため。 */
+.modal-content.detail-modal-content .detail-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 24px;
+  align-items: stretch;
+}
+
+.detail-split-left,
+.detail-split-right {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-split-left {
+  flex: 3;
+  min-width: 0;
+}
+
+.detail-split-right {
+  flex: 0 0 250px;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+  padding-left: 20px;
+}
+
+.detail-split-fixed {
   flex-shrink: 0;
 }
 
-.modal-content.detail-modal-content .detail-scroll-content {
+.detail-split-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -2581,24 +2608,6 @@ body {
   min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
-}
-
-.detail-scroll-layout {
-  display: flex;
-  gap: 24px;
-  align-items: flex-start;
-}
-
-.detail-scroll-main {
-  flex: 3;
-  min-width: 0;
-}
-
-.detail-scroll-side {
-  flex: 1;
-  min-width: 180px;
-  border-left: 1px solid var(--border);
-  padding-left: 20px;
 }
 
 @keyframes modalSlideIn {
@@ -2790,18 +2799,41 @@ body {
 }
 
 @media (max-width: 640px) {
-  .detail-layout,
-  .detail-scroll-layout {
+  .detail-layout {
     flex-direction: column;
   }
 
-  .detail-side,
-  .detail-scroll-side {
+  .detail-side {
     border-left: none;
     border-top: 1px solid var(--border);
     padding-left: 0;
     padding-top: 14px;
     width: 100%;
+  }
+
+  /* BM-137: 幅が狭いときは左右を縦積みにし、独立スクロールをやめて全体を1スクロールに戻す */
+  .modal-content.detail-modal-content .detail-split {
+    flex-direction: column;
+    gap: 0;
+    overflow-y: auto;
+  }
+
+  .detail-split-left,
+  .detail-split-right {
+    flex: 0 0 auto;
+  }
+
+  .detail-split-right {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding-left: 0;
+    padding-top: 14px;
+  }
+
+  .detail-split-scroll {
+    flex: 0 0 auto;
+    overflow-y: visible;
+    padding-right: 0;
   }
 }
 
