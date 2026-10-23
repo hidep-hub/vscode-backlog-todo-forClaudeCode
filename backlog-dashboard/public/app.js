@@ -4663,15 +4663,35 @@ function buildDetailTagsHtml(item) {
     </div>${derivedHtml}</div>`;
 }
 
-// 詳細モーダル本体を「左3/4:説明」「右1/4:情報+成果物」の横長2カラムにまとめる（BT-261）
-function buildDetailColumnsHtml(mainHtml, sideHtml) {
-  const side = sideHtml ? `<div class="detail-side">${sideHtml}</div>` : '';
-  return `<div class="detail-layout detail-fixed-layout"><div class="detail-main">${mainHtml}</div>${side}</div>`;
+// 詳細モーダル本体を、左右2カラムの「固定部＋独立スクロール部」にまとめる（BT-261 → BM-137で再構成）
+//   左: headerHtml(ID/タイトル/ボタン行)を固定し、descHtml(説明)＋footerHtml(EPICのミニボード)をスクロール
+//   右: metaHtml(カテゴリ/タグ/情報)を固定し、sideScrollHtml(コメント・成果物)をスクロール
+// 左右のスクロールは別々なので、説明を読みながらコメントや成果物を見られる。
+// .modal-bodyは編集フォームも入る箱のため、その直下に1枚の .detail-split だけを置く。
+function buildDetailSplitHtml({ headerHtml, metaHtml, descHtml, sideScrollHtml, footerHtml = '' }) {
+  return `<div class="detail-split">`
+    + `<div class="detail-split-left"><div class="detail-split-fixed">${headerHtml}</div><div class="detail-split-scroll">${descHtml}${footerHtml}</div></div>`
+    + `<div class="detail-split-right"><div class="detail-split-fixed">${metaHtml}</div><div class="detail-split-scroll">${sideScrollHtml}</div></div>`
+    + `</div>`;
 }
 
-function buildScrollableDetailHtml(mainHtml, sideHtml, footerHtml = '') {
-  const side = sideHtml ? `<div class="detail-scroll-side">${sideHtml}</div>` : '';
-  return `<div class="detail-scroll-content"><div class="detail-scroll-layout"><div class="detail-scroll-main">${mainHtml}</div>${side}</div>${footerHtml}</div>`;
+// 詳細モーダルの左右2つのスクロール位置を保存・復元する（BM-078 → BM-137で2領域に対応）。
+// WS再描画で.modal-body全体を作り直すと位置が先頭に戻るため、描画前に保存して描画後に戻す。
+// 保存時にスクロール領域が無かった(編集フォームなど)場合は空配列で、何もしない。
+function captureDetailScroll(body) {
+  return Array.from(body.querySelectorAll('.detail-split-scroll'), (el) => el.scrollTop);
+}
+
+// rAF2段はwebview環境でのレイアウト確定遅延への保険(ボードと同じ対策)。
+function restoreDetailScroll(body, tops) {
+  if (!tops || tops.length === 0) return;
+  body.querySelectorAll('.detail-split-scroll').forEach((el, i) => {
+    const top = tops[i];
+    if (!top) return; // 先頭のままなら戻す必要が無い
+    el.scrollTop = top;
+    const reapply = () => { if (el.scrollTop !== top) el.scrollTop = top; };
+    requestAnimationFrame(() => { reapply(); requestAnimationFrame(reapply); });
+  });
 }
 
 function buildArtifactsHtml(item) {
@@ -7031,9 +7051,8 @@ function openChildModal(item, parentEpic = null) {
   content.classList.remove('modal-wide');
 
   // BM-078: WS再描画で.modal-body全体を作り直すと説明欄等のスクロール位置が
-  // 失われるため、renderModalContentと同様に保存・復元する
-  const prevScrollEl = body.querySelector('.detail-scroll-content');
-  const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : null;
+  // 失われるため、renderModalContentと同様に保存・復元する（BM-137: 左右2領域）
+  const prevScrollTops = captureDetailScroll(body);
   // BM-089: 説明欄「もっと見る」の展開状態も同様に保存・復元する（renderModalContentと同じ対策）
   const prevDescExpanded = !!body.querySelector('.description-collapsible.expanded');
 
@@ -7111,22 +7130,17 @@ function openChildModal(item, parentEpic = null) {
   const prevCommentDraft = captureCommentDraft(body);
   const commentHtml = buildTaskCommentSectionHtml(item, 'modal');
   suppressQuickTipScrollClose();
-  body.innerHTML = `
-    ${buildDetailColumnsHtml(headerHtml, metaHtml)}
-    ${buildScrollableDetailHtml(desc, commentHtml + artifactsHtml)}
-  `;
+  body.innerHTML = buildDetailSplitHtml({
+    headerHtml,
+    metaHtml,
+    descHtml: desc,
+    sideScrollHtml: commentHtml + artifactsHtml,
+  });
   restoreCommentDraft(body, prevCommentDraft);
   hydrateCommentSections(body, item);
 
-  // BM-078: スクロール位置の復元。rAF2段はwebview環境でのレイアウト確定遅延への保険(ボードと同じ対策)。
-  if (prevScrollTop != null) {
-    const scrollEl = body.querySelector('.detail-scroll-content');
-    if (scrollEl) {
-      scrollEl.scrollTop = prevScrollTop;
-      const reapply = () => { if (scrollEl.scrollTop !== prevScrollTop) scrollEl.scrollTop = prevScrollTop; };
-      requestAnimationFrame(() => { reapply(); requestAnimationFrame(reapply); });
-    }
-  }
+  // BM-078: スクロール位置の復元（BM-137: 左右2領域）
+  restoreDetailScroll(body, prevScrollTops);
 
   // 親パンくずのクリック（BT-355）: 子モーダルを閉じて親EPICの詳細へ戻る
   const parentCrumbEl = body.querySelector('.detail-parent-crumb');
@@ -8000,9 +8014,8 @@ function renderModalContent(item) {
   const content = modal.querySelector('.modal-content');
 
   // BM-078: WS再描画(ピン留め等)で.modal-body全体を作り直すと、EPIC詳細の
-  // ミニボードをスクロールしていた場合に先頭へ飛ばされるため、位置を保存・復元する
-  const prevScrollEl = body.querySelector('.detail-scroll-content');
-  const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : null;
+  // ミニボードをスクロールしていた場合に先頭へ飛ばされるため、位置を保存・復元する（BM-137: 左右2領域）
+  const prevScrollTops = captureDetailScroll(body);
   // BM-089: 同様に、説明欄「もっと見る」で展開して読んでいる最中にWS再描画が走ると
   // 折りたたみ状態に戻ってしまう(見た目上「閉じられた」ように感じる)ため、展開状態も保存・復元する
   const prevDescExpanded = !!body.querySelector('.description-collapsible.expanded');
@@ -8099,22 +8112,19 @@ function renderModalContent(item) {
   const prevCommentDraft = captureCommentDraft(body);
   const commentHtml = buildTaskCommentSectionHtml(item, 'modal');
   suppressQuickTipScrollClose();
-  body.innerHTML = `
-    ${buildDetailColumnsHtml(headerHtml, metaHtml)}
-    ${buildScrollableDetailHtml(desc, commentHtml + artifactsHtml, miniBoard)}
-  `;
+  // BM-137: EPICのミニボードは左カラムのスクロール領域に入れる（説明の下。右のコメントは見えたまま）
+  body.innerHTML = buildDetailSplitHtml({
+    headerHtml,
+    metaHtml,
+    descHtml: desc,
+    sideScrollHtml: commentHtml + artifactsHtml,
+    footerHtml: miniBoard,
+  });
   restoreCommentDraft(body, prevCommentDraft);
   hydrateCommentSections(body, item);
 
-  // BM-078: スクロール位置の復元。rAF2段はwebview環境でのレイアウト確定遅延への保険(ボードと同じ対策)。
-  if (prevScrollTop != null) {
-    const scrollEl = body.querySelector('.detail-scroll-content');
-    if (scrollEl) {
-      scrollEl.scrollTop = prevScrollTop;
-      const reapply = () => { if (scrollEl.scrollTop !== prevScrollTop) scrollEl.scrollTop = prevScrollTop; };
-      requestAnimationFrame(() => { reapply(); requestAnimationFrame(reapply); });
-    }
-  }
+  // BM-078: スクロール位置の復元（BM-137: 左右2領域）
+  restoreDetailScroll(body, prevScrollTops);
 
   // 説明欄の折りたたみトグル初期化（BT-080。BM-089: 直前の展開状態を復元）
   setupDescriptionToggle(body, { expanded: prevDescExpanded });
