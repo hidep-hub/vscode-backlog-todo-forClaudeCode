@@ -562,3 +562,182 @@ test('BM-136 コメントの改行とパイプは表を壊さないように整�
   assert.match(markdown, /1行目 2行目 a\\\|b \|/);
   cleanup(ctx);
 });
+
+// --- BM-138: 1段目のグルーピング(ワークスペース／カテゴリ) ---
+
+const BOTH = { ...PERIOD, workspaces: ['alpha', 'beta'] };
+
+// 期間内に完了したタスクを作る
+function addDoneTask(db, { workspace = 'alpha', title, category = null }) {
+  const t = addTask(db, { workspace, title, status: 'done', category });
+  addStatusEvent(db, t, 'done', IN_PERIOD);
+  return t;
+}
+
+test('BM-138 カテゴリ軸: ワークスペースをまたいで同じカテゴリを1つの章にまとめ、マスタ順→マスタ外→カテゴリなしで並ぶ', () => {
+  const ctx = createTestDb();
+  addCategoryMaster(ctx.db, '調査', 1);
+  addCategoryMaster(ctx.db, '開発', 2);
+  addCategoryMaster(ctx.db, '未使用', 3);
+  addDoneTask(ctx.db, { workspace: 'alpha', title: 'A開発', category: '開発' });
+  addDoneTask(ctx.db, { workspace: 'beta', title: 'B開発', category: '開発' });
+  addDoneTask(ctx.db, { workspace: 'beta', title: 'B調査', category: '調査' });
+  addDoneTask(ctx.db, { workspace: 'alpha', title: 'A旧値', category: '旧自由入力' });
+  addDoneTask(ctx.db, { workspace: 'beta', title: 'Bなし', category: null });
+
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, { ...BOTH, groupBy: 'category' });
+  assert.equal(data.groupBy, 'category');
+  assert.deepEqual(data.categories.map(g => g.name), ['調査', '開発', '旧自由入力', '']);
+  assert.deepEqual(data.categories.find(g => g.name === '開発').items.map(i => i.title).sort(), ['A開発', 'B開発']);
+  assert.equal(data.workspaces.length, 2); // JSONの互換のため、ワークスペース別のデータも従来どおり付く
+
+  const { markdown, warnings } = wr.renderWeeklyReport(data, { template: wr.DEFAULT_TEMPLATE, columns: wr.DEFAULT_COLUMNS });
+  assert.deepEqual(warnings, []);
+  assert.ok(markdown.includes('## 調査 `TODO 0`'));
+  assert.ok(markdown.includes('## カテゴリなし'));
+  assert.doesNotMatch(markdown, /未使用/); // 期間内にタスクが無いカテゴリは出ない
+  assert.doesNotMatch(markdown, /## AL |## BE /); // ワークスペースの見出しは出ない
+  assert.doesNotMatch(markdown, /^###/m); // 章の中は見出しを分けず1枚の表
+  const order = ['## 調査', '## 開発', '## 旧自由入力', '## カテゴリなし'].map(h => markdown.indexOf(h));
+  assert.ok(order.every((v, i) => v >= 0 && (i === 0 || v > order[i - 1])), order.join(','));
+  // 開発の章には、両ワークスペースのタスクがIDの接頭辞付きで並ぶ
+  const section = markdown.slice(markdown.indexOf('## 開発'), markdown.indexOf('## 旧自由入力'));
+  assert.match(section, /\| AL-\d{3} \|/);
+  assert.match(section, /\| BE-\d{3} \|/);
+  cleanup(ctx);
+});
+
+test('BM-138 カテゴリ軸: サマリーと件数バッジはカテゴリ単位で、章内は期限超過→完了→対応中→未着手の順', () => {
+  const ctx = createTestDb();
+  addDoneTask(ctx.db, { workspace: 'alpha', title: 'A完了', category: '開発' });
+  const doing = addTask(ctx.db, { workspace: 'beta', title: 'B対応中', status: 'do', category: '開発' });
+  addStatusEvent(ctx.db, doing, 'do', IN_PERIOD);
+  addTask(ctx.db, { workspace: 'beta', title: 'B期限超過', status: 'todo', category: '開発', dueDate: '2026-10-01' });
+  addDoneTask(ctx.db, { workspace: 'alpha', title: '別カテゴリ', category: '調査' });
+
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, { ...BOTH, statuses: ['todo', 'ready', 'do', 'done'], groupBy: 'category', today: '2026-10-14' });
+  const g = data.categories.find(c => c.name === '開発');
+  assert.deepEqual(g.items.map(i => i.title), ['B期限超過', 'A完了', 'B対応中']);
+  assert.equal(g.count, 3);
+  assert.deepEqual(g.counts, { done: 1, doing: 1, overdue: 1, planned: 0 });
+  assert.deepEqual(g.statusCounts.counts, { todo: 1, ready: 0, do: 1, done: 1 }); // 別カテゴリの完了は数えない
+  assert.deepEqual(g.statusCounts.active, { todo: false, ready: false, do: true, done: true }); // 期間内に動いたステータスだけactive
+  const { markdown } = wr.renderWeeklyReport(data, { template: wr.DEFAULT_TEMPLATE, columns: wr.DEFAULT_COLUMNS });
+  assert.ok(markdown.includes('## 開発 `TODO 1` `READY 0` **`DO 1`** **`DONE 1`**\n\n完了 1件 / 対応中 1件 / 期限超過 1件'));
+  cleanup(ctx);
+});
+
+test('BM-138 カテゴリ軸: EPICは親のカテゴリの章に1行で入る(子自身のcategoryは見ない)', () => {
+  const ctx = createTestDb();
+  const epic = addTask(ctx.db, { title: '大きな話', status: 'do', category: '開発' });
+  const child = addTask(ctx.db, { title: '子', status: 'done', parentId: epic.id, category: '調査' });
+  addStatusEvent(ctx.db, child, 'done', IN_PERIOD);
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, groupBy: 'category' });
+  assert.deepEqual(data.categories.map(g => g.name), ['開発']);
+  assert.equal(data.categories[0].items.length, 1);
+  assert.equal(data.categories[0].items[0].isEpic, true);
+  // 件数バッジも親のカテゴリとして数える
+  assert.equal(data.categories[0].statusCounts.counts.done, 1);
+  cleanup(ctx);
+});
+
+test('BM-138 groupByの既定はworkspace(従来どおり)。groupByCategoryはカテゴリ軸では2段目を作らず無視される', () => {
+  const ctx = createTestDb();
+  addDoneTask(ctx.db, { title: 'x', category: '開発' });
+  const base = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  assert.equal(base.groupBy, 'workspace');
+  assert.equal(base.categories, undefined);
+  const cat = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, groupBy: 'category', groupByCategory: true });
+  assert.equal(cat.workspaces[0].categoryGroups, null);
+  const ws = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, groupBy: 'workspace', groupByCategory: true });
+  assert.deepEqual(ws.workspaces[0].categoryGroups.map(g => g.name), ['開発']);
+  cleanup(ctx);
+});
+
+test('BM-138 categoriesで絞り込むとカテゴリ軸でも該当カテゴリの章だけになる(空文字はカテゴリなし)', () => {
+  const ctx = createTestDb();
+  addCategoryMaster(ctx.db, '調査', 1);
+  addCategoryMaster(ctx.db, '開発', 2);
+  addDoneTask(ctx.db, { workspace: 'alpha', title: 'a', category: '開発' });
+  addDoneTask(ctx.db, { workspace: 'beta', title: 'b', category: '調査' });
+  addDoneTask(ctx.db, { workspace: 'beta', title: 'c', category: null });
+  const names = categories => wr.collectWeeklyReport(ctx.db, CONFIG, { ...BOTH, groupBy: 'category', categories }).categories.map(g => g.name);
+  assert.deepEqual(names(['調査']), ['調査']);
+  assert.deepEqual(names(['', '開発']), ['開発', '']);
+  assert.deepEqual(names(undefined), ['調査', '開発', '']);
+  cleanup(ctx);
+});
+
+test('BM-138 parseReportOptions: groupByの既定・正規化・不正値', () => {
+  const ctx = createTestDb();
+  const parse = input => wr.parseReportOptions({ range: 'this', ...input }, CONFIG, ctx.db);
+  assert.equal(parse({}).groupBy, 'workspace');
+  assert.equal(parse({ groupBy: '' }).groupBy, 'workspace');
+  assert.equal(parse({ groupBy: null }).groupBy, 'workspace');
+  assert.equal(parse({ groupBy: 'category' }).groupBy, 'category');
+  assert.equal(parse({ groupBy: 'tag' }).error, 'invalid_group_by');
+  const built = wr.buildWeeklyReport(ctx.db, CONFIG, { range: 'this', groupBy: 'category' }, { template: wr.DEFAULT_TEMPLATE, columns: [] });
+  assert.equal(built.ok, true);
+  assert.equal(built.data.groupBy, 'category');
+  assert.equal(wr.buildWeeklyReport(ctx.db, CONFIG, { range: 'this', groupBy: 'x' }, { template: wr.DEFAULT_TEMPLATE, columns: [] }).error, 'invalid_group_by');
+  cleanup(ctx);
+});
+
+test('BM-138 書式: {{#group}}はどちらの軸でも動き、旧{{#workspace}}も同じ意味で使える', () => {
+  const ctx = createTestDb();
+  addDoneTask(ctx.db, { title: 'x', category: '開発' });
+  const wsData = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  const catData = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, groupBy: 'category' });
+  const render = (data, template) => wr.renderWeeklyReport(data, { template, columns: wr.DEFAULT_COLUMNS });
+
+  const group = '{{#group}}[{{groupName}}|{{count}}]{{/group}}';
+  assert.equal(render(wsData, group).markdown, '[AL アルファ|1]\n');
+  assert.equal(render(catData, group).markdown, '[開発|1]\n');
+  assert.deepEqual([render(wsData, group).warnings, render(catData, group).warnings], [[], []]);
+
+  // 旧名: ワークスペース軸ではこれまでどおり。workspaceId/Nameもそのまま使える
+  const old = '{{#workspace}}[{{workspaceId}}|{{workspaceName}}|{{groupName}}]{{/workspace}}';
+  const oldWs = render(wsData, old);
+  assert.equal(oldWs.markdown, '[AL|アルファ|AL アルファ]\n');
+  assert.deepEqual(oldWs.warnings, []);
+  cleanup(ctx);
+});
+
+test('BM-138 書式: カテゴリ軸でworkspaceName等を使うと空になり警告する。囲みの名前が対でない場合も警告する', () => {
+  const ctx = createTestDb();
+  addDoneTask(ctx.db, { title: 'x', category: '開発' });
+  const catData = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, groupBy: 'category' });
+  const wsData = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  const render = (data, template) => wr.renderWeeklyReport(data, { template, columns: wr.DEFAULT_COLUMNS });
+
+  const old = render(catData, '{{#workspace}}[{{workspaceName}}|{{groupName}}]{{/workspace}}');
+  assert.equal(old.markdown, '[|開発]\n');
+  assert.ok(old.warnings.some(w => w.includes('{{groupName}}')));
+  // ワークスペース軸では同じ書式で警告は出ない
+  assert.deepEqual(render(wsData, '{{#workspace}}[{{workspaceName}}]{{/workspace}}').warnings, []);
+
+  assert.ok(render(wsData, '{{#group}}x{{/workspace}}').warnings.some(w => w.includes('1組だけ')));
+  assert.ok(render(wsData, '{{#group}}x{{#group}}y{{/group}}{{/group}}').warnings.some(w => w.includes('1組だけ')));
+  cleanup(ctx);
+});
+
+test('BM-138 カテゴリ軸で該当タスクが無い時は「該当なし」を出す。カテゴリなしの名前は「カテゴリなし」', () => {
+  const ctx = createTestDb();
+  const empty = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, groupBy: 'category' });
+  assert.deepEqual(empty.categories, []);
+  const { markdown } = wr.renderWeeklyReport(empty, { template: wr.DEFAULT_TEMPLATE, columns: wr.DEFAULT_COLUMNS });
+  assert.ok(markdown.includes('(該当するタスクはありません)'));
+  // 旧データの「-」もカテゴリなしの章になる
+  addDoneTask(ctx.db, { title: 'y', category: '-' });
+  const none = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, groupBy: 'category' });
+  assert.deepEqual(none.categories.map(g => g.name), ['']);
+  assert.ok(wr.renderWeeklyReport(none, { template: wr.DEFAULT_TEMPLATE, columns: wr.DEFAULT_COLUMNS }).markdown.includes('## カテゴリなし'));
+  cleanup(ctx);
+});
+
+test('BM-138 既定の書式はグループの枠({{#group}})で、プレースホルダー説明にgroupNameとgroupが載っている', () => {
+  assert.match(wr.DEFAULT_TEMPLATE, /\{\{#group\}\}[\s\S]*\{\{groupName\}\}[\s\S]*\{\{\/group\}\}/);
+  const names = wr.PLACEHOLDERS.map(p => p.name);
+  assert.ok(names.includes('groupName'));
+  assert.ok(names.includes('#group … /group'));
+});

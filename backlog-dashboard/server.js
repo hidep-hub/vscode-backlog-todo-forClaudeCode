@@ -915,6 +915,7 @@ function serveStatic(req, res) {
   //   POST /api/weekly-report-preview         編集中の書式でプレビュー(読み取りのみ。書式は保存しない)
   //   GET  /api/weekly-report-counts?range=this|last|from=&to=  ワークスペース別のステータス別件数(画面専用)
   //   GET  /api/weekly-report?range=this|last|from=&to=&workspaces=a,b&statuses=done,do&format=md|json
+  //                           &groupBy=workspace|category(BM-138。省略時workspace。categoryはカテゴリ＞表)
   //                                           保存済みの書式で生成(format=mdはダウンロード)
   const weeklyPath = req.url.split('?')[0];
   if (weeklyPath === '/api/weekly-report-template' && req.method === 'GET') {
@@ -978,7 +979,7 @@ function serveStatic(req, res) {
       const saved = weeklyReport.loadTemplate(BACKLOG_DIR);
       const result = weeklyReport.buildWeeklyReport(getDb(BACKLOG_DIR), config, {
         range: q.get('range'), from: q.get('from'), to: q.get('to'), workspaces: list('workspaces'), statuses: list('statuses'),
-        groupByCategory: q.get('groupByCategory'), categories: q.has('categories') ? list('categories') || [] : undefined,
+        groupBy: q.get('groupBy'), groupByCategory: q.get('groupByCategory'), categories: q.has('categories') ? list('categories') || [] : undefined,
       }, saved);
       if (result.error) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
