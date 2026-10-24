@@ -8083,6 +8083,48 @@ body.weekly-resizing { user-select: none; cursor: col-resize; }
 }
 
 /* --- コメント欄 (BM-136): 詳細モーダルの右カラムと右クリックTIPで共通 --- */
+.comment-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.comment-section-heading h4 {
+  margin: 0;
+}
+
+.comment-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.comment-toggle-btn:hover,
+.comment-toggle-btn:focus-visible {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.comment-toggle-btn .material-icon {
+  width: 1em;
+  height: 1em;
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+
+.comment-toggle-btn.is-collapsed .material-icon {
+  transform: rotate(90deg);
+}
+
 .comment-section h4 .comment-count {
   margin-left: 4px;
   padding: 0 5px;
@@ -8166,6 +8208,10 @@ body.weekly-resizing { user-select: none; cursor: col-resize; }
   margin-top: 8px;
 }
 
+.comment-list-collapsed .comment-list-wrap {
+  display: none;
+}
+
 .comment-list {
   list-style: none;
   margin: 0;
@@ -8173,13 +8219,87 @@ body.weekly-resizing { user-select: none; cursor: col-resize; }
 }
 
 .comment-item {
-  padding: 6px 0;
-  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 8px 0;
 }
 
 .comment-item:first-child {
   padding-top: 0;
-  border-top: 0;
+}
+
+.comment-avatar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-muted);
+}
+
+.comment-avatar-ai {
+  background: #334155;
+}
+
+/* AIごとに固定色を持たせ、Light/Darkのどちらでもロゴの輪郭を保つ。 */
+.comment-avatar-claude { background: #f97316; }
+.comment-avatar-kiro { background: #7c3aed; }
+.comment-avatar-codex { background: #0ea5e9; }
+
+.comment-avatar-ai .comment-avatar-image {
+  width: 64%;
+  height: 64%;
+  object-fit: contain;
+}
+
+/* Codexロゴは線画が細かいため、ほかのAIより大きく見せる。 */
+.comment-avatar-codex .comment-avatar-image {
+  width: 100%;
+  height: 100%;
+}
+
+.comment-avatar-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.comment-avatar .material-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.comment-bubble {
+  min-width: 0;
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px 9px 9px;
+  background: var(--bg);
+}
+
+/* チャットらしく、AIは左・ユーザーは右に寄せる。ユーザー側はアバターも右端へ反転する。 */
+.comment-item-user {
+  flex-direction: row-reverse;
+}
+
+.comment-item-user .comment-bubble {
+  flex: 0 1 auto;
+  max-width: calc(100% - 32px);
+  margin-left: auto;
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  border-radius: 9px 3px 9px 9px;
+}
+
+.comment-item-user .comment-item-meta {
+  justify-content: flex-end;
 }
 
 .comment-item-meta {
@@ -8191,7 +8311,8 @@ body.weekly-resizing { user-select: none; cursor: col-resize; }
 }
 
 .comment-item-author {
-  opacity: 0.8;
+  color: var(--text);
+  font-weight: 600;
 }
 
 .comment-delete-btn {
@@ -8224,7 +8345,7 @@ body.weekly-resizing { user-select: none; cursor: col-resize; }
 }
 
 .comment-item-body {
-  margin-top: 2px;
+  margin-top: 3px;
   color: var(--text);
   font-size: 0.78rem;
   line-height: 1.5;

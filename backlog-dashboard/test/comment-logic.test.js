@@ -72,6 +72,32 @@ test('hasDraftText: 空白だけは書きかけとみなさない', () => {
   assert.equal(logic.hasDraftText(undefined), false);
 });
 
+test('buildCommentItemHtml: 投稿者ごとのアイコン付き吹き出しを安全に組み立てる', () => {
+  const codex = logic.buildCommentItemHtml({ id: 1, body: '確認しました', createdAt: '2026-10-22T06:05:00.000Z', createdBy: 'codex' });
+  assert.match(codex, /class="comment-avatar(?:\s|\")/);
+  assert.match(codex, /comment-avatar-ai/);
+  assert.match(codex, /comment-avatar-codex/);
+  assert.match(codex, /src="codex-icon\.svg"/);
+  assert.match(codex, /<span class="comment-item-author">Codex<\/span>/);
+  assert.match(codex, /class="comment-bubble"/);
+
+  const user = logic.buildCommentItemHtml({ id: 2, body: '<b>確認</b>', createdAt: '2026-10-22T06:05:00.000Z', createdBy: 'user' });
+  assert.match(user, /material-icon icon-person/);
+  assert.match(user, /class="comment-item comment-item-user"/);
+  assert.ok(!user.includes('comment-avatar-ai'));
+  assert.match(user, /<span class="comment-item-author">ユーザー<\/span>/);
+  assert.ok(!user.includes('<b>確認</b>'));
+
+  const other = logic.buildCommentItemHtml({ id: 3, body: '確認', createdAt: '2026-10-22T06:05:00.000Z', createdBy: 'other-agent' });
+  assert.match(other, /material-icon icon-person/);
+  assert.match(other, /<span class="comment-item-author">other-agent<\/span>/);
+
+  const claude = logic.buildCommentItemHtml({ id: 4, body: '確認', createdAt: '2026-10-22T06:05:00.000Z', createdBy: 'claude-code' });
+  const kiro = logic.buildCommentItemHtml({ id: 5, body: '確認', createdAt: '2026-10-22T06:05:00.000Z', createdBy: 'kiro' });
+  assert.match(claude, /comment-avatar-claude/);
+  assert.match(kiro, /comment-avatar-kiro/);
+});
+
 test('buildCommentSectionHtml: 見出し・入力欄・一覧(読み込み中/空/あり)を組み立て、値はエスケープする', () => {
   const comments = [
     { id: 2, body: '新しい<script>', createdAt: '2026-10-22T06:05:00.000Z', createdBy: 'kiro' },
@@ -80,6 +106,8 @@ test('buildCommentSectionHtml: 見出し・入力欄・一覧(読み込み中/�
   const html = logic.buildCommentSectionHtml({ taskId: 'BM-136', comments, variant: 'modal' });
   assert.match(html, /data-task-id="BM-136"/);
   assert.match(html, /class="comment-count">2</);
+  assert.match(html, /class="comment-toggle-btn"[^>]*aria-expanded="true"/);
+  assert.match(html, /class="comment-toggle-label">折り畳む/);
   assert.match(html, /<textarea class="comment-input"[^>]*maxlength="1000"/);
   assert.match(html, /class="comment-submit-btn" disabled/, '最初は空なので投稿ボタンは押せない');
   assert.ok(html.indexOf('新しい&lt;script&gt;') < html.indexOf('古い'), '新しい順のまま描く');
@@ -135,6 +163,8 @@ test('画面の配線: スクリプトの読み込み順、カード・TIP・詳
   has(comments, '/api/delete-task-comment');
   has(comments, "e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.isComposing");
   has(comments, 'if (!btn.classList.contains(\'confirming\'))');
+  has(comments, "const toggleBtn = e.target.closest('.comment-toggle-btn');");
+  has(comments, "section.classList.toggle('comment-list-collapsed')");
 
   // アイコンとスタイル
   assert.ok(fs.existsSync(path.join(publicDir, 'icons', 'chat_bubble.svg')));
@@ -144,5 +174,15 @@ test('画面の配線: スクリプトの読み込み順、カード・TIP・詳
   has(css, '.card-comment-text');
   assert.match(css, /\.card-comment-text\s*\{[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/, '1行で省略記号');
   has(css, '.comment-input');
+  has(css, '.comment-section-heading');
+  has(css, '.comment-list-collapsed .comment-list-wrap');
+  has(css, '.comment-avatar');
+  has(css, '.comment-avatar-claude');
+  has(css, '.comment-avatar-kiro');
+  has(css, '.comment-avatar-codex');
+  has(css, '.comment-avatar-codex .comment-avatar-image');
+  has(css, '.comment-bubble');
+  has(css, '.comment-item-user');
+  has(css, 'flex-direction: row-reverse');
   has(css, '.task-quick-tip .comment-list-wrap');
 });

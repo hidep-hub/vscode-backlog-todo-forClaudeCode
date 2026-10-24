@@ -221,6 +221,19 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('click', (e) => {
+  const toggleBtn = e.target.closest('.comment-toggle-btn');
+  if (toggleBtn) {
+    e.preventDefault();
+    const section = toggleBtn.closest('.comment-section');
+    if (!section) return;
+    const collapsed = section.classList.toggle('comment-list-collapsed');
+    toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+    toggleBtn.title = collapsed ? 'コメント一覧を展開する' : 'コメント一覧を折り畳む';
+    const label = toggleBtn.querySelector('.comment-toggle-label');
+    if (label) label.textContent = collapsed ? '展開する' : '折り畳む';
+    toggleBtn.classList.toggle('is-collapsed', collapsed);
+    return;
+  }
   const submitBtn = e.target.closest('.comment-submit-btn');
   if (submitBtn) {
     e.preventDefault();
