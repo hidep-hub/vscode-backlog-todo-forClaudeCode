@@ -209,12 +209,37 @@
               <option value="system">System</option>
             </select>
           </div>
+          <!-- BT-464: よく使うヘッダ操作は残しつつ、現在値・既定値を全体設定からも選べるようにする -->
           <div class="settings-group">
+            <label for="settings-card-size">文字サイズ</label>
+            <select id="settings-card-size">
+              <option value="s">小 (S)</option>
+              <option value="m">中 (M)</option>
+              <option value="l">大 (L)</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label for="settings-description-zoom">詳細画面表示倍率</label>
+            <select id="settings-description-zoom">
+              <option value="0.6">60%</option>
+              <option value="0.7">70%</option>
+              <option value="0.8">80%</option>
+              <option value="0.9">90%</option>
+              <option value="1">100%</option>
+              <option value="1.1">110%</option>
+              <option value="1.2">120%</option>
+              <option value="1.3">130%</option>
+              <option value="1.4">140%</option>
+              <option value="1.5">150%</option>
+              <option value="1.6">160%</option>
+            </select>
+          </div>
+          <div class="settings-group settings-column-order-group">
             <label>メインボードの列の並び</label>
             <ol class="column-order-list" id="settings-column-order"></ol>
             <div class="settings-github-footer">
               <span id="settings-column-order-status"></span>
-              <button id="settings-column-order-save" disabled>保存</button>
+              <button id="settings-column-order-save" disabled>列順を保存</button>
             </div>
           </div>
         </div>
