@@ -4372,7 +4372,7 @@ body {
   /* 初期値は説明グループの残り領域を使い、ドラッグ操作では縦横とも上書き可能にする。 */
   flex: none;
   box-sizing: border-box;
-  height: calc(100% - 21px);
+  height: calc(100% - 21px - var(--desc-bar-h));
   max-width: 100%;
   align-self: flex-start;
   resize: vertical;
@@ -8153,3 +8153,54 @@ body.weekly-resizing { user-select: none; cursor: col-resize; }
   max-height: 150px;
   overflow-y: auto;
 }
+
+/* BT-462: 説明欄のMarkdown表示(詳細モーダル・TIP・入力欄のプレビュー・検索ペインで共用) */
+.description-md,
+.search-preview-desc,
+.desc-preview-pane { white-space: normal; word-break: break-word; line-height: 1.6; }
+.description-md > :first-child,
+.desc-preview-pane > :first-child { margin-top: 0; }
+.description-md > :last-child,
+.desc-preview-pane > :last-child { margin-bottom: 0; }
+.description-md p,
+.desc-preview-pane p { margin: 0 0 6px; white-space: normal; }
+.description-md h1, .desc-preview-pane h1 { font-size: 1.25em; margin: 10px 0 6px; }
+.description-md h2, .desc-preview-pane h2 { font-size: 1.12em; margin: 10px 0 5px; padding-bottom: 2px; border-bottom: 1px solid var(--border); }
+.description-md h3, .description-md h4, .desc-preview-pane h3, .desc-preview-pane h4 { font-size: 1em; margin: 8px 0 4px; }
+.description-md ul, .description-md ol, .desc-preview-pane ul, .desc-preview-pane ol { margin: 4px 0; padding-left: 22px; }
+.description-md li, .desc-preview-pane li { margin: 2px 0; }
+.description-md li > p, .desc-preview-pane li > p { margin: 2px 0; }
+.description-md code, .desc-preview-pane code { padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--card); font-size: 0.88em; }
+.description-md pre, .desc-preview-pane pre { margin: 6px 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); white-space: pre-wrap; overflow-x: auto; }
+.description-md pre code, .desc-preview-pane pre code { padding: 0; border: none; background: none; }
+.description-md blockquote, .desc-preview-pane blockquote { margin: 6px 0; padding: 2px 10px; border-left: 3px solid var(--border); color: var(--text-muted); }
+.description-md table, .desc-preview-pane table { border-collapse: collapse; margin: 6px 0; }
+.description-md th, .description-md td, .desc-preview-pane th, .desc-preview-pane td { border: 1px solid var(--border); padding: 3px 8px; text-align: left; }
+.description-md th, .desc-preview-pane th { background: var(--card); }
+.description-md a, .desc-preview-pane a { color: var(--accent); }
+.description-md hr, .desc-preview-pane hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+.description-plain { white-space: pre-wrap; margin: 0; }
+
+/* 入力欄の「編集/プレビュー」切替と拡大縮小 */
+.desc-preview-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.desc-preview-tabs { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.desc-preview-tab { background: none; border: none; padding: 2px 10px; font-size: 0.76rem; color: var(--text-muted); cursor: pointer; }
+.desc-preview-tab.active { background: var(--accent); color: #fff; }
+.desc-preview-zoom { display: inline-flex; align-items: center; gap: 4px; font-size: 0.76rem; color: var(--text-muted); }
+.desc-preview-zoom[hidden] { display: none; }
+.desc-preview-zoom-btn { width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--card); color: var(--text); cursor: pointer; line-height: 1; }
+.desc-preview-zoom-label { min-width: 38px; text-align: center; }
+.desc-preview-pane { box-sizing: border-box; width: 100%; overflow: auto; font-size: calc(var(--desc-base-fs, 0.85rem) * var(--desc-zoom, 1)); padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); }
+.desc-preview-pane[hidden] { display: none; }
+.desc-preview-empty { color: var(--text-muted); font-style: italic; }
+/* 100%＝その入力欄の文字サイズ。TIPの編集だけは、カード文字サイズ(S/M/L)に連動する変数を基準にする */
+.task-quick-tip-edit-form .desc-preview-pane { --desc-base-fs: var(--qt-fs-desc, .8rem); }
+/* ツールバーの高さ。説明欄をフォーム高さに合わせる計算(calc(100% - 21px - ...))で差し引く */
+:root { --desc-bar-h: 30px; }
+.desc-preview-bar { height: 26px; margin-bottom: 4px; box-sizing: content-box; }
+
+/* 表示(詳細モーダル・TIP)も、入力欄のプレビューと同じ「基準の文字サイズ × 表示倍率」で決める。
+   100%のとき入力欄と同じ大きさになり、入力と表示で一望できる量が変わらない */
+.description-md { font-size: calc(var(--desc-base-fs, 0.85rem) * var(--desc-zoom, 1)); }
+.task-quick-tip-description .description-md { --desc-base-fs: var(--qt-fs-desc, .8rem); }
+.desc-zoom-inline { margin-left: auto; }
