@@ -356,6 +356,9 @@ function applyCardSize(size) {
   document.querySelectorAll('#card-size-group .card-size-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.size === value);
   });
+  // BT-464: よく使うヘッダの操作と全体設定の選択値を常に揃える。
+  const globalCardSize = document.getElementById('settings-card-size');
+  if (globalCardSize) globalCardSize.value = value;
 }
 
 applyCardSize(loadSettings().cardSize);
@@ -3404,12 +3407,30 @@ const settingsTickerDefaultModeEl = document.getElementById('settings-ticker-def
 const heatmapIntroTextEl = document.getElementById('heatmap-intro-text');
 const heatmapIntroSpeedEl = document.getElementById('heatmap-intro-speed');
 const heatmapIntroLitLevelEl = document.getElementById('heatmap-intro-lit-level');
+const settingsCardSizeEl = document.getElementById('settings-card-size');
+const settingsDescriptionZoomEl = document.getElementById('settings-description-zoom');
 
 // 全体設定タブを開いた時に、各欄へ現在値を反映する（BT-428）
 function populateGlobalSettings() {
   populateColumnOrder();
   populateHeatmapIntroSettings();
+  // ヘッダ/詳細画面の直接操作で変わった現在値を、全体設定を開くたびに表示する。
+  settingsCardSizeEl.value = document.documentElement.getAttribute('data-card-size') || 'l';
+  settingsDescriptionZoomEl.value = String(getDescriptionZoom());
 }
+
+// BT-464: 全体設定からも、既存のヘッダ文字サイズ操作と同じ保存値を変更できる。
+settingsCardSizeEl.addEventListener('change', () => {
+  const settings = loadSettings();
+  settings.cardSize = settingsCardSizeEl.value;
+  saveSettings(settings);
+  applyCardSize(settings.cardSize);
+});
+
+// BT-464: 詳細のMarkdown表示倍率は、既存の＋/−・Ctrl+ホイールと同じ値を使う。
+settingsDescriptionZoomEl.addEventListener('change', () => {
+  setDescriptionZoom(Number(settingsDescriptionZoomEl.value));
+});
 
 async function populateHeatmapIntroSettings() {
   heatmapIntroSettingsStatus.textContent = '';
@@ -3448,16 +3469,25 @@ function populateColumnOrder() {
 function renderColumnOrder() {
   columnOrderListEl.innerHTML = columnOrderDraft.map((c, i) => `
     <li class="column-order-item" data-id="${escapeHtml(c.id)}">
-      <span class="column-order-label">${escapeHtml(c.label)}</span>
-      <button type="button" class="column-order-btn" data-move="top" title="先頭へ" aria-label="${escapeHtml(c.label)}を先頭へ"${i === 0 ? ' disabled' : ''}>⤒</button>
-      <button type="button" class="column-order-btn" data-move="-1" title="上へ" aria-label="${escapeHtml(c.label)}を上へ"${i === 0 ? ' disabled' : ''}>↑</button>
-      <button type="button" class="column-order-btn" data-move="1" title="下へ" aria-label="${escapeHtml(c.label)}を下へ"${i === columnOrderDraft.length - 1 ? ' disabled' : ''}>↓</button>
+      <div class="column-order-preview-header">
+        <span class="column-order-label">${escapeHtml(c.label)}</span>
+        <span class="column-order-preview-kind">ボード列</span>
+      </div>
+      <div class="column-order-actions">
+      <button type="button" class="column-order-btn" data-move="top" title="先頭へ" aria-label="${escapeHtml(c.label)}を先頭へ"${i === 0 ? ' disabled' : ''}>|&lt;</button>
+      <button type="button" class="column-order-btn" data-move="-1" title="左へ" aria-label="${escapeHtml(c.label)}を左へ"${i === 0 ? ' disabled' : ''}>←</button>
+      <button type="button" class="column-order-btn" data-move="1" title="右へ" aria-label="${escapeHtml(c.label)}を右へ"${i === columnOrderDraft.length - 1 ? ' disabled' : ''}>→</button>
+      <button type="button" class="column-order-btn" data-move="end" title="末尾へ" aria-label="${escapeHtml(c.label)}を末尾へ"${i === columnOrderDraft.length - 1 ? ' disabled' : ''}>&gt;|</button>
+      </div>
     </li>`).join('');
   columnOrderListEl.querySelectorAll('.column-order-btn').forEach(btn => btn.addEventListener('click', () => {
     const idx = columnOrderDraft.findIndex(c => c.id === btn.closest('.column-order-item').dataset.id);
     if (btn.dataset.move === 'top') {
       if (idx <= 0) return;
       columnOrderDraft.unshift(columnOrderDraft.splice(idx, 1)[0]);
+    } else if (btn.dataset.move === 'end') {
+      if (idx < 0 || idx >= columnOrderDraft.length - 1) return;
+      columnOrderDraft.push(columnOrderDraft.splice(idx, 1)[0]);
     } else {
       const next = idx + Number(btn.dataset.move);
       if (idx < 0 || next < 0 || next >= columnOrderDraft.length) return;
@@ -5613,6 +5643,8 @@ function setDescriptionZoom(z, { persist = true } = {}) {
     try { localStorage.setItem(DESC_PREVIEW_ZOOM_KEY, String(descPreviewZoom)); } catch (e) { /* 保存できなくても動作に影響しない */ }
   }
   document.querySelectorAll('.desc-preview-zoom-label').forEach((el) => { el.textContent = `${Math.round(descPreviewZoom * 100)}%`; });
+  const globalDescriptionZoom = document.getElementById('settings-description-zoom');
+  if (globalDescriptionZoom) globalDescriptionZoom.value = String(descPreviewZoom);
   // 折りたたみ(2行)の説明欄は、倍率で「もっと見る」が要るかどうかが変わる
   document.querySelectorAll('.description-collapsible').forEach((w) => { if (w._refreshToggle) w._refreshToggle(); });
   document.dispatchEvent(new CustomEvent('description-zoom-change', { detail: { zoom: descPreviewZoom } }));
