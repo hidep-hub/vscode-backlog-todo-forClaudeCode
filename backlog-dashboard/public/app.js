@@ -5727,7 +5727,13 @@ function buildDescriptionSectionHtml(item) {
   }
   const description = item.description;
   if (!description) return '';
-  return `<div class="detail-section detail-description-section"><div class="detail-section-heading"><h4>説明</h4><button type="button" class="description-toggle-btn" hidden aria-expanded="false">▼ もっと見る</button>${descriptionZoomControlHtml('desc-zoom-inline')}</div><div class="description-collapsible"><div class="description-text description-md">${renderDescriptionMarkdown(description)}</div></div><button type="button" class="description-toggle-btn description-toggle-btn-bottom" hidden aria-expanded="true">▲ 閉じる</button></div>`;
+  // BT-466: 単発・子タスクはモーダル全体のスクロールに任せて常時展開する。
+  // 親子付け替え後も item の最新の子件数から毎回判定するため、次の再描画でEPIC表示へ切り替わる。
+  const isEpic = (item.childrenTotal || 0) > 0 || (item.children && item.children.length > 0);
+  if (!isEpic) {
+    return `<div class="detail-section detail-description-section detail-description-full"><div class="detail-section-heading"><h4>説明</h4>${descriptionZoomControlHtml('desc-zoom-inline')}</div><div class="description-text description-md">${renderDescriptionMarkdown(description)}</div></div>`;
+  }
+  return `<div class="detail-section detail-description-section detail-description-epic"><div class="detail-section-heading"><h4>説明</h4><button type="button" class="description-toggle-btn" hidden aria-expanded="false">▼ もっと見る</button>${descriptionZoomControlHtml('desc-zoom-inline')}</div><div class="description-collapsible"><div class="description-text description-md">${renderDescriptionMarkdown(description)}</div></div><button type="button" class="description-toggle-btn description-toggle-btn-bottom" hidden aria-expanded="true">▲ 閉じる</button></div>`;
 }
 
 // 説明欄の折りたたみトグルを初期化する（BT-080）。2行に収まる場合はボタンを出さない

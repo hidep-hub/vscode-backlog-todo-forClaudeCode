@@ -2874,17 +2874,17 @@ body {
   word-break: break-word;
 }
 
-.description-collapsible .description-text {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.detail-description-epic .description-collapsible .description-text {
+  /* BT-466: 標準倍率でおおむね3行ぶん。倍率そのものには追従させず、
+     小さくした文字ほど同じ枠内に多く表示する。 */
+  max-height: 66px;
   overflow: hidden;
   cursor: pointer;
 }
 
-.description-collapsible.expanded .description-text {
+.detail-description-epic .description-collapsible.expanded .description-text {
   display: block;
-  -webkit-line-clamp: unset;
+  max-height: none;
   overflow: visible;
   cursor: default;
 }
