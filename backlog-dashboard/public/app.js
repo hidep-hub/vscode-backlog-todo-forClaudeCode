@@ -5241,25 +5241,6 @@ function updateSearchHighlight() {
   renderSearchPreview(entry || null);
 }
 
-// 検索結果の説明欄をMarkdownで描画する(生HTML・画像・http(s)以外のリンクは無効化)。
-let searchPreviewMarked = null;
-function getSearchPreviewMarked() {
-  if (searchPreviewMarked) return searchPreviewMarked;
-  if (typeof marked === 'undefined') return null;
-  searchPreviewMarked = new marked.Marked({
-    gfm: true,
-    breaks: true,
-    renderer: {
-      html(token) { return escapeHtml(token.text); },
-      image(token) { return escapeHtml(token.text || ''); },
-      link(token) {
-        const inner = this.parser.parseInline(token.tokens);
-        return /^https?:\/\//i.test(token.href) ? `<a href="${escapeHtml(token.href)}" target="_blank" rel="noopener noreferrer">${inner}</a>` : inner;
-      },
-    },
-  });
-  return searchPreviewMarked;
-}
 
 // 右ペイン: 選択中の検索結果の内容を/api/task/:idから取得して表示する。
 async function renderSearchPreview(entry) {
@@ -5282,10 +5263,9 @@ async function renderSearchPreview(entry) {
     paneEl.innerHTML = `<div class="search-result-empty">内容を取得できなかったよ</div>`;
     return;
   }
-  const md = getSearchPreviewMarked();
   const desc = full.description || '';
   const descHtml = desc
-    ? (md ? md.parse(desc) : `<pre class="search-preview-plain">${escapeHtml(desc)}</pre>`)
+    ? renderDescriptionMarkdown(desc, { plainClass: 'search-preview-plain' })
     : '<span class="search-preview-nodesc">説明はありません</span>';
   const tags = (full.tags || []).map(t => `<span class="search-preview-tag">${escapeHtml(t.name)}</span>`).join('');
   const dates = [full.startDate ? `開始 ${escapeHtml(full.startDate)}` : '', full.dueDate ? `期日 ${escapeHtml(full.dueDate)}` : ''].filter(Boolean).join(' / ');
@@ -5577,16 +5557,132 @@ function formatDateTimeJst(iso) {
   return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}`;
 }
 
-// 説明テキストを適度に改行して表示用HTMLにする
-function formatDescription(desc) {
+// BT-462: 説明欄をMarkdownで描画する共通レンダラ(検索ペイン・詳細モーダル・TIP・入力欄のプレビューで共用)。
+// 生HTML・画像・http(s)以外のリンクは無効化する。markedが読み込めない時は従来どおりエスケープ表示にフォールバックする。
+let descriptionMarked = null;
+function getDescriptionMarked() {
+  if (descriptionMarked) return descriptionMarked;
+  if (typeof marked === 'undefined') return null;
+  descriptionMarked = new marked.Marked({
+    gfm: true,
+    breaks: true,
+    renderer: {
+      html(token) { return escapeHtml(token.text); },
+      image(token) { return escapeHtml(token.text || ''); },
+      link(token) {
+        const inner = this.parser.parseInline(token.tokens);
+        return /^https?:\/\//i.test(token.href) ? `<a href="${escapeHtml(token.href)}" target="_blank" rel="noopener noreferrer">${inner}</a>` : inner;
+      },
+    },
+  });
+  return descriptionMarked;
+}
+
+function renderDescriptionMarkdown(desc, { plainClass = 'description-plain' } = {}) {
   if (!desc) return '';
-  // まずエスケープ
-  let html = escapeHtml(desc);
-  // \n はそのまま改行として表示（white-space: pre-wrapで効く）
-  // 句点 (。) の後にスペースや区切りを追加（長い1行の場合）
-  // → CSSの word-break + pre-wrap で自然に折り返すので、\n だけ <br> に変換
-  html = html.replace(/\n/g, '<br>');
-  return html;
+  const md = getDescriptionMarked();
+  return md ? md.parse(desc) : `<pre class="${plainClass}">${escapeHtml(desc)}</pre>`;
+}
+
+// BT-462: 説明欄のMarkdown表示倍率(入力欄のプレビュー・詳細モーダル・右クリックTIPで共通)。
+// 100%＝入力欄と同じ文字サイズ。実際の倍率はCSS変数 --desc-zoom(:root)に持ち、各表示がそれを掛けて文字サイズを決める。
+// 外部(BT-464の全体設定など)から変える時は setDescriptionZoom(倍率) / getDescriptionZoom() を呼ぶ。
+// 変更時は document に 'description-zoom-change' イベント(detail.zoom)が飛ぶ。倍率はlocalStorageに保存する
+// (localStorageが使えない環境では既定値のまま)。
+const DESC_PREVIEW_ZOOM_KEY = 'descriptionPreviewZoom';
+const DESC_PREVIEW_ZOOM_MIN = 0.6;
+const DESC_PREVIEW_ZOOM_MAX = 1.6;
+const DESC_PREVIEW_ZOOM_STEP = 0.1;
+function clampDescriptionZoom(z) {
+  return Math.min(DESC_PREVIEW_ZOOM_MAX, Math.max(DESC_PREVIEW_ZOOM_MIN, Math.round(z * 100) / 100));
+}
+let descPreviewZoom = (() => {
+  try {
+    const v = parseFloat(localStorage.getItem(DESC_PREVIEW_ZOOM_KEY));
+    return Number.isFinite(v) ? clampDescriptionZoom(v) : 1;
+  } catch (e) { return 1; }
+})();
+
+function getDescriptionZoom() { return descPreviewZoom; }
+
+function setDescriptionZoom(z, { persist = true } = {}) {
+  if (!Number.isFinite(z)) return descPreviewZoom;
+  descPreviewZoom = clampDescriptionZoom(z);
+  document.documentElement.style.setProperty('--desc-zoom', String(descPreviewZoom));
+  if (persist) {
+    try { localStorage.setItem(DESC_PREVIEW_ZOOM_KEY, String(descPreviewZoom)); } catch (e) { /* 保存できなくても動作に影響しない */ }
+  }
+  document.querySelectorAll('.desc-preview-zoom-label').forEach((el) => { el.textContent = `${Math.round(descPreviewZoom * 100)}%`; });
+  // 折りたたみ(2行)の説明欄は、倍率で「もっと見る」が要るかどうかが変わる
+  document.querySelectorAll('.description-collapsible').forEach((w) => { if (w._refreshToggle) w._refreshToggle(); });
+  document.dispatchEvent(new CustomEvent('description-zoom-change', { detail: { zoom: descPreviewZoom } }));
+  return descPreviewZoom;
+}
+
+// ＋/－ボタンとラベルの部品(入力欄のツールバーと詳細モーダルの説明見出しで共用)
+function descriptionZoomControlHtml(extraClass = '', hidden = false) {
+  return `<span class="desc-preview-zoom ${extraClass}"${hidden ? ' hidden' : ''}>
+      <button type="button" class="desc-preview-zoom-btn" data-zoom="-1" title="縮小(Ctrl＋ホイール)" aria-label="縮小">−</button>
+      <span class="desc-preview-zoom-label">${Math.round(descPreviewZoom * 100)}%</span>
+      <button type="button" class="desc-preview-zoom-btn" data-zoom="1" title="拡大(Ctrl＋ホイール)" aria-label="拡大">＋</button>
+    </span>`;
+}
+
+setDescriptionZoom(descPreviewZoom, { persist: false }); // 起動時にCSS変数へ反映する
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest && e.target.closest('.desc-preview-zoom-btn');
+  if (btn) setDescriptionZoom(descPreviewZoom + Number(btn.dataset.zoom) * DESC_PREVIEW_ZOOM_STEP);
+});
+// Ctrl＋ホイール: ブラウザ全体のズームを奪って、説明欄(表示・プレビュー)の中だけ変える
+document.addEventListener('wheel', (e) => {
+  if (!e.ctrlKey || !e.target.closest || !e.target.closest('.description-md, .desc-preview-pane')) return;
+  e.preventDefault();
+  setDescriptionZoom(descPreviewZoom + (e.deltaY < 0 ? 1 : -1) * DESC_PREVIEW_ZOOM_STEP);
+}, { passive: false });
+
+// BT-462: 説明欄のtextareaに「編集/プレビュー」切替を被せる。
+// textarea自体(id・値・イベント)はそのまま残すので、保存や変更検知は従来のコードがそのまま動く。
+function wireDescriptionPreview(textarea) {
+  if (!textarea || textarea.dataset.previewWired) return;
+  textarea.dataset.previewWired = '1';
+  const bar = document.createElement('div');
+  bar.className = 'desc-preview-bar';
+  bar.innerHTML = `
+    <div class="desc-preview-tabs" role="tablist">
+      <button type="button" class="desc-preview-tab active" data-mode="edit" role="tab" aria-selected="true">編集</button>
+      <button type="button" class="desc-preview-tab" data-mode="preview" role="tab" aria-selected="false">プレビュー</button>
+    </div>
+    ${descriptionZoomControlHtml('', true)}`;
+  const pane = document.createElement('div');
+  pane.className = 'desc-preview-pane';
+  pane.hidden = true;
+  textarea.before(bar);
+  textarea.after(pane);
+
+  const zoomWrap = bar.querySelector('.desc-preview-zoom');
+  const setMode = (mode) => {
+    const preview = mode === 'preview';
+    if (preview) {
+      pane.innerHTML = textarea.value.trim()
+        ? renderDescriptionMarkdown(textarea.value)
+        : '<span class="desc-preview-empty">プレビューする内容がないよ</span>';
+      // 入力欄(非表示にする前)と同じ高さに固定する。拡大縮小で中身の量が変わっても、
+      // ダイアログの大きさが変わらず、はみ出す分はプレビュー内でスクロールする
+      pane.style.height = `${textarea.offsetHeight}px`;
+    }
+    textarea.hidden = preview;
+    pane.hidden = !preview;
+    zoomWrap.hidden = !preview;
+    bar.querySelectorAll('.desc-preview-tab').forEach((b) => {
+      const on = b.dataset.mode === mode;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', String(on));
+    });
+    if (!preview) textarea.focus();
+  };
+  bar.querySelectorAll('.desc-preview-tab').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+  // フォームを開き直して値が差し替わった時などに、編集モードへ戻す
+  textarea.resetDescriptionPreview = () => setMode('edit');
 }
 
 // 説明欄のHTML生成（BT-080: 長い説明は2行に折りたたみ、▼で展開できるようにする）
@@ -5599,7 +5695,7 @@ function buildDescriptionSectionHtml(item) {
   }
   const description = item.description;
   if (!description) return '';
-  return `<div class="detail-section detail-description-section"><div class="detail-section-heading"><h4>説明</h4><button type="button" class="description-toggle-btn" hidden aria-expanded="false">▼ もっと見る</button></div><div class="description-collapsible"><p class="description-text">${formatDescription(description)}</p></div><button type="button" class="description-toggle-btn description-toggle-btn-bottom" hidden aria-expanded="true">▲ 閉じる</button></div>`;
+  return `<div class="detail-section detail-description-section"><div class="detail-section-heading"><h4>説明</h4><button type="button" class="description-toggle-btn" hidden aria-expanded="false">▼ もっと見る</button>${descriptionZoomControlHtml('desc-zoom-inline')}</div><div class="description-collapsible"><div class="description-text description-md">${renderDescriptionMarkdown(description)}</div></div><button type="button" class="description-toggle-btn description-toggle-btn-bottom" hidden aria-expanded="true">▲ 閉じる</button></div>`;
 }
 
 // 説明欄の折りたたみトグルを初期化する（BT-080）。2行に収まる場合はボタンを出さない
@@ -5613,14 +5709,20 @@ function setupDescriptionToggle(container, { expanded = false } = {}) {
     const btn = section?.querySelector('.description-toggle-btn:not(.description-toggle-btn-bottom)');
     const bottomBtn = section?.querySelector('.description-toggle-btn-bottom');
     if (!text || !btn) return;
-    if (text.scrollHeight <= text.clientHeight + 1) return;
-    btn.hidden = false;
+    // BT-462: 表示倍率で「もっと見る」が要るかどうかが変わるため、判定は何度でも行えるようにしておく
+    const refreshToggle = () => {
+      const overflow = text.scrollHeight > text.clientHeight + 1;
+      btn.hidden = !overflow && !wrap.classList.contains('expanded');
+    };
+    wrap._refreshToggle = refreshToggle;
+    refreshToggle();
     // BT-421: 上下のボタンのラベル・aria-expandedを同期する。下ボタンは展開中だけ表示する
     const applyExpanded = (isExpanded) => {
       wrap.classList.toggle('expanded', isExpanded);
       btn.textContent = isExpanded ? '▲ 閉じる' : '▼ もっと見る';
       btn.setAttribute('aria-expanded', String(isExpanded));
       if (bottomBtn) bottomBtn.hidden = !isExpanded;
+      refreshToggle();
     };
     btn.addEventListener('click', () => applyExpanded(!wrap.classList.contains('expanded')));
     // BT-421: 下ボタンで閉じたら、画面外に出た説明欄の先頭が見える位置までスクロールを戻す
@@ -5631,10 +5733,10 @@ function setupDescriptionToggle(container, { expanded = false } = {}) {
     // BM-021: 省略表示（...）されている本文クリックでも展開できるようにする。
     // ただし読んでいる途中の誤クリックで閉じてしまうと困るため、本文クリックは展開のみ（閉じない）。閉じるのはボタンのみ。
     text.addEventListener('click', () => {
-      if (wrap.classList.contains('expanded')) return;
+      if (btn.hidden || wrap.classList.contains('expanded')) return;
       applyExpanded(true);
     });
-    if (expanded) applyExpanded(true);
+    if (expanded && !btn.hidden) applyExpanded(true);
   });
 }
 
@@ -7368,6 +7470,7 @@ function enterEditMode(item, body, isArchivedSingle, renderFn) {
 
   const titleInput = body.querySelector('#edit-task-title');
   const descInput = body.querySelector('#edit-task-description');
+  wireDescriptionPreview(descInput); // BT-462
   const projectInput = body.querySelector('#edit-task-project');
   const statusInput = body.querySelector('#edit-task-status');
   const categoryInput = body.querySelector('#edit-task-category');
@@ -8713,7 +8816,7 @@ function positionTaskQuickTip(tip) {
 function buildTaskQuickTipDescriptionInner(item) {
   const hasKey = Object.prototype.hasOwnProperty.call(item, 'description');
   if (!hasKey) return '<span class="task-quick-tip-description-loading">読み込み中...</span>';
-  return item.description ? escapeHtml(item.description) : '<span>説明はありません</span>';
+  return item.description ? `<div class="description-md">${renderDescriptionMarkdown(item.description)}</div>` : '<span>説明はありません</span>';
 }
 
 function buildTaskQuickTipHtml(item) {
@@ -8792,6 +8895,7 @@ function enterTaskQuickTipEditMode(tip, item) {
 
   const titleInput = tip.querySelector('#quick-tip-edit-title');
   const descInput = tip.querySelector('#quick-tip-edit-description');
+  wireDescriptionPreview(descInput); // BT-462
   const errorEl = tip.querySelector('#quick-tip-edit-error');
   const saveBtn = tip.querySelector('#quick-tip-edit-save');
   const cancelBtn = tip.querySelector('#quick-tip-edit-cancel');
@@ -9760,7 +9864,10 @@ function openAddTaskForm(defaultStatus, defaultProject, parentId, defaults) {
   // BM-061: 複製時はdefaultsでタイトル・説明だけ引き継ぎ、担当・日付は常に空にする
   const titleInput = form.querySelector('#add-task-title');
   titleInput.value = (defaults && defaults.title) || '';
-  form.querySelector('#add-task-description').value = (defaults && defaults.description) || '';
+  const addDescInput = form.querySelector('#add-task-description');
+  addDescInput.value = (defaults && defaults.description) || '';
+  wireDescriptionPreview(addDescInput); // BT-462: フォームは使い回すため初回だけ被せ、開くたびに編集モードへ戻す
+  if (addDescInput.resetDescriptionPreview) addDescInput.resetDescriptionPreview();
   form.querySelector('#add-task-assignee').value = '';
   form.querySelector('#add-task-start-date').value = '';
   form.querySelector('#add-task-due-date').value = '';

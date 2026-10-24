@@ -28,7 +28,8 @@ test('説明欄「もっと見る」の展開状態は、WS再描画(renderModal
 
 test('BT-421: 説明本文の下にも閉じるボタンがあり、上下のトグルは同じ状態で同期される', () => {
   // 下ボタンは初期hiddenで、本文(.description-collapsible)の直後に出力される
-  assert.match(app, /<\/p><\/div><button type="button" class="description-toggle-btn description-toggle-btn-bottom" hidden/);
+  // (BT-462: 本文はMarkdown描画のため<p>ではなく<div class="description-text description-md">)
+  assert.match(app, /<\/div><\/div><button type="button" class="description-toggle-btn description-toggle-btn-bottom" hidden/);
   // 上下のラベル・aria-expanded・下ボタンの表示をapplyExpandedに集約している
   assert.match(app, /const applyExpanded = \(isExpanded\) => \{[\s\S]*?bottomBtn\.hidden = !isExpanded;/);
   // 下ボタンで閉じた時はスクロールを説明欄の先頭へ戻す
