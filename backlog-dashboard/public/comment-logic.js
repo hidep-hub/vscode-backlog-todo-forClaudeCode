@@ -9,6 +9,12 @@
 
   const MAX_LENGTH = 1000; // サーバー(db/comments-repo.js MAX_BODY_LENGTH)と揃える。最終判定はサーバー
   const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const COMMENT_AGENT_META = {
+    codex: { label: 'Codex', icon: 'codex-icon.svg', avatarClass: 'comment-avatar-codex' },
+    'claude-code': { label: 'Claude Code', icon: 'claude-icon.png', avatarClass: 'comment-avatar-claude' },
+    kiro: { label: 'Kiro', icon: 'kiro-run-icon.png', avatarClass: 'comment-avatar-kiro' },
+    user: { label: 'ユーザー', icon: null },
+  };
 
   function escapeText(value) {
     return String(value == null ? '' : value)
@@ -48,6 +54,19 @@
     return lines.find(line => line !== '') || '';
   }
 
+  /** コメント投稿者の表示情報。登録済みAI以外はユーザーアイコンで安全に表示する。 */
+  function commentAgentMeta(actor) {
+    return COMMENT_AGENT_META[actor] || { label: actor || 'ユーザー', icon: null };
+  }
+
+  function buildCommentAuthorHtml(actor) {
+    const meta = commentAgentMeta(actor);
+    const avatar = meta.icon
+      ? `<img class="comment-avatar-image" src="${escapeText(meta.icon)}" alt="" aria-hidden="true">`
+      : '<span class="material-icon icon-person" aria-hidden="true"></span>';
+    return `<span class="comment-avatar${meta.icon ? ' comment-avatar-ai' : ''}${meta.avatarClass ? ` ${meta.avatarClass}` : ''}" title="${escapeText(meta.label)}">${avatar}</span>`;
+  }
+
   /**
    * カードに出す1行コメント。latest(最新1件)が無ければ空文字(コメントなしのカードは高さを変えない)。
    * 長い分はCSSの省略記号で切る。ツールチップには日時・投稿者・最新コメントの本文(先頭120文字)を出す。
@@ -81,13 +100,16 @@
   }
 
   function buildCommentItemHtml(comment) {
-    return `<li class="comment-item" data-comment-id="${escapeText(comment.id)}">`
+    const isUser = comment.createdBy === 'user';
+    return `<li class="comment-item${isUser ? ' comment-item-user' : ''}" data-comment-id="${escapeText(comment.id)}">`
+      + buildCommentAuthorHtml(comment.createdBy)
+      + '<div class="comment-bubble">'
       + '<div class="comment-item-meta">'
+      + `<span class="comment-item-author">${escapeText(commentAgentMeta(comment.createdBy).label)}</span>`
       + `<span class="comment-item-time">${escapeText(formatCommentDateTime(comment.createdAt))}</span>`
-      + `<span class="comment-item-author">${escapeText(comment.createdBy)}</span>`
       + `<button type="button" class="comment-delete-btn" data-comment-id="${escapeText(comment.id)}" title="このコメントを削除" aria-label="このコメントを削除"><span class="material-icon icon-delete"></span></button>`
       + '</div>'
-      + `<div class="comment-item-body">${escapeText(comment.body)}</div></li>`;
+      + `<div class="comment-item-body">${escapeText(comment.body)}</div></div></li>`;
   }
 
   /** 一覧部分のHTML。nullは読み込み中、空配列はコメントなし。 */
@@ -109,7 +131,8 @@
   function buildCommentSectionHtml({ taskId, comments, count, variant }) {
     const n = Array.isArray(comments) ? comments.length : (typeof count === 'number' ? count : 0);
     return `<div class="detail-section comment-section comment-section-${escapeText(variant)}" data-task-id="${escapeText(taskId)}" data-variant="${escapeText(variant)}">`
-      + `<h4>コメント <span class="comment-count">${n > 0 ? n : ''}</span></h4>`
+      + `<div class="comment-section-heading"><h4>コメント <span class="comment-count">${n > 0 ? n : ''}</span></h4>`
+      + '<button type="button" class="comment-toggle-btn" aria-expanded="true" title="コメント一覧を折り畳む"><span class="material-icon icon-arrow-forward comment-toggle-icon"></span><span class="comment-toggle-label">折り畳む</span></button></div>'
       + '<div class="comment-form">'
       + `<textarea class="comment-input" rows="2" maxlength="${MAX_LENGTH}" placeholder="状況をひとこと（Ctrl+Enterで投稿）" aria-label="コメントを入力"></textarea>`
       + '<div class="comment-form-actions">'
@@ -121,7 +144,7 @@
 
   return {
     MAX_LENGTH, escapeText, formatCommentDate, formatCommentDateTime, firstLine,
-    buildCardCommentHtml, resolveComments, buildCommentItemHtml, buildCommentListInnerHtml,
+    commentAgentMeta, buildCommentAuthorHtml, buildCardCommentHtml, resolveComments, buildCommentItemHtml, buildCommentListInnerHtml,
     hasDraftText, buildCommentSectionHtml,
   };
 });
