@@ -2658,6 +2658,27 @@ body {
   color: var(--text-muted);
 }
 
+/* 実行中の停止はIDと同じ文脈の操作なので、詳細ヘッダーに小さく置く。 */
+.detail-header-stop-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 21px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: rgba(234, 179, 8, 0.14);
+  color: #b45309;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.detail-header-stop-btn:hover {
+  background: #b45309;
+  color: #fff;
+}
+
 .detail-tag {
   font-size: 0.65rem;
   padding: 2px 6px;
@@ -4300,22 +4321,47 @@ body {
 /* 全ボタンを1つのflex-wrapグループにまとめて、内容幅で並べる。
    意味のあるペア単位でflex:1にする方式(BT-063)は、条件次第で片割れが消えると
    残った1個が不要に全幅表示されてしまう(BT-166で判明)ためやめた */
+.detail-action-groups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0;
+}
+
+.detail-action-group {
+  min-inline-size: 0;
+  width: max-content;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px 6px;
+}
+
+.detail-action-group legend {
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .detail-actions-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 6px 0;
+  gap: 5px;
+  margin: 0;
 }
 
 .add-child-btn,
 .detail-action-btn {
   flex: 0 0 auto;
-  padding: 5px 12px;
+  padding: 4px 8px;
   border-radius: 6px;
   border: 1px solid transparent;
   background: var(--btn-neutral-bg);
   color: var(--btn-neutral-fg);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 600;
   cursor: pointer;
   text-align: center;
@@ -4895,12 +4941,20 @@ body {
   height: 0.9em;
 }
 
-/* BM-126: detail-actions-row内のテキスト付きボタン(add-child-btn)でも同様にアイコンを縮小する */
+/* 詳細操作のサービスロゴはMaterial Symbols系アイコンと同じ大きさに揃える。 */
+.add-child-btn .github-mark-icon,
 .add-child-btn .redmine-mark-icon {
   width: 0.85em;
   height: 0.85em;
   vertical-align: -0.1em;
   margin-right: 2px;
+}
+
+.editor-brand-icon {
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 2px;
+  vertical-align: -0.12em;
 }
 
 /* --- 期日カレンダー / クイック選択 (BT-354) --- */

@@ -4748,23 +4748,37 @@ function actionsRow(...btns) {
   return content ? `<div class="detail-actions-row">${content}</div>` : '';
 }
 
+// 詳細モーダルの操作を目的別の枠に分け、条件により中身がない枠は出さない。
+function actionGroup(label, ...btns) {
+  const row = actionsRow(...btns);
+  return row ? `<fieldset class="detail-action-group"><legend>${label}</legend>${row}</fieldset>` : '';
+}
+
+function actionGroups(...groups) {
+  const content = groups.filter(Boolean).join('');
+  return content ? `<div class="detail-action-groups">${content}</div>` : '';
+}
+
 // ワークスペース導線ボタンのHTMLを生成する（BT-053）
 // プロジェクトにworkspaceパスが設定済みなら「開く」、未設定なら「作る」を出し分ける
 // BM-007: 「開く」はエディタ固定(VS Code)だったため、code/kiroの2ボタンに分ける
-function buildWorkspaceActionHtml(item) {
+function buildWorkspaceOpenActionHtml(item) {
   if (!item.id || item.id === '-') return '';
   const workspaceMap = currentBoardData && currentBoardData.workspaceMap || {};
   const wsPath = workspaceMap[item.project] || '';
-  if (wsPath) {
-    if (isCurrentUrlWorkspace(item)) {
-      return `<button class="add-child-btn workspace-open-current" id="modal-open-workspace-btn" disabled title="現在のワークスペースを表示中です"><span class="material-icon icon-folder-open"></span> 現在のワークスペース</button>`;
-    }
-    return [
-      `<button class="add-child-btn" id="modal-open-workspace-code-btn" data-editor="code"><span class="material-icon icon-folder-open"></span> codeで開く</button>`,
-      `<button class="add-child-btn" id="modal-open-workspace-kiro-btn" data-editor="kiro"><span class="material-icon icon-folder-open"></span> KIROで開く</button>`,
-    ].join('');
-  }
-  return `<button class="add-child-btn btn-add" id="modal-create-workspace-btn"><span class="material-icon icon-construction"></span> ワークスペースを作る</button>`;
+  if (!wsPath || isCurrentUrlWorkspace(item)) return '';
+  return [
+    `<button class="add-child-btn" id="modal-open-workspace-code-btn" data-editor="code" title="VS Codeで開く" aria-label="VS Codeで開く"><img class="editor-brand-icon" src="icons/vscode.svg" alt=""> 開く</button>`,
+    `<button class="add-child-btn" id="modal-open-workspace-kiro-btn" data-editor="kiro" title="KIROで開く" aria-label="KIROで開く"><img class="editor-brand-icon" src="icons/kiro.svg" alt=""> 開く</button>`,
+  ].join('');
+}
+
+function buildWorkspaceCreateActionHtml(item) {
+  if (!item.id || item.id === '-') return '';
+  const workspaceMap = currentBoardData && currentBoardData.workspaceMap || {};
+  const wsPath = workspaceMap[item.project] || '';
+  if (wsPath) return '';
+  return `<button class="add-child-btn btn-add" id="modal-create-workspace-btn"><span class="material-icon icon-construction"></span> ワークスペース作成</button>`;
 }
 
 function setupWorkspaceActionButtons(body, item) {
@@ -4781,7 +4795,7 @@ function setupWorkspaceActionButtons(body, item) {
 // ワークスペース移管ボタンのHTMLを生成する（BT-063）
 function buildMoveActionHtml(item) {
   if (!item.id || item.id === '-') return '';
-  return `<button class="add-child-btn" id="modal-move-btn"><span class="material-icon icon-local-shipping"></span> ワークスペースを移管</button>`;
+  return `<button class="add-child-btn" id="modal-move-btn"><span class="material-icon icon-local-shipping"></span> 他のWSに移動</button>`;
 }
 
 function setupMoveActionButton(body, item, isChild) {
@@ -7215,7 +7229,7 @@ function openChildModal(item, parentEpic = null) {
 
   // BM-028: 子タスクも実行中ならそのタスクだけを停止できる（renderModalContentの親/単体用ロジックと同じ条件）。
   const stopRunningBtnHtml = (item.id && item.id !== '-' && item.running)
-    ? `<button class="detail-action-btn btn-stop-running" id="modal-stop-running-btn"><span class="material-icon icon-stop"></span> 停止</button>`
+    ? `<button class="detail-header-stop-btn" id="modal-stop-running-btn" title="実行中を停止"><span class="material-icon icon-stop"></span> 停止</button>`
     : '';
 
   // 親から外すボタン（BT-034: attachの逆操作。単に外すだけで他の親には付け替えない）
@@ -7231,21 +7245,22 @@ function openChildModal(item, parentEpic = null) {
 
   // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
   const githubLinkBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn" id="modal-github-link-btn"><span class="material-icon icon-link"></span> GitHub Issueと紐づける</button>`
+    ? `<button class="add-child-btn" id="modal-github-link-btn">${GITHUB_MARK_SVG} 紐づけ</button>`
     : '';
 
   // GitHub Issue新規作成ボタン（BT-134）
   const githubCreateBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn"><span class="material-icon icon-upload"></span> GitHub Issueを新規作成</button>`
+    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn">${GITHUB_MARK_SVG} 作成</button>`
     : '';
 
   // Redmineチケット紐付けボタン（BM-126: GitHubと同様にカードと詳細モーダルの両方に配備。上書き許可のため常に表示）
   const redmineLinkBtnHtml = (item.id && item.id !== '-')
-    ? `<button class="add-child-btn" id="modal-redmine-link-btn">${REDMINE_MARK_SVG} Redmineチケットと紐づける</button>`
+    ? `<button class="add-child-btn" id="modal-redmine-link-btn">${REDMINE_MARK_SVG} 紐づけ</button>`
     : '';
 
   // ワークスペース導線ボタン（BT-053）
-  const workspaceActionHtml = buildWorkspaceActionHtml(item);
+  const workspaceOpenActionHtml = buildWorkspaceOpenActionHtml(item);
+  const workspaceCreateActionHtml = buildWorkspaceCreateActionHtml(item);
 
   // ワークスペース移管ボタン（BT-063）
   const moveActionHtml = buildMoveActionHtml(item);
@@ -7258,12 +7273,17 @@ function openChildModal(item, parentEpic = null) {
   const headerHtml = `
     ${parentCrumbHtml}
     <div class="detail-header">
-      ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
+      ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>${stopRunningBtnHtml}
       ${statusBadge}
       ${project}${githubBadge}${redmineBadge}${gitlabBadge}
     </div>
     <h3 class="detail-title">${escapeHtml(item.title)}${titlePinBtnHtml}</h3>
-    ${actionsRow(stopRunningBtnHtml, editBtnHtml, copyBtnHtml, deleteBtnHtml, workspaceActionHtml, moveActionHtml, detachBtn, githubLinkBtnHtml, githubCreateBtnHtml, redmineLinkBtnHtml)}
+    ${actionGroups(
+      actionGroup('タスク操作', editBtnHtml, copyBtnHtml, deleteBtnHtml, detachBtn),
+      actionGroup('開く', workspaceOpenActionHtml),
+      actionGroup('WS操作', workspaceCreateActionHtml, moveActionHtml),
+      actionGroup('外部連携', githubLinkBtnHtml, githubCreateBtnHtml, redmineLinkBtnHtml)
+    )}
   `;
 
   // BM-136: コメント欄は右カラムの情報の下・成果物の上に置く。再描画で入力中の状態を失わないよう控えて戻す
@@ -8191,7 +8211,7 @@ function renderModalContent(item) {
 
   // 子タスク追加ボタン（Epicでも非Epicでも表示）
   const addChildBtn = (item.id && item.id !== '-')
-    ? `<button class="add-child-btn btn-add" id="modal-add-child-btn">＋ 子タスクを追加</button>`
+    ? `<button class="add-child-btn btn-add" id="modal-add-child-btn">＋ 子を追加</button>`
     : '';
 
   // 親を設定ボタン（BT-034: 単独タスク→その場でEPIC化。子を持つ/完了済みは対象外）
@@ -8201,7 +8221,7 @@ function renderModalContent(item) {
 
   // BT-277: 親EPICか単体かを問わず、実行中ならそのタスクだけを停止できる。
   const stopRunningBtnHtml = (item.id && item.id !== '-' && item.running)
-    ? `<button class="detail-action-btn btn-stop-running" id="modal-stop-running-btn"><span class="material-icon icon-stop"></span> 停止</button>`
+    ? `<button class="detail-header-stop-btn" id="modal-stop-running-btn" title="実行中を停止"><span class="material-icon icon-stop"></span> 停止</button>`
     : '';
 
   const detailSpinner = item.running ? '<span class="running-spinner detail-spinner"></span>' : '';
@@ -8214,21 +8234,22 @@ function renderModalContent(item) {
 
   // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
   const githubLinkBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn" id="modal-github-link-btn"><span class="material-icon icon-link"></span> GitHub Issueと紐づける</button>`
+    ? `<button class="add-child-btn" id="modal-github-link-btn">${GITHUB_MARK_SVG} 紐づけ</button>`
     : '';
 
   // GitHub Issue新規作成ボタン（BT-134: Epicの場合は子タスクもsub-issueとして一括作成）
   const githubCreateBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn"><span class="material-icon icon-upload"></span> GitHub Issueを新規作成</button>`
+    ? `<button class="add-child-btn btn-add" id="modal-github-create-btn">${GITHUB_MARK_SVG} 作成</button>`
     : '';
 
   // Redmineチケット紐付けボタン（BM-126: GitHubと同様にカードと詳細モーダルの両方に配備。上書き許可のため常に表示）
   const redmineLinkBtnHtml = (item.id && item.id !== '-')
-    ? `<button class="add-child-btn" id="modal-redmine-link-btn">${REDMINE_MARK_SVG} Redmineチケットと紐づける</button>`
+    ? `<button class="add-child-btn" id="modal-redmine-link-btn">${REDMINE_MARK_SVG} 紐づけ</button>`
     : '';
 
   // ワークスペース導線ボタン（BT-053）
-  const workspaceActionHtml = buildWorkspaceActionHtml(item);
+  const workspaceOpenActionHtml = buildWorkspaceOpenActionHtml(item);
+  const workspaceCreateActionHtml = buildWorkspaceCreateActionHtml(item);
 
   // ワークスペース移管ボタン（BT-063: 子ありEpicはサーバー側でも拒否されるため出さない）
   const moveActionHtml = (!isEpic && item.statusCode !== 'done') ? buildMoveActionHtml(item) : '';
@@ -8240,13 +8261,18 @@ function renderModalContent(item) {
 
   const headerHtml = `
     <div class="detail-header">
-      ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>
+      ${detailSpinner}<span class="detail-id">${escapeHtml(item.id || '-')}</span>${stopRunningBtnHtml}
       ${statusBadge}
       ${badgeHtml}
       ${project}${githubBadge}${redmineBadge}${gitlabBadge}
     </div>
     <h3 class="detail-title"><span class="detail-title-text">${isEpic ? '<span class="epic-title-chip" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : ''}${escapeHtml(item.title)}</span>${titlePinBtnHtml}</h3>
-    ${actionsRow(stopRunningBtnHtml, editBtnHtml, copyBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn, workspaceActionHtml, moveActionHtml, githubLinkBtnHtml, githubCreateBtnHtml, redmineLinkBtnHtml)}
+    ${actionGroups(
+      actionGroup('タスク操作', editBtnHtml, copyBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn),
+      actionGroup('開く', workspaceOpenActionHtml),
+      actionGroup('WS操作', workspaceCreateActionHtml, moveActionHtml),
+      actionGroup('外部連携', githubLinkBtnHtml, githubCreateBtnHtml, redmineLinkBtnHtml)
+    )}
   `;
 
   // BM-136: コメント欄は右カラムの情報の下・成果物の上に置く。再描画で入力中の状態を失わないよう控えて戻す
