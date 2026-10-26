@@ -4,7 +4,7 @@
 // its-settings-api.jsと同じ切り出し方針(スクリプトの実行は呼び出し元から注入し、テストで差し替えられる)。
 //   GET  /api/rules-status  scripts/install-agent-rules.ps1 -Check の結果(読み取りのみ)
 //   POST /api/rules-sync    要同期の時だけ scripts/install-agent-rules.ps1 を実行(既に最新なら何もしない)
-// 同期スクリプトは実行のたびに配置先へ.bakを作るため、最新の時は実行しない(利用者のホーム配下にゴミを増やさない)。
+// 同期スクリプトは実行のたびにClaude Code/Codexの配置先へ.bakを作る(Kiroは作らない。BM-141)ため、最新の時は実行しない(利用者のホーム配下にゴミを増やさない)。
 
 const fs = require('node:fs');
 const path = require('node:path');

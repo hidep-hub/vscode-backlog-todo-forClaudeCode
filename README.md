@@ -147,7 +147,7 @@ npm start
    npm start
    ```
 
-起動後に `GET /api/health` が200を返すことを確認してください。導入スクリプトは既存のエージェント設定をタイムスタンプ付き`.bak`へ退避してから更新します。既存のダッシュボードへワークスペースを追加する場合は、`POST /api/create-workspace` を使います。
+起動後に `GET /api/health` が200を返すことを確認してください。Claude Code / Codexの導入スクリプトは、既存の設定をタイムスタンプ付き`.bak`へ退避してから更新します。Kiroの導入スクリプトは、`~/.kiro/skills/`配下に`.bak`フォルダがあるとスキルが重複して表示されるため、`.bak`を作らずに上書きします。既存のダッシュボードへワークスペースを追加する場合は、`POST /api/create-workspace` を使います。
 
 ### 更新時のルール同期
 
@@ -157,7 +157,7 @@ npm start
 .\scripts\install-agent-rules.ps1
 ```
 
-このスクリプトはversionだけを更新するものではなく、正本のルール全文とエージェント用スキルをバックアップ付きで配備します。API実装の変更履歴は `git log -p -- backlog-dashboard/server.js` で確認できます。
+このスクリプトはversionだけを更新するものではなく、正本のルール全文とエージェント用スキルを配備します（Claude Code / Codexは`.bak`付き、Kiroは`.bak`なし）。API実装の変更履歴は `git log -p -- backlog-dashboard/server.js` で確認できます。
 
 ### Windows起動時の自動起動
 

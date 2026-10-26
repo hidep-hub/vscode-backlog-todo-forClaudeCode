@@ -36,7 +36,7 @@ AGENTS.md.sample（Git管理の唯一の正本）
 ### 正本を編集したときの反映手順（この順に全て実行する。省略も、手作業での代替も禁止）
 
 1. 編集するのは`AGENTS.md.sample`だけ。差分編集（`str_replace`等）で変更し、配布先のファイルは開かない。
-2. **反映する**: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-agent-rules.ps1`（引数なしで3エージェント分を一括更新する。リポジトリ内の配布資材2か所へのコピーと、この端末の`~/.claude`・`~/.codex`・`~/.kiro`への配置まで、1回で終わる。配置先には`.bak`が作られる）
+2. **反映する**: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-agent-rules.ps1`（引数なしで3エージェント分を一括更新する。リポジトリ内の配布資材2か所へのコピーと、この端末の`~/.claude`・`~/.codex`・`~/.kiro`への配置まで、1回で終わる。Claude Code・Codexの配置先には`.bak`が作られるが、Kiroの配置先には作られない。`~/.kiro/skills/`配下に`.bak-日時`のフォルダがあるとKiroが同名スキルとして重複表示するため（BM-141））
 3. **確認する**: 同じスクリプトに`-Check`を付けて実行し、全項目が`current`で、終了コードが0であることを確認する。
 4. ユーザーへ、更新された配置先と`-Check`の結果を報告する。
 

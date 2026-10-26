@@ -20,7 +20,7 @@ description: SQLite版backlog-dashboardとAIエージェント向け運用ルー
 
 ## Claude Code / Codex / Kiroルールの配置・更新
 
-clone直後、およびリポジトリをpullした後は、リポジトリ直下で `scripts/install-agent-rules.ps1` を実行する。この同期はversion文字列だけでなく、API仕様を含むルール正本の全文をグローバル設定へバックアップ付きで配備する。個別に更新するときは `install-claude-backlog.ps1`、`install-codex-backlog.ps1`、`install-kiro-backlog.ps1` を使う。
+clone直後、およびリポジトリをpullした後は、リポジトリ直下で `scripts/install-agent-rules.ps1` を実行する。この同期はversion文字列だけでなく、API仕様を含むルール正本の全文をグローバル設定へ配備する（Claude Code・Codexは`.bak`付き、Kiroは`.bak`を作らない）。個別に更新するときは `install-claude-backlog.ps1`、`install-codex-backlog.ps1`、`install-kiro-backlog.ps1` を使う。
 
 ## 既存ダッシュボードへのワークスペース追加
 
