@@ -26,4 +26,4 @@ description: Use when a user asks to use backlog-dashboard in a new workspace, a
 
 ## Kiroルールの配置・更新
 
-リポジトリの `scripts/install-kiro-backlog.ps1` を実行する。このスクリプトは、リポジトリ内の `.kiro/skills/install-backlog-hub/assets/backlog-hub-rules.md`（配布元の中間ファイル。正本`AGENTS.md.sample`と`install-agent-rules.ps1`で同期）を元に、既存の `~/.kiro/steering/backlog-hub-rules.md` と `~/.kiro/skills/install-backlog-hub` をタイムスタンプ付き`.bak`へ退避してから更新する。
+リポジトリの `scripts/install-kiro-backlog.ps1` を実行する。このスクリプトは、リポジトリ内の `.kiro/skills/install-backlog-hub/assets/backlog-hub-rules.md`（配布元の中間ファイル。正本`AGENTS.md.sample`と`install-agent-rules.ps1`で同期）を元に、既存の `~/.kiro/steering/backlog-hub-rules.md` と `~/.kiro/skills/install-backlog-hub` を上書きして更新する。**`.bak`は作らない**（Kiroは`~/.kiro/skills/`配下のフォルダを全て走査するため、`.bak-日時`のフォルダがあると同名スキルとして増えて見える。配布物の原本はGit管理）。旧`~/.kiro/skills/backlog-dashboard`が残っている場合は、`~/.kiro/backups/backlog-hub/`へ移す。

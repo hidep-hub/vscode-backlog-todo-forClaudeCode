@@ -13,16 +13,14 @@ $targetSteering = Join-Path $kiroHome 'steering\backlog-hub-rules.md'
 $targetSkill = Join-Path $kiroHome 'skills\install-backlog-hub'
 $legacyTargetSkill = Join-Path $kiroHome 'skills\backlog-dashboard'
 
-function Backup-ThenCopyFile {
+# BM-141: No timestamped .bak is made here. The deployed files are copies of files tracked in git,
+# and a .bak folder under ~/.kiro/skills holds a SKILL.md whose name does not match its folder,
+# which Kiro lists as one more "install-backlog-hub" skill on every sync.
+function Copy-FileToTarget {
     param([string]$Source, [string]$Destination)
 
     $targetDirectory = Split-Path -Parent $Destination
     New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
-    if (Test-Path -LiteralPath $Destination) {
-        $backup = "$Destination.bak-$(Get-Date -Format 'yyyyMMddHHmmss')"
-        Copy-Item -LiteralPath $Destination -Destination $backup -Force
-        Write-Host "Backup created: $backup"
-    }
     Copy-Item -LiteralPath $Source -Destination $Destination -Force
     Write-Host "Installed: $Destination"
 }
@@ -31,21 +29,20 @@ if (-not (Test-Path -LiteralPath $sourceSteering)) {
     throw "Steering source was not found: $sourceSteering"
 }
 
-Backup-ThenCopyFile -Source $sourceSteering -Destination $targetSteering
+Copy-FileToTarget -Source $sourceSteering -Destination $targetSteering
 
 if (-not $SkipSkill) {
     if (-not (Test-Path -LiteralPath $sourceSkill)) {
         throw "Skill source was not found: $sourceSkill"
     }
-    if (Test-Path -LiteralPath $targetSkill) {
-        $backup = "$targetSkill.bak-$(Get-Date -Format 'yyyyMMddHHmmss')"
-        Copy-Item -LiteralPath $targetSkill -Destination $backup -Recurse -Force
-        Write-Host "Backup created: $backup"
-    }
     if (Test-Path -LiteralPath $legacyTargetSkill) {
-        $legacyBackup = "$legacyTargetSkill.bak-$(Get-Date -Format 'yyyyMMddHHmmss')"
-        Move-Item -LiteralPath $legacyTargetSkill -Destination $legacyBackup
-        Write-Host "Legacy skill backed up: $legacyBackup"
+        # The old skill folder must not stay under skills\ : Kiro scans every folder there and would list it twice.
+        # Move it (one time only) to a folder that Kiro does not scan.
+        $legacyArchiveRoot = Join-Path $kiroHome 'backups\backlog-hub'
+        New-Item -ItemType Directory -Path $legacyArchiveRoot -Force | Out-Null
+        $legacyArchive = Join-Path $legacyArchiveRoot "legacy-backlog-dashboard-$(Get-Date -Format 'yyyyMMddHHmmss')"
+        Move-Item -LiteralPath $legacyTargetSkill -Destination $legacyArchive
+        Write-Host "Legacy skill moved out of the skills folder: $legacyArchive"
     }
     New-Item -ItemType Directory -Path (Split-Path -Parent $targetSkill) -Force | Out-Null
     Copy-Item -LiteralPath $sourceSkill -Destination (Split-Path -Parent $targetSkill) -Recurse -Force
