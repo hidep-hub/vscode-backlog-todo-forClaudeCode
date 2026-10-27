@@ -5204,7 +5204,8 @@ function highlightQueryInElement(root, query) {
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
-    if (node.parentElement && node.parentElement.closest('mark, script, style')) continue;
+    // BM-145: mermaidの図(SVG内の文字)は壊さないよう対象外にする
+    if (node.parentElement && node.parentElement.closest('mark, script, style, .mermaid-block')) continue;
     const text = node.nodeValue;
     if (!text.toLowerCase().includes(q)) continue;
     const holder = document.createElement('span');
@@ -5623,6 +5624,12 @@ function getDescriptionMarked() {
     renderer: {
       html(token) { return escapeHtml(token.text); },
       image(token) { return escapeHtml(token.text || ''); },
+      // BM-145: ```mermaid ブロックは図の置き場にする(描画は description-mermaid.js)。他の言語は標準の描画のまま(falseで委譲)
+      code(token) {
+        const lang = (token.lang || '').trim().split(/\s+/)[0].toLowerCase();
+        if (lang === 'mermaid' && typeof renderMermaidBlockHtml === 'function') return renderMermaidBlockHtml(token.text);
+        return false;
+      },
       link(token) {
         const inner = this.parser.parseInline(token.tokens);
         return /^https?:\/\//i.test(token.href) ? `<a href="${escapeHtml(token.href)}" target="_blank" rel="noopener noreferrer">${inner}</a>` : inner;

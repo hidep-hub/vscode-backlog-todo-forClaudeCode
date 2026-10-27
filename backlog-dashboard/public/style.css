@@ -8422,6 +8422,18 @@ body.weekly-resizing { user-select: none; cursor: col-resize; }
 .description-md hr, .desc-preview-pane hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 .description-plain { white-space: pre-wrap; margin: 0; }
 
+/* BM-145: 説明欄のmermaid図。描画前・エラー時は元コードを出し、描画後はSVGを幅に収めて中央に置く */
+.description-md .mermaid-block,
+.desc-preview-pane .mermaid-block,
+.search-preview-desc .mermaid-block { margin: 6px 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); overflow-x: auto; text-align: center; }
+.mermaid-block > svg { max-width: 100%; height: auto; }
+/* TIPの「.task-quick-tip-description span」(説明なしの注記用の斜体・薄い文字色)が、図の中のラベル(span)に及ばないようにする */
+.mermaid-block svg span { font-style: normal; color: inherit; }
+.mermaid-block > pre.mermaid-source { margin: 0; padding: 0; border: none; background: none; text-align: left; }
+.mermaid-block[data-mermaid-state="pending"] > pre.mermaid-source,
+.mermaid-block[data-mermaid-state="rendering"] > pre.mermaid-source { opacity: .55; }
+.mermaid-block .mermaid-error-msg { margin-bottom: 6px; text-align: left; color: var(--btn-danger-fg); font-size: .9em; }
+
 /* 入力欄の「編集/プレビュー」切替と拡大縮小 */
 .desc-preview-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .desc-preview-tabs { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
