@@ -11,6 +11,7 @@
 //   ctx.groups        [{ epic: item|null, children: [item...] }]  epic=nullは単発タスクの束
 //   ctx.today         'YYYY-MM-DD' (JST)
 //   ctx.escapeHtml    (s) => string
+//   ctx.singleChipHtml 単発タスク見出しの先頭に出すチップのHTML(BM-143。無ければ出さない)
 //   ctx.holidayName   (ymd) => 祝日名 | null
 //   ctx.groupByWorkspace ワークスペースごとの折りたたみ見出しで束ねるか(ALL表示で複数ある時)
 //   ctx.onSaveDates   (taskId, patch{startDate?,dueDate?}) => Promise  patchの値は''でクリア
@@ -415,7 +416,7 @@
         const addSingleBtn = ctx.onAddTask
           ? `<button type="button" class="gantt-add-child" data-act="add-single" data-project="${esc(r.project || '')}" title="${esc(r.project || '')} に単発タスクを追加" aria-label="単発タスクを追加"><span class="gantt-add-child-icon">＋</span><span class="gantt-add-child-text">単発タスクを追加</span></button>`
           : '';
-        return `<div class="gantt-row gantt-row-head"><div class="gantt-label gantt-label-head${r.inCat ? ' in-cat' : ''}" data-act="toggle-epic" data-epic-id="${esc(r.key)}"><span class="gantt-toggle">${r.collapsed ? '▸' : '▾'}</span><span class="material-icon icon-sticky-note gantt-single-icon" title="単発タスク（親を持たないタスク）"></span>${esc(r.label)}<span class="gantt-count">${r.count}</span>${addSingleBtn}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px"></div></div>`;
+        return `<div class="gantt-row gantt-row-head"><div class="gantt-label gantt-label-head${r.inCat ? ' in-cat' : ''}" data-act="toggle-epic" data-epic-id="${esc(r.key)}"><span class="gantt-toggle">${r.collapsed ? '▸' : '▾'}</span>${ctx.singleChipHtml || ''}${esc(r.label)}<span class="gantt-count">${r.count}</span>${addSingleBtn}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div><div class="gantt-track" style="width:${range.days * dw}px"></div></div>`;
       }
       if (r.type === 'epic') {
         const collapsed = state.collapsed.has(r.epic.id);
