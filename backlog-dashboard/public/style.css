@@ -2284,8 +2284,10 @@ body {
   flex-shrink: 0;
 }
 
-/* BT-450: EPICタイトル先頭のアイコンチップ（メインボード・Plan Board共通） */
-.epic-title-chip {
+/* BT-450: EPICタイトル先頭のアイコンチップ（メインボード・Plan Board共通）
+   BM-143: 単発タスクのチップ(.single-title-chip)も同じ寸法を共有し、色だけ反転させる */
+.epic-title-chip,
+.single-title-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2293,9 +2295,30 @@ body {
   height: 1.25em;
   margin-right: 0.35em;
   border-radius: 5px;
+  vertical-align: -0.2em;
+}
+
+.epic-title-chip {
   background: var(--accent);
   color: #fff;
-  vertical-align: -0.2em;
+}
+
+/* BM-143: 単発タスク用。EPICの「青地に白の3枚」に対し、白地(外枠なし)で一番上の1枚だけアクセント色で塗り、
+   下の2枚は同じ色を薄めた線にする。インラインSVGなので色はここ(currentColorとopacity)で決める */
+.single-title-chip {
+  background: #fff;
+  color: var(--accent);
+}
+
+.single-title-chip svg {
+  display: block;
+  width: 0.95em;
+  height: 0.95em;
+  fill: currentColor;
+}
+
+.single-title-chip .single-chip-lines {
+  opacity: 0.5;
 }
 
 .epic-title-chip .material-icon {

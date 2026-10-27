@@ -375,8 +375,8 @@ button.gantt-stat { cursor: pointer; }
 .gantt-toggle { width: 12px; color: var(--text-muted); flex: none; }
 /* BT-390: EPIC行ラベルのアイコン(看板と同じepic-icon部品) */
 .gantt-epic-chip { vertical-align: middle; }
-/* BT-450: 単発タスク見出しのアイコン(EPICのチップと対になる控えめな線画) */
-.gantt-single-icon { width: 15px; height: 15px; margin-right: 4px; vertical-align: -3px; }
+/* BM-143: 単発タスク見出しのチップ(app.jsのSINGLE_TITLE_CHIP_HTMLをctx経由で受け取る)。EPIC行のチップと縦位置を揃える */
+.gantt-label-head .single-title-chip { vertical-align: middle; }
 .gantt-id { color: var(--text-muted); font-size: 0.7rem; flex: none; }
 /* タイトルの右のタグ。タイトルより先に縮まないよう幅の上限を持たせ、はみ出す分は切る(全文はホバーのtitle) */
 .gantt-tags { flex: 0 1 auto; min-width: 0; max-width: 34%; overflow: hidden; display: inline-flex; align-items: center; }
