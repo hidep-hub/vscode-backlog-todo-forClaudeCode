@@ -397,7 +397,7 @@ function getOrCreateActivityModal() {
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && activityModalEl.classList.contains('modal-visible')) {
-      const detail = document.querySelector('.modal-overlay.modal-visible');
+      const detail = document.querySelector('.modal-overlay.modal-visible:not(.detail-docked)'); // BM-153: 2ペインにドッキング中の詳細は重なっていない
       if (detail) return; // 詳細モーダルを重ねている場合はそちらが先に閉じる
       closeActivityView();
     }
