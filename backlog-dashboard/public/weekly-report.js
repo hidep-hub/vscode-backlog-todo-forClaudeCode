@@ -85,7 +85,7 @@ function getOrCreateWeeklyPane(container) {
         <section class="weekly-section">
           <h4>出力ステータス</h4>
           <div class="weekly-check-list weekly-inline" id="weekly-statuses"></div>
-          <div class="weekly-hint">期日が期間内のタスクと、期日を過ぎた未完了タスクは、ステータスに関わらず出力します。</div>
+          <div class="weekly-hint">期日や開始日が期間内のタスク、期日を過ぎた未完了タスク、期間をまたいで進行中のタスクは、ステータスに関わらず出力します。完了日が期間内のタスクは、DONEを選んだ時に出力します。</div>
         </section>
         <section class="weekly-section">
           <h4>表の列</h4>
