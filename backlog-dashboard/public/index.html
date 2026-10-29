@@ -88,9 +88,19 @@
   <nav class="narrow-rail" id="narrow-rail" aria-label="カラム移動">
     <!-- buttons rendered by app.js (renderNarrowRail) -->
   </nav>
-  <main class="board" id="board">
-    <!-- columns rendered by app.js -->
-  </main>
+  <!-- BM-153: 詳細を右ペインにドッキングする2ペイン表示の入れ物。
+       #board はそのまま維持し、分割中だけ スプリッターと #detail-pane が現れる。
+       data-detail-side は将来の左右入替用（今は right 固定）。 -->
+  <div class="workspace-main" id="workspace-main" data-detail-side="right">
+    <main class="board" id="board">
+      <!-- columns rendered by app.js -->
+    </main>
+    <div class="detail-splitter" id="detail-splitter" role="separator" aria-orientation="vertical" title="ドラッグで幅を調整（ダブルクリックで元に戻す）" hidden></div>
+    <aside class="detail-pane" id="detail-pane" aria-label="タスク詳細" hidden>
+      <!-- 親の詳細と、その上に重なる子の詳細をここに入れる（子は親の上に重ね、親の状態を保つ） -->
+      <div class="detail-pane-stack" id="detail-pane-stack"></div>
+    </aside>
+  </div>
 
   <!-- BM-058: WebSocket接続〜初回board受信までの間、画面中央にダイアログ型のローディング表示を出す。
        position:fixedの別要素なのでレイアウトシフト(ヘッダー等の位置ズレ)は起きない。

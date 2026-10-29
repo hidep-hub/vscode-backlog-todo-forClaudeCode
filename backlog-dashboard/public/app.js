@@ -59,10 +59,11 @@ const settingsGitlabSaveEl = document.getElementById('settings-gitlab-save');
 
 // 重なったモーダルでは、最前面だけを Escape で閉じる。
 // z-index が同じ場合はDOM末尾の要素が前面になるCSSの規則にも従う。
+// 開いているダイアログの一覧。2ペインにドッキング中の詳細(.detail-docked)は、画面に重なっていないので含めない（BM-153）。
+const OPEN_DIALOG_SELECTOR = '.modal-overlay.modal-visible:not(.detail-docked), .settings-overlay.settings-visible, .plan-board-overlay.active, .activity-modal-overlay.modal-visible, .backup-modal-overlay.modal-visible, .tag-modal-overlay.modal-visible, .category-modal-overlay.modal-visible, .ui-dialog-overlay.modal-visible';
+
 function isTopmostDialog(el) {
-  const visible = document.querySelectorAll(
-    '.modal-overlay.modal-visible, .settings-overlay.settings-visible, .plan-board-overlay.active, .activity-modal-overlay.modal-visible, .backup-modal-overlay.modal-visible, .tag-modal-overlay.modal-visible, .category-modal-overlay.modal-visible, .ui-dialog-overlay.modal-visible'
-  );
+  const visible = document.querySelectorAll(OPEN_DIALOG_SELECTOR);
   let top = null;
   let topLayer = -Infinity;
   for (const candidate of visible) {
@@ -77,9 +78,22 @@ function isTopmostDialog(el) {
 
 // capture で消費することで、背後にある詳細モーダルへ Escape が届かないようにする。
 let parentFieldListOpen = false; // BT-432: 親タスク選択コンボボックスの候補リストが開いているか
+// BM-153: 2ペインにドッキング中の子の詳細は、他にダイアログも右クリックTIPも出ていない時だけEscで閉じて親に戻る。
+// 親の詳細(EPIC・単発)自体は、ボードの操作中のEscと競合するためEscでは閉じない（×で閉じる）。
+function isDockedChildEscTarget(el) {
+  if (el.id !== 'child-modal-overlay') return false;
+  if (document.querySelector(OPEN_DIALOG_SELECTOR)) return false;
+  return !(taskQuickTipEl && taskQuickTipEl.classList.contains('task-quick-tip-visible'));
+}
+
 function closeOnEscape(el, visibleClass, close) {
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || !el.classList.contains(visibleClass) || !isTopmostDialog(el)) return;
+    if (e.key !== 'Escape' || !el.classList.contains(visibleClass)) return;
+    if (el.classList.contains('detail-docked')) {
+      if (!isDockedChildEscTarget(el)) return;
+    } else if (!isTopmostDialog(el)) {
+      return;
+    }
     if (dueDatePickerEl) return; // 期日カレンダー表示中は、カレンダー側のEscで先に閉じる（BT-354）
     if (wsFilterMenuOpen) return; // BM-029: ワークスペース絞り込みドロップダウン表示中は、そちら側のEscで先に閉じる
     if (parentFieldListOpen) return; // BT-432: 親タスク候補リスト表示中は、リスト側のEscで先に閉じる
@@ -101,6 +115,7 @@ function hasFormChanged(initialValues, currentValues) {
 function closeOnBackdropClick(el, close) {
   el.addEventListener('click', (e) => {
     if (e.target !== el) return;
+    if (el.classList.contains('detail-docked')) return; // BM-153: 2ペインにドッキング中は背景が無い（ボード操作を妨げない）
     // BM-136: コメント欄に書きかけの文字がある間も、背景クリックでは閉じない
     const hasCommentDraftHere = typeof hasCommentDraft === 'function' && hasCommentDraft(el);
     if ((el._hasUnsavedChanges && el._hasUnsavedChanges()) || hasCommentDraftHere) {
@@ -3838,6 +3853,8 @@ function hideBoardInitialLoading() {
   if (overlay) overlay.hidden = true;
 }
 
+let lastBoardScrollKey = null; // BM-153: .boardのスクロール位置を引き継いでよい表示条件(ワークスペース絞り込み|レーン表示)
+
 function renderBoard(data) {
   hideBoardInitialLoading();
   lastBoardData = data;
@@ -3849,6 +3866,12 @@ function renderBoard(data) {
   boardEl.querySelectorAll('.column-body[data-col-id]').forEach(el => {
     scrollPositions[el.dataset.colId] = el.scrollTop;
   });
+
+  // BM-153: レーン表示や狭幅(縦積み)では.board自体が縦スクロールする。2ペインでボードを触りながら詳細を見る
+  // 使い方ではWS更新のたびに先頭へ飛ぶと使いにくいため、同じ表示条件の間だけ位置を引き継ぐ
+  const boardScrollKey = `${currentFilter}|${boardLaneMode}`;
+  const boardScrollTop = boardScrollKey === lastBoardScrollKey ? boardEl.scrollTop : 0;
+  lastBoardScrollKey = boardScrollKey;
 
   boardEl.innerHTML = '';
   renderRunningStrip(data);
@@ -4424,6 +4447,12 @@ function renderBoard(data) {
   });
 
   updateSelectionBar();
+  if (boardScrollTop > 0) {
+    // BM-153: .board自体のスクロール位置を書き戻す（列のscrollTopと同じく、webview向けにrAF2段の保険つき）
+    boardEl.scrollTop = boardScrollTop;
+    const reapplyBoardScroll = () => { if (boardEl.scrollTop !== boardScrollTop) boardEl.scrollTop = boardScrollTop; };
+    requestAnimationFrame(() => { reapplyBoardScroll(); requestAnimationFrame(reapplyBoardScroll); });
+  }
   // BM-049: レーン表示中は同じカラムIDが複数回出現し、narrow railのジャンプ先が一意に決まらないため無効化する。
   if (laneModeActive) {
     const railEl = document.getElementById('narrow-rail');
@@ -4718,14 +4747,20 @@ function buildDetailSplitHtml({ headerHtml, metaHtml, descHtml, sideScrollHtml, 
 // 詳細モーダルの左右2つのスクロール位置を保存・復元する（BM-078 → BM-137で2領域に対応）。
 // WS再描画で.modal-body全体を作り直すと位置が先頭に戻るため、描画前に保存して描画後に戻す。
 // 保存時にスクロール領域が無かった(編集フォームなど)場合は空配列で、何もしない。
+// BM-153: 左右が縦積みになる幅（2ペインの1/3幅や640px以下）では、.detail-split 自体がスクロールするため、
+// 左右の領域に加えてこれも対象にする（先頭 = .detail-split、以降 = 左右の .detail-split-scroll）。
+function detailScrollTargets(body) {
+  return [...body.querySelectorAll('.detail-split, .detail-split-scroll')];
+}
+
 function captureDetailScroll(body) {
-  return Array.from(body.querySelectorAll('.detail-split-scroll'), (el) => el.scrollTop);
+  return detailScrollTargets(body).map((el) => el.scrollTop);
 }
 
 // rAF2段はwebview環境でのレイアウト確定遅延への保険(ボードと同じ対策)。
 function restoreDetailScroll(body, tops) {
   if (!tops || tops.length === 0) return;
-  body.querySelectorAll('.detail-split-scroll').forEach((el, i) => {
+  detailScrollTargets(body).forEach((el, i) => {
     const top = tops[i];
     if (!top) return; // 先頭のままなら戻す必要が無い
     el.scrollTop = top;
@@ -6944,12 +6979,224 @@ let modalEl = null;
 let currentModalItemId = null;
 let activityHighlightTaskIds = null; // 履歴(activity.js)からEpicを開いた際にハイライトする子タスクIDのSet
 
+// --- BM-153: 2ペイン表示（詳細を右ペインにドッキングして、ボードと並べて操作する） ---
+// 詳細モーダルの「分割ボタン」を押した時だけ有効になる。押す前は従来どおりのモーダル。
+// ドッキング中は .modal-overlay に detail-docked を付けて #detail-pane へ DOM ごと移す。
+// modal-visible は維持するので、再描画系(refreshModalIfOpen等)の判定はそのまま動く。
+const DETAIL_DOCK_NARROW_QUERY = '(max-width: 800px)'; // style.css の狭幅@mediaと同じ。この幅以下では分割しない
+// 詳細(1000)より背面に出る画面。これらの上から詳細を開く時は、前面に出すためモーダルで開く
+const DETAIL_UNDER_OVERLAY_SELECTOR = '.search-overlay.modal-visible, .activity-modal-overlay.modal-visible, .backup-modal-overlay.modal-visible, .plan-board-overlay.active';
+const DETAIL_PANE_PCT_DEFAULT = 33.3;
+const DETAIL_PANE_PCT_MIN = 20;
+const DETAIL_PANE_PCT_MAX = 60;
+// 分割モードは「いま開いている間」だけの状態で、保存しない。分割ボタンで入り、詳細の×かボタンで抜ける。
+// 抜けたあと（または再読み込み後）に開く詳細は、通常のポップアップから始まる。
+let detailLayout = 'modal';
+try {
+  // 以前の版が保存してしまった分割モードの記憶が残っていても使わない（残骸を掃除する）
+  const legacySettings = loadSettings();
+  if (Object.prototype.hasOwnProperty.call(legacySettings, 'detailLayout')) {
+    delete legacySettings.detailLayout;
+    saveSettings(legacySettings);
+  }
+} catch (e) { /* 掃除に失敗しても動作に影響しない */ }
+// 将来の左右入替用。UIは未実装で今は 'right' 固定（'left' にすると詳細が左に来る。CSSは data-detail-side で分岐済み）
+let detailSide = 'right';
+
+// 分割ボタン（親の詳細と子の詳細の両方のモーダルに置く）
+const DETAIL_LAYOUT_BTN_HTML = '<button type="button" class="detail-layout-btn" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M10 2.5h3a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-3z" fill="currentColor" opacity="0.4"/><path d="M10 2.5v11" stroke="currentColor" stroke-width="1.2"/></svg></button>';
+
+// ドッキングの対象になる詳細のモーダル。親(単発/EPIC)と、その上に重なる子の2枚
+function detailOverlays() {
+  return [modalEl, document.getElementById('child-modal-overlay')].filter(Boolean);
+}
+
+function isDetailPaneInUse() {
+  return detailOverlays().some((el) => el.classList.contains('detail-docked'));
+}
+
+function isDetailDockAllowed() {
+  if (window.matchMedia(DETAIL_DOCK_NARROW_QUERY).matches) return false;
+  return !document.querySelector(DETAIL_UNDER_OVERLAY_SELECTOR);
+}
+
+// 分割中にボード側が狭くなった時は、画面幅800px以下と同じ縦積みレイアウトに切り替える。
+function updateBoardCompact() {
+  const docked = isDetailPaneInUse();
+  const compact = docked && boardEl.offsetWidth <= 800;
+  const root = document.documentElement;
+  if (compact === root.hasAttribute('data-board-compact')) return;
+  if (compact) root.setAttribute('data-board-compact', '');
+  else root.removeAttribute('data-board-compact');
+  requestAnimationFrame(positionNarrowRail);
+}
+
+function updateDetailLayoutBtn() {
+  const allowedNow = isDetailDockAllowed();
+  for (const el of detailOverlays()) {
+    const btn = el.querySelector('.detail-layout-btn');
+    if (!btn) continue;
+    const docked = el.classList.contains('detail-docked');
+    const label = docked ? 'ポップアップ表示に戻す' : '2ペインに分割（右に詳細、左にボードを表示）';
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    btn.setAttribute('aria-pressed', String(docked));
+    // 検索・履歴などの上から開いた詳細は前面に出すため分割できない。押しても何も起きないボタンは出さない
+    btn.hidden = !docked && !allowedNow;
+  }
+}
+
+// 1枚のモーダルをペインへ移す／ポップアップへ戻す。DOMを付け替えるとスクロール位置が失われるため、控えて戻す。
+function dockOverlay(el, stackEl, shouldDock) {
+  if (shouldDock === el.classList.contains('detail-docked')) return;
+  const body = el.querySelector('.modal-body');
+  const tops = body ? captureDetailScroll(body) : [];
+  if (shouldDock) {
+    stackEl.appendChild(el);
+    el.classList.add('detail-docked');
+  } else {
+    el.classList.remove('detail-docked');
+    document.body.appendChild(el);
+  }
+  if (body) restoreDetailScroll(body, tops);
+}
+
+// 現在の状態(分割モード・画面幅・開いている画面)に合わせて、詳細(親・子)をペインへ移す／ポップアップへ戻す。冪等。
+// 子の詳細は親の上に重なったまま同じペインに入る（左のボードは操作できる）。
+function applyDetailDock() {
+  const mainEl = document.getElementById('workspace-main');
+  const paneEl = document.getElementById('detail-pane');
+  const splitterEl = document.getElementById('detail-splitter');
+  const stackEl = document.getElementById('detail-pane-stack');
+  if (!mainEl || !paneEl || !splitterEl || !stackEl) return;
+  mainEl.dataset.detailSide = detailSide;
+  const allowed = detailLayout === 'split' && isDetailDockAllowed();
+  for (const el of detailOverlays()) {
+    dockOverlay(el, stackEl, allowed && el.classList.contains('modal-visible'));
+  }
+  const inUse = isDetailPaneInUse();
+  paneEl.hidden = !inUse;
+  splitterEl.hidden = !inUse;
+  // 子の詳細が親の上に重なっている間は、親を奥のカードとして見せる（CSS: .has-child）
+  const childEl = document.getElementById('child-modal-overlay');
+  stackEl.classList.toggle('has-child', !!childEl && childEl.classList.contains('detail-docked'));
+  updateDetailLayoutBtn();
+  updateBoardCompact();
+}
+
+function toggleDetailLayout() {
+  detailLayout = detailLayout === 'split' ? 'modal' : 'split';
+  applyDetailDock();
+}
+
+// ×ボタンで詳細を閉じてペインが無くなった時は、分割モードも終わらせる（次に開く詳細は通常のポップアップで始まる）。
+// 子の詳細だけを閉じて親の詳細が残る時や、削除・移動などで詳細が閉じた時は、分割のまま。
+function endSplitIfPaneClosed() {
+  if (detailLayout === 'split' && !isDetailPaneInUse()) detailLayout = 'modal';
+}
+
+// 開いている詳細に、未保存の編集内容かコメントの下書きがあるか
+function detailHasUnsavedInput(el) {
+  if (!el || !el.classList.contains('modal-visible')) return false;
+  return !!(el._hasUnsavedChanges && el._hasUnsavedChanges())
+    || (typeof hasCommentDraft === 'function' && hasCommentDraft(el));
+}
+
+// 背景クリックで閉じられない時と同じ「揺らす」合図
+function shakeDetail(el) {
+  const content = el.querySelector('.modal-content');
+  if (content && content.animate) {
+    content.animate(
+      [{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }],
+      { duration: 300, easing: 'ease' }
+    );
+  }
+}
+
+// ボードで別のカードを選んで詳細を切り替える時に、編集中の入力を壊さないための確認。
+// 未保存の編集内容かコメントの下書きがあれば切り替えず、揺らして知らせる。
+// asChild: 子タスクとして開く場合。表示中の別の子の入力だけを守る（親は下に残るので壊れない）。
+function canSwitchDetailTo(nextItemId, { asChild = false } = {}) {
+  const childEl = document.getElementById('child-modal-overlay');
+  const childOpen = !!childEl && childEl.classList.contains('modal-visible');
+  if (asChild) {
+    if (childOpen && currentChildModalItemId !== nextItemId && detailHasUnsavedInput(childEl)) {
+      shakeDetail(childEl);
+      return false;
+    }
+    return true;
+  }
+  const parentOpen = !!modalEl && modalEl.classList.contains('modal-visible');
+  if (parentOpen && currentModalItemId !== nextItemId && detailHasUnsavedInput(modalEl)) {
+    shakeDetail(modalEl);
+    return false;
+  }
+  if (childOpen && detailHasUnsavedInput(childEl)) {
+    shakeDetail(childEl);
+    return false;
+  }
+  return true;
+}
+
+// ペインとボードの境界をドラッグして幅を変える（検索画面のスプリッターと同じ作り）。幅は localStorage に保存する。
+function setupDetailSplitter() {
+  const mainEl = document.getElementById('workspace-main');
+  const handleEl = document.getElementById('detail-splitter');
+  if (!mainEl || !handleEl) return;
+  const clampPct = (pct) => Math.round(Math.max(DETAIL_PANE_PCT_MIN, Math.min(DETAIL_PANE_PCT_MAX, pct)) * 10) / 10;
+  const applyPct = (pct) => mainEl.style.setProperty('--detail-pane-pct', `${pct}%`);
+  const save = (pct) => { try { localStorage.setItem('detailPanePct', String(pct)); } catch (e) { /* 記憶できなくても既定幅で動く */ } };
+  let current = DETAIL_PANE_PCT_DEFAULT;
+  try {
+    const v = Number(localStorage.getItem('detailPanePct'));
+    if (v >= DETAIL_PANE_PCT_MIN && v <= DETAIL_PANE_PCT_MAX) current = v;
+  } catch (e) { /* 既定幅 */ }
+  applyPct(current);
+
+  handleEl.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    try { handleEl.setPointerCapture(e.pointerId); } catch (err) { /* キャプチャできなくても移動は追従する */ }
+    handleEl.classList.add('dragging');
+    document.body.classList.add('detail-splitter-dragging');
+    const box = mainEl.getBoundingClientRect();
+    const onMove = (ev) => {
+      // 詳細ペインの幅 = 入れ物の端(詳細側)からポインタまでの距離
+      const fromEdge = detailSide === 'left' ? (ev.clientX - box.left) : (box.right - ev.clientX);
+      current = clampPct((fromEdge / box.width) * 100);
+      applyPct(current);
+    };
+    const onUp = () => {
+      handleEl.classList.remove('dragging');
+      document.body.classList.remove('detail-splitter-dragging');
+      handleEl.removeEventListener('pointermove', onMove);
+      handleEl.removeEventListener('pointerup', onUp);
+      handleEl.removeEventListener('pointercancel', onUp);
+      save(current);
+    };
+    handleEl.addEventListener('pointermove', onMove);
+    handleEl.addEventListener('pointerup', onUp);
+    handleEl.addEventListener('pointercancel', onUp);
+  });
+  handleEl.addEventListener('dblclick', () => {
+    current = DETAIL_PANE_PCT_DEFAULT;
+    applyPct(current);
+    save(current);
+  });
+}
+
+setupDetailSplitter();
+// 画面幅が変わったら、分割できる幅かを見直す（狭くなったらモーダルへ、広がったら分割へ戻す）
+window.addEventListener('resize', applyDetailDock);
+// ペイン幅の変化（スプリッター操作・分割の開閉）に合わせて、ボードの縦積み切替を見直す
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(updateBoardCompact).observe(boardEl);
+
 function getOrCreateModal() {
   if (modalEl) return modalEl;
   modalEl = document.createElement('div');
   modalEl.className = 'modal-overlay';
   modalEl.innerHTML = `
     <div class="modal-content detail-modal-content">
+      ${DETAIL_LAYOUT_BTN_HTML}
       <button class="modal-close">&times;</button>
       <div class="modal-body"></div>
     </div>
@@ -6957,7 +7204,9 @@ function getOrCreateModal() {
   document.body.appendChild(modalEl);
 
   closeOnBackdropClick(modalEl, closeModal);
-  modalEl.querySelector('.modal-close').addEventListener('click', closeModal);
+  // BM-153: ×で閉じて2ペインが無くなったら、分割モードも終わらせる
+  modalEl.querySelector('.modal-close').addEventListener('click', () => { closeModal(); endSplitIfPaneClosed(); });
+  modalEl.querySelector('.detail-layout-btn').addEventListener('click', toggleDetailLayout);
   closeOnEscape(modalEl, 'modal-visible', closeModal);
 
   return modalEl;
@@ -6970,6 +7219,7 @@ function closeModal() {
     modalParentEpic = null;
     activityHighlightTaskIds = null;
     closeChildModal();
+    applyDetailDock(); // BM-153: ドッキング中ならペインを閉じ、ボードを全幅に戻す
   }
 }
 
@@ -7052,14 +7302,20 @@ function refreshChildModalIfOpen() {
 
 function openCardDetail(item, parentEpic = null) {
   if (parentEpic) {
-    // 子タスク詳細 → 2枚目モーダルを重ねる
+    // 子タスク詳細 → 2枚目モーダルを重ねる（2ペイン中は、親の詳細の上に重ねてペイン内に表示する）
+    // BM-153: ボードから別の子を選んだ時、表示中の子の編集中の入力を壊さないよう切替を止める
+    if (!canSwitchDetailTo(item.id, { asChild: true })) return;
     openChildModal(item, parentEpic);
   } else {
     // 通常のカード詳細
+    // BM-153: 2ペイン中にボードから別カードを選んだ時、編集中の入力を壊さないよう切替を止める
+    if (!canSwitchDetailTo(item.id)) return;
+    if (currentChildModalItemId) closeChildModal(); // 子の詳細が開いていたら閉じ、選んだタスクに切り替える
     const modal = getOrCreateModal();
     currentModalItemId = item.id;
     modalParentEpic = null;
     modal.classList.add('modal-visible');
+    applyDetailDock(); // BM-153: 分割モードならペインへ、そうでなければ従来のモーダルのまま
     renderModalContent(item);
     loadFullDescriptionIfMissing(item, currentModalItemId, renderModalContent);
   }
@@ -7150,13 +7406,16 @@ function getOrCreateChildModal() {
   el.className = 'modal-overlay child-modal-overlay';
   el.innerHTML = `
     <div class="modal-content child-modal-content detail-modal-content">
+      ${DETAIL_LAYOUT_BTN_HTML}
       <button class="modal-close" id="child-modal-close">&times;</button>
       <div class="modal-body"></div>
     </div>
   `;
   document.body.appendChild(el);
   closeOnBackdropClick(el, closeChildModal);
-  el.querySelector('#child-modal-close').addEventListener('click', closeChildModal);
+  // BM-153: 子の×は、親の詳細が下に残っていれば分割のまま。ペインが無くなる時だけ分割モードも終わらせる
+  el.querySelector('#child-modal-close').addEventListener('click', () => { closeChildModal(); endSplitIfPaneClosed(); });
+  el.querySelector('.detail-layout-btn').addEventListener('click', toggleDetailLayout);
   closeOnEscape(el, 'modal-visible', closeChildModal);
   return el;
 }
@@ -7167,6 +7426,7 @@ function closeChildModal() {
   currentChildModalItemId = null;
   const el = document.getElementById('child-modal-overlay');
   if (el) el.classList.remove('modal-visible');
+  applyDetailDock(); // BM-153: ドッキング中の子を閉じたら親に戻る（親も無ければペインを閉じる）
 }
 
 // BT-355: 子詳細モーダルの親解決。編集モード後の再描画(item単独で呼ばれる)でも消えないよう直近の親を保持する。
@@ -7416,6 +7676,7 @@ function openChildModal(item, parentEpic = null) {
   setupMoveActionButton(body, item, true);
 
   modal.classList.add('modal-visible');
+  applyDetailDock(); // BM-153: 分割モードならペイン内の親の上に重ねる。そうでなければ従来どおり中央の2枚目モーダル
 
   // 説明欄の折りたたみトグル初期化（BT-080: 表示後でないとscrollHeightが取れない。BM-089: 直前の展開状態を復元）
   setupDescriptionToggle(body, { expanded: prevDescExpanded });
@@ -9307,7 +9568,7 @@ const SELECTION_BAR_NON_EPIC_BUTTONS = [
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !selectionMode) return;
   if (e.defaultPrevented) return;
-  if (document.querySelector('.modal-overlay.modal-visible, .settings-overlay.settings-visible, .plan-board-overlay.active, .activity-modal-overlay.modal-visible, .backup-modal-overlay.modal-visible, .tag-modal-overlay.modal-visible, .category-modal-overlay.modal-visible, .ui-dialog-overlay.modal-visible')) return;
+  if (document.querySelector('.modal-overlay.modal-visible:not(.detail-docked), .settings-overlay.settings-visible, .plan-board-overlay.active, .activity-modal-overlay.modal-visible, .backup-modal-overlay.modal-visible, .tag-modal-overlay.modal-visible, .category-modal-overlay.modal-visible, .ui-dialog-overlay.modal-visible')) return;
   if (dueDatePickerEl || wsFilterMenuOpen || boardLaneMenuEl) return;
   if (typeof tagPickerEl !== 'undefined' && tagPickerEl) return;
   if (typeof categoryPickerEl !== 'undefined' && categoryPickerEl) return;

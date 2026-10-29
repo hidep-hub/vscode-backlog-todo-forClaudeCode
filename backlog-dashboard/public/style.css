@@ -8457,3 +8457,264 @@ body.weekly-resizing { user-select: none; cursor: col-resize; }
 .description-md { font-size: calc(var(--desc-base-fs, 0.85rem) * var(--desc-zoom, 1)); }
 .task-quick-tip-description .description-md { --desc-base-fs: var(--qt-fs-desc, .8rem); }
 .desc-zoom-inline { margin-left: auto; }
+
+/* ==========================================================================
+   BM-153: 2ペイン表示（ボード 2/3 ＋ 詳細 1/3）
+   詳細モーダルの分割ボタンを押すと、モーダル(.modal-overlay)が .detail-docked になって
+   #detail-pane へ移り、ボードと並んで表示される。押す前は従来どおりのモーダル。
+   ========================================================================== */
+
+/* #board を包む入れ物。body(縦flex)の中で、従来 .board が占めていた領域をそのまま受け持つ。 */
+.workspace-main {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  order: 1;
+  --detail-pane-pct: 33.333%;
+}
+
+/* 将来の左右入替用。UIは未実装で、data-detail-side="left" にすると詳細が左に来る */
+.workspace-main[data-detail-side="left"] {
+  flex-direction: row-reverse;
+}
+
+.workspace-main > .board {
+  flex: 1 1 0;
+  min-width: 0;
+  /* .board の order:1 は body 直下で実行中ストリップ(order:2)より上に置くための指定。
+     入れ物の中では詳細ペインとの左右順(DOM順)を崩すので0に戻す */
+  order: 0;
+}
+
+.detail-pane {
+  flex: 0 0 var(--detail-pane-pct);
+  min-width: 300px;
+  max-width: 70%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 16px 16px 16px 0;
+  box-sizing: border-box;
+  /* 縦積み切替をペイン幅基準にするため、コンテナクエリの対象にする */
+  container-type: inline-size;
+  container-name: detail-pane;
+}
+
+.workspace-main[data-detail-side="left"] > .detail-pane {
+  padding: 16px 0 16px 16px;
+}
+
+/* 親の詳細と、その上に重なる子の詳細の入れ物。子は absolute で親をちょうど覆う */
+.detail-pane-stack {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.detail-pane-stack > .modal-overlay.detail-docked {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 子の詳細は親の上に重ねる（親の状態は下にそのまま残る）。表示/非表示は .modal-visible のまま。
+   ボード上のEPICカードと同じく「カードの上にカード」に見えるよう、子を左下側へ16pxずらし、
+   親が右上にのぞくようにする（親の詳細そのものが奥の1枚になる）。 */
+.detail-pane-stack > .modal-overlay.child-modal-overlay.detail-docked {
+  position: absolute;
+  inset: 16px 16px 0 0;
+  width: auto;
+  height: auto;
+  z-index: 1;
+}
+
+/* 子のカードの背後に、ボードのEPICカード(.card-epic)と同じ段違いの1枚を描く（面＋枠線の2層。親が奥の2枚目になる） */
+.detail-pane-stack > .modal-overlay.child-modal-overlay.detail-docked .modal-content {
+  box-shadow:
+    8px -8px 0 -1px var(--card),
+    8px -8px 0 0 var(--border);
+  animation: modalSlideIn 0.18s ease-out;
+}
+
+/* 子が重なっている間、奥の親は少し暗くして奥行きを出す */
+.detail-pane-stack.has-child > .modal-overlay:not(.child-modal-overlay) .modal-content {
+  filter: brightness(0.94);
+}
+
+.detail-pane[hidden],
+.detail-splitter[hidden] {
+  display: none;
+}
+
+/* ドッキングした子の詳細が親を完全に覆うよう、不透明にする */
+.modal-overlay.child-modal-overlay.detail-docked .modal-content {
+  background: var(--surface);
+}
+
+.detail-splitter {
+  flex: 0 0 8px;
+  margin: 16px -4px 16px 0;
+  position: relative;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.workspace-main[data-detail-side="left"] > .detail-splitter {
+  margin: 16px 0 16px -4px;
+}
+
+.detail-splitter::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.detail-splitter:hover::after,
+.detail-splitter.dragging::after {
+  background: var(--accent);
+}
+
+/* ドラッグ中は文字選択やカードのホバーを抑える */
+body.detail-splitter-dragging {
+  user-select: none;
+  cursor: col-resize;
+}
+
+/* ドッキング中の詳細: 暗幕・blur・固定配置をやめ、ペインいっぱいのパネルにする。
+   .modal-visible は維持したまま（再描画系の判定が modal-visible を見ているため）。 */
+.modal-overlay.detail-docked {
+  position: static;
+  width: 100%;
+  height: 100%;
+  z-index: auto;
+  background: none;
+  backdrop-filter: none;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.modal-overlay.detail-docked .modal-content,
+.modal-overlay.detail-docked .modal-content.detail-modal-content,
+.modal-overlay.detail-docked .modal-content.modal-wide {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  animation: none;
+  box-shadow: none;
+  /* 右上の操作ボタン（分割・閉じる）の分だけ上を空ける */
+  padding: 44px 16px 16px;
+}
+
+/* --- 分割ボタン（詳細モーダルの右上、×の左隣） --- */
+.detail-layout-btn {
+  position: absolute;
+  top: 12px;
+  right: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.detail-layout-btn:hover {
+  background: var(--card);
+  color: var(--text);
+}
+
+.detail-layout-btn svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+/* 分割中は「押した状態」を見せる */
+.modal-overlay.detail-docked .detail-layout-btn {
+  color: var(--accent);
+}
+
+/* 狭幅では分割できない（従来のモーダルのまま）。ボタンも出さない */
+@media (max-width: 800px) {
+  .detail-layout-btn {
+    display: none;
+  }
+}
+
+/* ペイン幅が狭い時は、モーダルの640px以下と同じく左右カラムを縦積みにして全体を1スクロールにする */
+@container detail-pane (max-width: 640px) {
+  .modal-content.detail-modal-content .detail-split {
+    flex-direction: column;
+    gap: 0;
+    overflow-y: auto;
+  }
+
+  .detail-split-left,
+  .detail-split-right {
+    flex: 0 0 auto;
+  }
+
+  .detail-split-right {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding-left: 0;
+    padding-top: 14px;
+  }
+
+  .detail-split-scroll {
+    flex: 0 0 auto;
+    overflow-y: visible;
+    padding-right: 0;
+  }
+}
+
+/* 分割中にボード側が狭くなった時（app.js が html に data-board-compact を付ける）は、
+   画面幅が800px以下の時と同じ縦積みレイアウトにする。@media (max-width: 800px) の定義と同じ内容。 */
+html[data-board-compact] .board {
+  overflow-y: auto;
+  padding-left: 54px;
+}
+
+html[data-board-compact] .board-columns {
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: visible;
+}
+
+html[data-board-compact] .column {
+  flex: 0 0 320px;
+  max-width: 100%;
+}
+
+html[data-board-compact] .narrow-rail {
+  display: flex;
+}
+
+/* EPICのミニボードは1/3ペインだと4列が100pxに押し込まれ、列ヘッダー(並び順セレクタ・今日ボタン等、必要幅は約150px)が
+   見切れる。ドッキング中だけ列の最小幅を上げ、収まらない分は既存の横スクロール(.mini-board)に任せる */
+.detail-docked .mini-col {
+  min-width: 150px;
+}
+
+/* 完了列(.column-compact)の幅上限は、上の .column(詳細度が高い)に負けないよう同じ詳細度で戻す */
+html[data-board-compact] .column-compact {
+  min-width: 180px;
+  max-width: 240px;
+}
