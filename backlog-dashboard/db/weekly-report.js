@@ -29,7 +29,9 @@ const COLUMN_DEFS = [
   { key: 'kind', label: '区分' },
   { key: 'status', label: 'ステータス' },
   { key: 'updatedAt', label: '最終更新日' }, // 値は日付のみ(BM-135)。キーは保存済み書式との互換のため据え置き
+  { key: 'startDate', label: '開始日' }, // 選んだ時だけ出る(既定の列には入れない。BM-156)
   { key: 'dueDate', label: '期日' },
+  { key: 'completedAt', label: '完了日' }, // 完了(DONE)のタスクだけ値が入る。選んだ時だけ出る(BM-156)
   { key: 'assignee', label: '担当' },
   { key: 'tags', label: 'タグ' },
   { key: 'commit', label: 'コミット' },
@@ -66,7 +68,7 @@ const PLACEHOLDERS = [
   { name: 'workspaceId', scope: 'グループの囲み内(ワークスペース軸のみ)', description: 'ワークスペースのプレフィクス。カテゴリ軸では空になる', example: 'BT' },
   { name: 'workspaceName', scope: 'グループの囲み内(ワークスペース軸のみ)', description: 'ワークスペース名。カテゴリ軸では空になる', example: 'backlog-todo' },
   { name: 'workspaceFile', scope: 'グループの囲み内(ワークスペース軸のみ)', description: 'ワークスペースの識別子(projects[].file)。カテゴリ軸では空になる', example: 'backlog-todo' },
-  { name: 'statusCounts', scope: 'グループの囲み内', description: 'ステータス別の件数バッジ(TODO/READY/DO/DONE)。出力ステータスの選択に関わらず4つとも数える。期間内にそのステータスへ変わった(TODOは新規作成を含む)タスクがある数字は太字。カテゴリ軸ではそのカテゴリ(選択した全ワークスペース分)の件数。画面の「件数情報を出力する」をオフにすると、書式にあっても出力しない(BM-155)', example: '`TODO 3` `READY 2` **`DO 1`** `DONE 5`' },
+  { name: 'statusCounts', scope: 'グループの囲み内', description: 'ステータス別の件数バッジ(TODO/READY/DO/DONE)。出力ステータスの選択に関わらず4つとも数える。期間内にそのステータスへ変わった(TODOは新規作成、DONEは完了日が期間内のものを含む)タスクがある数字は太字。カテゴリ軸ではそのカテゴリ(選択した全ワークスペース分)の件数。画面の「件数情報を出力する」をオフにすると、書式にあっても出力しない(BM-155)', example: '`TODO 3` `READY 2` **`DO 1`** `DONE 5`' },
   { name: 'summary', scope: 'グループの囲み内', description: '件数のまとめ(完了/対応中/期限超過/未着手)。画面の「件数情報を出力する」をオフにすると、書式にあっても出力しない(BM-155)', example: '完了 3件 / 対応中 2件 / 期限超過 1件' },
   { name: 'doneCount', scope: 'グループの囲み内', description: '完了の件数', example: '3' },
   { name: 'doingCount', scope: 'グループの囲み内', description: '対応中(DO/READY)の件数', example: '2' },
@@ -224,15 +226,42 @@ function analyzeWorkspace(db, project, from, to) {
   return { rows, byId, lastChange, movedTo, candidates };
 }
 
+// 完了(done)で、完了日(completed_at)がJSTの期間内か(BM-156)。
+// 完了日だけを手で入れ直した場合は status_changed が残らないため、履歴ではなくtasksの現在値で見る。
+function completedInPeriod(r, from, to) {
+  if (r.status !== 'done' || !r.completed_at) return false;
+  const day = toJstDate(r.completed_at);
+  return day >= from && day <= to;
+}
+
+// 期間内にそのタスクが変わったステータスの集合(Aの判定に使う)。BM-156:
+// 現在DONEで完了日(completed_at)が入っているタスクは、DONEになった日を完了日で判断する(D)。
+// 履歴の「DONEへの変更」は使わない。完了日を後から直しても、直す前に記録されたステータス変更日で拾われないようにするため。
+// 完了日が無いDONE(古いデータ)と、DONE以外のステータスへの変更は、従来どおり履歴で判断する。
+function effectiveMoved(r, moved) {
+  if (!moved) return null;
+  if (r.status === 'done' && r.completed_at) return new Set([...moved].filter(s => s !== 'done'));
+  return moved;
+}
+
 /**
  * 週報に出すタスクを選ぶ(単発+子。EPIC自身は対象にしない)。
- *   A) 期間内に、選ばれたステータスへ変わった(task_eventsのstatus_changed)
+ *   A) 期間内に、選ばれたステータスへ変わった(task_eventsのstatus_changed)。
+ *      ただし現在DONEで完了日があるタスクの「DONEへの変更」は見ない(Dで判断。BM-156)
  *   B) 期日が期間内、または期日が期間より前で未完了(ステータス不問)
+ *   C) 開始日が期間内(ステータス不問。BM-156)
+ *   C2) 期間をまたいで進行中: 開始日が期間より前、期日が期間より後で未完了(BM-156)。
+ *       B・C と合わせて、未完了タスクは「開始日〜期日の区間が期間と重なる」間は出続ける。
+ *       期日が無いタスクは区間として扱わない(開始日が期間内のCだけ)。完了済みは対象外(A・B・Dで拾う)
+ *   D) 完了で、完了日が期間内。出力ステータスにDONEを選んでいる時だけ(Aと同じ扱い。BM-156)
  */
 function pickIncluded(analysis, selected, from, to) {
   return analysis.candidates.filter(r => {
-    const moved = analysis.movedTo.get(r.id);
+    const moved = effectiveMoved(r, analysis.movedTo.get(r.id));
     if (moved && [...moved].some(s => selected.has(s))) return true;
+    if (selected.has('done') && completedInPeriod(r, from, to)) return true;
+    if (r.start_date && r.start_date >= from && r.start_date <= to) return true;
+    if (r.status !== 'done' && r.start_date && r.due_date && r.start_date < from && r.due_date > to) return true;
     if (!r.due_date) return false;
     if (r.due_date >= from && r.due_date <= to) return true;
     return r.due_date < from && r.status !== 'done';
@@ -253,7 +282,9 @@ function statusCountsFor(analysis, from, to, accept = () => true) {
     if (!(r.status in counts)) continue;
     counts[r.status] += 1;
     const created = r.status === 'todo' && toJstDate(r.created_at) >= from && toJstDate(r.created_at) <= to;
-    if (created || (analysis.movedTo.get(r.id) || new Set()).has(r.status)) active[r.status] = true;
+    // BM-156: 完了日が期間内のdoneも「期間内にDONEへ変わった」扱いにする(表に出ているのにバッジが太字にならないのを防ぐ)
+    // (現在DONEで完了日があるタスクは、履歴ではなく完了日で見る。pickIncludedと同じ考え方)
+    if (created || (effectiveMoved(r, analysis.movedTo.get(r.id)) || new Set()).has(r.status) || completedInPeriod(r, from, to)) active[r.status] = true;
   }
   return { counts, active };
 }
@@ -312,11 +343,17 @@ function dedupJoin(list) {
  *  - category: EPIC自身のカテゴリ(子のcategoryは見ない)
  *  - kind: aggregateKind()。EPIC自身のstatus/due_dateは見ない(子の状態だけで決める)
  *  - dueDate: ヒットした子の期日のうち最大(最も遅い)日付。子がいくつか集まって目的を達成する構造のため
+ *  - startDate/completedAt(BM-156): 開始日はヒットした子の最小(最も早い)日付、完了日は完了した子の最大(最も遅い)日付
  *  - assignee/tags/commit/issue/externalLinks: ヒットした子の範囲から重複を除いて列挙
  */
 function buildEpicItem(epicRow, leaves, epicComment) {
   const dueDates = leaves.map(l => l.dueDate).filter(Boolean);
   const dueDate = dueDates.length ? dueDates.reduce((max, d) => (d > max ? d : max)) : '';
+  // BM-156: 開始日はヒットした子のうち最も早い日付、完了日は完了した子のうち最も遅い日付
+  const startDates = leaves.map(l => l.startDate).filter(Boolean);
+  const startDate = startDates.length ? startDates.reduce((min, d) => (d < min ? d : min)) : '';
+  const completedDates = leaves.map(l => l.completedAt).filter(Boolean);
+  const completedAt = completedDates.length ? completedDates.reduce((max, d) => (d > max ? d : max)) : '';
   const updatedAtRaw = leaves.reduce((max, l) => (l.updatedAtRaw > max ? l.updatedAtRaw : max), leaves[0].updatedAtRaw);
   const linkMap = new Map();
   for (const l of leaves) for (const link of l.externalLinks) linkMap.set(`${link.source}:${link.key}`, link);
@@ -333,7 +370,9 @@ function buildEpicItem(epicRow, leaves, epicComment) {
     category: categoryOf(epicRow),
     updatedAt: toJstDate(updatedAtRaw),
     updatedAtRaw,
+    startDate,
     dueDate,
+    completedAt,
     assignee: dedupJoin(leaves.map(l => l.assignee)),
     tags: dedupJoin(leaves.flatMap(l => (l.tags ? l.tags.split(', ') : []))),
     commit: dedupJoin(leaves.map(l => l.commit)),
@@ -408,7 +447,9 @@ function collectWeeklyReport(db, config, { from, to, workspaces, statuses, today
         kind,
         updatedAt: toJstDate(updated),
         updatedAtRaw: updated,
+        startDate: r.start_date || '',
         dueDate: r.due_date || '',
+        completedAt: r.status === 'done' && r.completed_at ? toJstDate(r.completed_at) : '', // 完了日(日付のみ。BM-156)
         assignee: r.assignee || '',
         tags: (tagsByTask[r.id] || []).map(t => t.name).join(', '),
         commit: r.commit_hash ? r.commit_hash.slice(0, 7) : '',

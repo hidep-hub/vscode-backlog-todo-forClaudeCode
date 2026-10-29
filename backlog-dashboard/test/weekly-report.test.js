@@ -25,14 +25,14 @@ function createTestDb() {
 }
 
 let seq = 0;
-function addTask(db, { workspace = 'alpha', title, status = 'todo', parentId = null, dueDate = null, deleted = false, tagless = true, category = null, assignee = null }) {
+function addTask(db, { workspace = 'alpha', title, status = 'todo', parentId = null, dueDate = null, deleted = false, tagless = true, category = null, assignee = null, startDate = null, completedAt = null }) {
   seq += 1;
   const prefix = workspace === 'alpha' ? 'AL' : 'BE';
   const now = '2026-10-01T00:00:00.000Z';
   const r = db.prepare(`INSERT INTO tasks (workspace, seq_no, display_id, parent_id, title, status, due_date, sort_order,
-    deleted_at, created_at, created_by, updated_at, updated_by, category, assignee) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    deleted_at, created_at, created_by, updated_at, updated_by, category, assignee, start_date, completed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(workspace, seq, `${prefix}-${String(seq).padStart(3, '0')}`, parentId, title, status, dueDate, seq,
-      deleted ? now : null, now, 'user', now, 'user', category, assignee);
+      deleted ? now : null, now, 'user', now, 'user', category, assignee, startDate, completedAt);
   return { id: Number(r.lastInsertRowid), displayId: `${prefix}-${String(seq).padStart(3, '0')}` };
 }
 
@@ -815,4 +815,149 @@ test('BM-155 プレースホルダー説明のstatusCounts・summaryに、件数
   for (const name of ['statusCounts', 'summary']) {
     assert.match(wr.PLACEHOLDERS.find(p => p.name === name).description, /件数情報を出力する/);
   }
+});
+
+// --- BM-156: 開始日・完了日を出力条件に加える ---
+// 期間は PERIOD(2026-10-12〜2026-10-18)。statusesは done / do。
+
+const titlesOf = data => itemsOf(data.workspaces[0]).map(i => i.title).sort();
+
+test('BM-156 開始日(C): 開始日が期間内ならステータスが変わっていなくても出る。期間外は出ない', () => {
+  const ctx = createTestDb();
+  addTask(ctx.db, { title: '開始日が期間内(TODO)', status: 'todo', startDate: '2026-10-14' });
+  addTask(ctx.db, { title: '開始日が期間内(完了済)', status: 'done', startDate: '2026-10-15' });
+  addTask(ctx.db, { title: '開始日が期間の初日', status: 'todo', startDate: '2026-10-12' });
+  addTask(ctx.db, { title: '開始日が期間の末日', status: 'todo', startDate: '2026-10-18' });
+  addTask(ctx.db, { title: '開始日が来週', status: 'todo', startDate: '2026-10-19' });
+  addTask(ctx.db, { title: '開始日が先週(期日なし)', status: 'do', startDate: '2026-10-11' });
+  addTask(ctx.db, { title: '開始日なし', status: 'todo' });
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  assert.deepEqual(titlesOf(data), ['開始日が期間の初日', '開始日が期間の末日', '開始日が期間内(TODO)', '開始日が期間内(完了済)'].sort());
+  cleanup(ctx);
+});
+
+test('BM-156 期間をまたいで進行中(C2): 開始日が期間より前、期日が期間より後で未完了なら出続ける。完了済み・期日なしは対象外', () => {
+  const ctx = createTestDb();
+  addTask(ctx.db, { title: 'またぐ(TODO)', status: 'todo', startDate: '2026-10-05', dueDate: '2026-10-30' });
+  addTask(ctx.db, { title: 'またぐ(DO)', status: 'do', startDate: '2026-10-11', dueDate: '2026-10-19' });
+  addTask(ctx.db, { title: 'またぐが完了済み', status: 'done', startDate: '2026-10-05', dueDate: '2026-10-30' });
+  addTask(ctx.db, { title: '期日がなく開始日だけ先週', status: 'do', startDate: '2026-10-05' });
+  addTask(ctx.db, { title: '開始日も期日も来週以降', status: 'todo', startDate: '2026-10-20', dueDate: '2026-10-30' });
+  addTask(ctx.db, { title: '開始日が無く期日が来週以降', status: 'do', dueDate: '2026-10-30' });
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  assert.deepEqual(titlesOf(data), ['またぐ(DO)', 'またぐ(TODO)'].sort());
+  cleanup(ctx);
+});
+
+test('BM-156 完了日(D): 完了で完了日が期間内なら、ステータス変更の履歴が無くても出る', () => {
+  const ctx = createTestDb();
+  addTask(ctx.db, { title: '完了日が期間内', status: 'done', completedAt: IN_PERIOD });
+  addTask(ctx.db, { title: '完了日が期間外', status: 'done', completedAt: '2026-10-01T01:00:00.000Z' });
+  addTask(ctx.db, { title: '完了日なし', status: 'done' });
+  addTask(ctx.db, { title: '未完了だが完了日が残っている', status: 'do', completedAt: IN_PERIOD }); // 通常は起きないが、doneでなければ見ない
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  assert.deepEqual(titlesOf(data), ['完了日が期間内']);
+  cleanup(ctx);
+});
+
+test('BM-156 完了日(D): 出力ステータスにDONEを選んでいない時は出さない。日付はJST基準', () => {
+  const ctx = createTestDb();
+  addTask(ctx.db, { title: '完了日が期間内', status: 'done', completedAt: IN_PERIOD });
+  addTask(ctx.db, { title: '月曜0:30JSTに完了', status: 'done', completedAt: '2026-10-11T15:30:00.000Z' });
+  addTask(ctx.db, { title: '先週日曜23:30JSTに完了', status: 'done', completedAt: '2026-10-11T14:30:00.000Z' });
+  const withDone = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  assert.deepEqual(titlesOf(withDone), ['完了日が期間内', '月曜0:30JSTに完了'].sort());
+  const withoutDone = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, statuses: ['do'] });
+  assert.deepEqual(titlesOf(withoutDone), []);
+  cleanup(ctx);
+});
+
+test('BM-156 開始日・完了日の列は選べる列にあるが、既定の列には入っていない。値は日付のみで、完了日は完了のタスクだけに入る', () => {
+  const ctx = createTestDb();
+  assert.ok(wr.COLUMN_DEFS.some(c => c.key === 'startDate' && c.label === '開始日'));
+  assert.ok(wr.COLUMN_DEFS.some(c => c.key === 'completedAt' && c.label === '完了日'));
+  assert.ok(!wr.DEFAULT_COLUMNS.includes('startDate') && !wr.DEFAULT_COLUMNS.includes('completedAt'));
+  addTask(ctx.db, { title: '完了済み', status: 'done', startDate: '2026-10-13', completedAt: IN_PERIOD });
+  addTask(ctx.db, { title: '着手中', status: 'do', startDate: '2026-10-14' });
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  const { markdown } = wr.renderWeeklyReport(data, { template: '{{#group}}{{table}}{{/group}}', columns: ['id', 'title', 'startDate', 'completedAt'] });
+  assert.match(markdown, /\| ID \| 件名 \| 開始日 \| 完了日 \|/);
+  assert.match(markdown, /\| 完了済み \| 2026-10-13 \| 2026-10-13 \|/);
+  assert.match(markdown, /\| 着手中 \| 2026-10-14 \| {2}\|/);
+  cleanup(ctx);
+});
+
+test('BM-156 EPIC行の開始日はヒットした子の最も早い日付、完了日は完了した子の最も遅い日付', () => {
+  const ctx = createTestDb();
+  const epic = addTask(ctx.db, { title: '大きな話', status: 'do' });
+  addTask(ctx.db, { title: '子1(完了)', status: 'done', parentId: epic.id, startDate: '2026-10-05', completedAt: IN_PERIOD });
+  addTask(ctx.db, { title: '子2(完了)', status: 'done', parentId: epic.id, startDate: '2026-10-13', completedAt: '2026-10-16T01:00:00.000Z' });
+  addTask(ctx.db, { title: '子3(着手中)', status: 'do', parentId: epic.id, startDate: '2026-10-14' });
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  const rows = itemsOf(data.workspaces[0]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].isEpic, true);
+  assert.equal(rows[0].startDate, '2026-10-05');
+  assert.equal(rows[0].completedAt, '2026-10-16');
+  cleanup(ctx);
+});
+
+test('BM-156 件数バッジ: 完了日が期間内のdoneはactive(太字)になり、件数にも数える', () => {
+  const ctx = createTestDb();
+  addTask(ctx.db, { title: '完了日だけ手で入れた', status: 'done', completedAt: IN_PERIOD });
+  addTask(ctx.db, { title: '開始日が期間内', status: 'todo', startDate: '2026-10-14' });
+  const { counts, active } = wr.buildWeeklyCounts(ctx.db, CONFIG, { from: PERIOD.from, to: PERIOD.to, workspaces: ['alpha'] }).workspaces[0];
+  assert.deepEqual(counts, { todo: 1, ready: 0, do: 0, done: 1 });
+  assert.deepEqual(active, { todo: false, ready: false, do: false, done: true });
+  cleanup(ctx);
+});
+
+// BM-156: 現在DONEで完了日が入っているタスクは、DONEになった日を完了日で判断する(履歴の「DONEへの変更」では拾わない)。
+// 実例: 月曜にDONEにして、後から完了日を先週の金曜へ直したタスクが、月曜のステータス変更で今週の週報に載ってしまった。
+
+test('BM-156 DONEにした履歴が期間内でも、完了日が期間より前なら出ない(完了日を先週へ直したタスク)', () => {
+  const ctx = createTestDb();
+  const t = addTask(ctx.db, { title: '月曜にDONEにして完了日を先週へ直した', status: 'done', completedAt: '2026-10-10T01:00:00.000Z' });
+  addStatusEvent(ctx.db, t, 'done', IN_PERIOD);
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  assert.deepEqual(titlesOf(data), []);
+  cleanup(ctx);
+});
+
+test('BM-156 完了日を期間内へ直した場合は、DONEにした履歴が前の週にあっても期間内に出る。前の週の週報には出ない', () => {
+  const ctx = createTestDb();
+  const t = addTask(ctx.db, { title: '先週DONEにして完了日を今週へ直した', status: 'done', completedAt: IN_PERIOD });
+  addStatusEvent(ctx.db, t, 'done', '2026-10-08T01:00:00.000Z'); // 前の週(10/5〜10/11)のステータス変更
+  assert.deepEqual(titlesOf(wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD)), ['先週DONEにして完了日を今週へ直した']);
+  const prev = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, from: '2026-10-05', to: '2026-10-11' });
+  assert.deepEqual(titlesOf(prev), []);
+  cleanup(ctx);
+});
+
+test('BM-156 完了日が無いDONE(古いデータ)は、従来どおり履歴のDONEへの変更で判断する', () => {
+  const ctx = createTestDb();
+  const t = addTask(ctx.db, { title: '完了日なしのDONE', status: 'done' });
+  addStatusEvent(ctx.db, t, 'done', IN_PERIOD);
+  assert.deepEqual(titlesOf(wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD)), ['完了日なしのDONE']);
+  cleanup(ctx);
+});
+
+test('BM-156 無視するのはDONEへの変更だけ。DONE以外のステータスへの変更や、期日・開始日の条件は従来どおり', () => {
+  const ctx = createTestDb();
+  const a = addTask(ctx.db, { title: '期間内にDOへ変えた', status: 'done', completedAt: '2026-10-10T01:00:00.000Z' });
+  addStatusEvent(ctx.db, a, 'do', IN_PERIOD);
+  addTask(ctx.db, { title: '期日が期間内', status: 'done', completedAt: '2026-10-10T01:00:00.000Z', dueDate: '2026-10-15' });
+  const doOnly = wr.collectWeeklyReport(ctx.db, CONFIG, { ...PERIOD, statuses: ['do'] });
+  assert.deepEqual(titlesOf(doOnly), ['期間内にDOへ変えた', '期日が期間内'].sort());
+  cleanup(ctx);
+});
+
+test('BM-156 件数バッジ: 完了日が期間より前のDONEは、DONEにした履歴が期間内でも太字(active)にしない', () => {
+  const ctx = createTestDb();
+  const t = addTask(ctx.db, { title: '完了日は先週', status: 'done', completedAt: '2026-10-10T01:00:00.000Z', dueDate: '2026-10-15' });
+  addStatusEvent(ctx.db, t, 'done', IN_PERIOD);
+  const { counts, active } = wr.buildWeeklyCounts(ctx.db, CONFIG, { from: PERIOD.from, to: PERIOD.to, workspaces: ['alpha'] }).workspaces[0];
+  assert.equal(counts.done, 1); // 期日が期間内なので表には出る(件数には数える)
+  assert.equal(active.done, false);
+  cleanup(ctx);
 });
