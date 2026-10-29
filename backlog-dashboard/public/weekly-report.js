@@ -68,6 +68,8 @@ function getOrCreateWeeklyPane(container) {
         </div>
         <div class="weekly-check-list weekly-inline" id="weekly-sub-group"><label><input type="checkbox" id="weekly-group-category"> カテゴリで章を分ける</label></div>
         <div class="weekly-hint" id="weekly-group-hint"></div>
+        <div class="weekly-check-list weekly-inline" id="weekly-show-counts-box"><label><input type="checkbox" id="weekly-show-counts" checked> 件数情報を出力する</label></div>
+        <div class="weekly-hint">グループの見出し横のステータス別バッジと、見出し下の「完了 N件 / 対応中 N件」を出します（書式に {{statusCounts}}・{{summary}} がある場合に効きます）。</div>
       </section>
       <div class="weekly-select-group">
         <h4 class="weekly-select-title">項目選択</h4>
@@ -142,7 +144,7 @@ function getOrCreateWeeklyPane(container) {
   $('#weekly-left').addEventListener('change', e => {
     if (e.target.name === 'weekly-range') $('#weekly-custom-range').hidden = e.target.value !== 'custom';
     if (e.target.name === 'weekly-group-by') applyWeeklyGroupByUi();
-    if (e.target.closest('#weekly-workspaces, #weekly-statuses, #weekly-group-by, #weekly-group-category, #weekly-categories, #weekly-columns')) saveWeeklySettings();
+    if (e.target.closest('#weekly-workspaces, #weekly-statuses, #weekly-group-by, #weekly-group-category, #weekly-show-counts-box, #weekly-categories, #weekly-columns')) saveWeeklySettings();
     schedule(e);
   });
   $('#weekly-tabs').addEventListener('click', e => {
@@ -171,7 +173,7 @@ function getOrCreateWeeklyPane(container) {
 }
 
 // --- 選択の記憶(BT-438, BM-123で列を追加) ---
-// 対象ワークスペース・出力ステータス・表の列・グルーピング(BM-138)はこのブラウザだけの便宜として保存し、次に開いた時に復元する。
+// 対象ワークスペース・出力ステータス・表の列・グルーピング(BM-138)・件数情報の出力(BM-155)はこのブラウザだけの便宜として保存し、次に開いた時に復元する。
 // 期間は開くたびに今週へ戻す。書式(テンプレート文字列)は「保存」ボタン(サーバー側、チーム共有)の担当。
 // 列はテンプレートと違い「このブラウザで直前に選んだ表示列」の記憶なので、サーバー側の保存済み書式より
 // こちらを優先する(showWeeklyPaneの初期化を参照)。
@@ -185,10 +187,11 @@ function loadWeeklySettings() {
       statuses: Array.isArray(v.statuses) ? v.statuses.filter(x => typeof x === 'string') : [],
       groupBy: v.groupBy === 'category' ? 'category' : 'workspace', // 未保存・不正値はワークスペース(従来の形)
       groupByCategory: v.groupByCategory === true,
+      showCounts: v.showCounts !== false, // 未保存・不正値はON(従来どおり件数情報を出す。BM-155)
       categories: Array.isArray(v.categories) ? v.categories.filter(x => typeof x === 'string') : null, // null=未保存(全部選択)
       columns: Array.isArray(v.columns) ? v.columns.filter(x => typeof x === 'string') : null, // null=未保存(サーバー側の書式に従う)
     };
-  } catch { return { workspaces: [], statuses: [], groupBy: 'workspace', groupByCategory: false, categories: null, columns: null }; }
+  } catch { return { workspaces: [], statuses: [], groupBy: 'workspace', groupByCategory: false, showCounts: true, categories: null, columns: null }; }
 }
 
 function saveWeeklySettings() {
@@ -201,6 +204,7 @@ function saveWeeklySettings() {
       statuses: sel.statuses.length ? sel.statuses : prev.statuses,
       groupBy: sel.groupBy,
       groupByCategory: sel.groupByCategory,
+      showCounts: sel.showCounts,
       categories: sel.allCategories.filter(c => sel.checkedCategories.includes(c)),
       columns: sel.columns.length ? sel.columns : prev.columns,
     }));
@@ -296,6 +300,7 @@ function weeklySelection() {
     template: $('#weekly-template').value,
     groupBy: $('input[name="weekly-group-by"]:checked').value, // 'workspace' | 'category'(BM-138)
     groupByCategory: $('#weekly-group-category').checked,
+    showCounts: $('#weekly-show-counts').checked, // 件数情報({{statusCounts}}・{{summary}})を出すか(BM-155)
     // すべて選択中はnull(絞り込まない。マスタに無い旧値のカテゴリも出す)。''はカテゴリなし
     categories: (() => {
       const all = allCats();
@@ -353,7 +358,7 @@ async function refreshWeeklyPreview() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...weeklyPeriodParams(sel), workspaces: sel.workspaces, statuses: sel.statuses, columns: sel.columns, template: sel.template,
-        groupBy: sel.groupBy, groupByCategory: sel.groupByCategory, ...(sel.categories ? { categories: sel.categories } : {}),
+        groupBy: sel.groupBy, groupByCategory: sel.groupByCategory, showCounts: sel.showCounts, ...(sel.categories ? { categories: sel.categories } : {}),
       }),
     });
     const data = await res.json();
@@ -536,6 +541,7 @@ async function showWeeklyPane(container) {
   $('#weekly-categories').innerHTML = catNames.map(name => `
     <label><input type="checkbox" value="${escapeHtml(name)}"${(checkedCats.length ? checkedCats : catNames).includes(name) ? ' checked' : ''}> ${name ? escapeHtml(name) : 'カテゴリなし'} <span class="weekly-cat-count" data-cat="${escapeHtml(name)}"></span></label>`).join('');
   $('#weekly-group-category').checked = saved.groupByCategory;
+  $('#weekly-show-counts').checked = saved.showCounts;
   pane.querySelector(`input[name="weekly-group-by"][value="${saved.groupBy}"]`).checked = true;
   applyWeeklyGroupByUi();
   // 列はこのブラウザでの保存があれば優先する。無ければサーバー側の書式(保存済み/既定)に従う(BM-123)。

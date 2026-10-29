@@ -741,3 +741,78 @@ test('BM-138 既定の書式はグループの枠({{#group}})で、プレース�
   assert.ok(names.includes('groupName'));
   assert.ok(names.includes('#group … /group'));
 });
+
+// --- BM-155: 件数情報({{statusCounts}}と{{summary}})を出力するかの切り替え ---
+
+test('BM-155 ワークスペース軸: showCountsオフでバッジとまとめ行を出さず、見出しに空白も残らない。オン・省略は従来どおり', () => {
+  const ctx = createTestDb();
+  addDoneTask(ctx.db, { title: 'x', category: '開発' });
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  const render = opts => wr.renderWeeklyReport(data, { template: wr.DEFAULT_TEMPLATE, columns: wr.DEFAULT_COLUMNS, ...opts }).markdown;
+
+  const on = render({});
+  assert.equal(render({ showCounts: true }), on); // 省略とtrueは同じ
+  assert.ok(on.includes('## AL アルファ `TODO 0`'));
+  assert.ok(on.includes('完了 1件 / 対応中 0件'));
+
+  const off = render({ showCounts: false });
+  assert.ok(!off.includes('`TODO 0`'));
+  assert.ok(!off.includes('`DONE'));
+  assert.ok(!off.includes('完了 1件'));
+  assert.ok(off.includes('## AL アルファ\n\n### 完了（DONE）\n\n| ID |')); // 見出し末尾に空白が残らず、空行も詰まる
+  assert.match(off, /\| x \|/); // 表は出る
+  cleanup(ctx);
+});
+
+test('BM-155 カテゴリ軸: showCountsオフでカテゴリ単位のバッジとまとめ行を出さない', () => {
+  const ctx = createTestDb();
+  addDoneTask(ctx.db, { workspace: 'alpha', title: 'a', category: '開発' });
+  addDoneTask(ctx.db, { workspace: 'beta', title: 'b', category: '開発' });
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, { ...BOTH, groupBy: 'category' });
+  const render = opts => wr.renderWeeklyReport(data, { template: wr.DEFAULT_TEMPLATE, columns: wr.DEFAULT_COLUMNS, ...opts }).markdown;
+
+  const on = render({});
+  assert.ok(on.includes('## 開発 `TODO 0`'));
+  assert.ok(on.includes('完了 2件 / 対応中 0件'));
+
+  const off = render({ showCounts: false });
+  assert.ok(off.includes('\n## 開発\n\n| ID |'));
+  assert.ok(!off.includes('`DONE'));
+  assert.ok(!off.includes('完了 2件'));
+  cleanup(ctx);
+});
+
+test('BM-155 件数情報オフでも、個別の件数プレースホルダー({{doneCount}}等)・JSONのdata・表は変わらない', () => {
+  const ctx = createTestDb();
+  addDoneTask(ctx.db, { title: 'x' });
+  const data = wr.collectWeeklyReport(ctx.db, CONFIG, PERIOD);
+  const template = '{{#group}}{{groupName}} {{statusCounts}}|完了{{doneCount}}|全{{count}}|{{summary}}|\n{{table}}{{/group}}';
+  const off = wr.renderWeeklyReport(data, { template, columns: wr.DEFAULT_COLUMNS, showCounts: false }).markdown;
+  assert.ok(off.startsWith('AL アルファ|完了1|全1||\n'));
+  const built = wr.buildWeeklyReport(ctx.db, CONFIG, { ...PERIOD, showCounts: '0' }, { template: wr.DEFAULT_TEMPLATE, columns: wr.DEFAULT_COLUMNS });
+  assert.equal(built.ok, true);
+  assert.ok(!built.markdown.includes('`TODO 0`'));
+  assert.equal(built.data.workspaces[0].statusCounts.counts.done, 1); // dataの件数は常に付く
+  assert.equal(built.totalCount, 1);
+  cleanup(ctx);
+});
+
+test('BM-155 parseReportOptions: showCountsの既定はtrue。0/falseでオフ、1/trueでオン、不正値は400', () => {
+  const ctx = createTestDb();
+  const parse = input => wr.parseReportOptions({ range: 'this', ...input }, CONFIG, ctx.db);
+  assert.equal(parse({}).showCounts, true);
+  assert.equal(parse({ showCounts: undefined }).showCounts, true);
+  assert.equal(parse({ showCounts: null }).showCounts, true);
+  assert.equal(parse({ showCounts: '' }).showCounts, true);
+  for (const off of [false, '0', 'false']) assert.equal(parse({ showCounts: off }).showCounts, false);
+  for (const on of [true, '1', 'true']) assert.equal(parse({ showCounts: on }).showCounts, true);
+  assert.equal(parse({ showCounts: 'no' }).error, 'invalid_show_counts');
+  assert.equal(parse({ showCounts: 0 }).error, 'invalid_show_counts'); // 数値の0はJSONで来た場合の取り違えを避けるため受けない
+  cleanup(ctx);
+});
+
+test('BM-155 プレースホルダー説明のstatusCounts・summaryに、件数情報の切り替えが載っている', () => {
+  for (const name of ['statusCounts', 'summary']) {
+    assert.match(wr.PLACEHOLDERS.find(p => p.name === name).description, /件数情報を出力する/);
+  }
+});

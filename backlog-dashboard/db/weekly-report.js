@@ -66,8 +66,8 @@ const PLACEHOLDERS = [
   { name: 'workspaceId', scope: 'グループの囲み内(ワークスペース軸のみ)', description: 'ワークスペースのプレフィクス。カテゴリ軸では空になる', example: 'BT' },
   { name: 'workspaceName', scope: 'グループの囲み内(ワークスペース軸のみ)', description: 'ワークスペース名。カテゴリ軸では空になる', example: 'backlog-todo' },
   { name: 'workspaceFile', scope: 'グループの囲み内(ワークスペース軸のみ)', description: 'ワークスペースの識別子(projects[].file)。カテゴリ軸では空になる', example: 'backlog-todo' },
-  { name: 'statusCounts', scope: 'グループの囲み内', description: 'ステータス別の件数バッジ(TODO/READY/DO/DONE)。出力ステータスの選択に関わらず4つとも数える。期間内にそのステータスへ変わった(TODOは新規作成を含む)タスクがある数字は太字。カテゴリ軸ではそのカテゴリ(選択した全ワークスペース分)の件数', example: '`TODO 3` `READY 2` **`DO 1`** `DONE 5`' },
-  { name: 'summary', scope: 'グループの囲み内', description: '件数のまとめ(完了/対応中/期限超過/未着手)', example: '完了 3件 / 対応中 2件 / 期限超過 1件' },
+  { name: 'statusCounts', scope: 'グループの囲み内', description: 'ステータス別の件数バッジ(TODO/READY/DO/DONE)。出力ステータスの選択に関わらず4つとも数える。期間内にそのステータスへ変わった(TODOは新規作成を含む)タスクがある数字は太字。カテゴリ軸ではそのカテゴリ(選択した全ワークスペース分)の件数。画面の「件数情報を出力する」をオフにすると、書式にあっても出力しない(BM-155)', example: '`TODO 3` `READY 2` **`DO 1`** `DONE 5`' },
+  { name: 'summary', scope: 'グループの囲み内', description: '件数のまとめ(完了/対応中/期限超過/未着手)。画面の「件数情報を出力する」をオフにすると、書式にあっても出力しない(BM-155)', example: '完了 3件 / 対応中 2件 / 期限超過 1件' },
   { name: 'doneCount', scope: 'グループの囲み内', description: '完了の件数', example: '3' },
   { name: 'doingCount', scope: 'グループの囲み内', description: '対応中(DO/READY)の件数', example: '2' },
   { name: 'overdueCount', scope: 'グループの囲み内', description: '期限超過(未完了で期日が今日より前)の件数', example: '1' },
@@ -552,6 +552,7 @@ const NO_CATEGORY_TOKEN = '__none__'; // GETのクエリで「カテゴリなし
 const EMPTY_TABLE_TEXT = '(該当するタスクはありません)';
 const GROUP_BY_VALUES = ['workspace', 'category']; // 1段目のグルーピング(BM-138)
 const GROUP_BLOCK = /\{\{\s*#(group|workspace)\s*\}\}([\s\S]*?)\{\{\s*\/\1\s*\}\}/; // workspaceはgroupの旧名(互換)
+const COUNT_PLACEHOLDERS = /[ \t]*\{\{\s*(?:statusCounts|summary)\s*\}\}/g; // 「件数情報を出力する」で切り替える2つ(BM-155)
 
 function renderWorkspaceTable(ws, columns) {
   if (ws.sections.length === 0) return EMPTY_TABLE_TEXT;
@@ -571,8 +572,9 @@ function replaceVars(text, vars) {
 /**
  * テンプレートにデータを流し込んでMarkdownを作る。
  * 未知のプレースホルダーはそのまま残し、warningsで知らせる。
+ * showCounts(BM-155): falseの時は件数情報({{statusCounts}}と{{summary}})を出力しない。省略時はtrue。
  */
-function renderWeeklyReport(data, { template, columns }) {
+function renderWeeklyReport(data, { template, columns, showCounts = true }) {
   const cols = normalizeColumns(columns);
   const text = typeof template === 'string' && template.trim() ? template : DEFAULT_TEMPLATE;
   const known = new Set(PLACEHOLDERS.map(p => p.name).filter(n => /^[A-Za-z]+$/.test(n)));
@@ -629,8 +631,11 @@ function renderWeeklyReport(data, { template, columns }) {
       const parts = [`完了 ${c.done}件`, `対応中 ${c.doing}件`];
       if (c.overdue) parts.push(`期限超過 ${c.overdue}件`);
       if (c.planned) parts.push(`未着手 ${c.planned}件`);
+      // BM-155: 件数情報を出さない時は、{{statusCounts}}と{{summary}}を直前の空白ごと取り除く
+      // (「## 見出し {{statusCounts}}」が「## 見出し␣」と空白を残さないように、空にするのではなく先に消す)
+      const tpl = showCounts ? inner : inner.replace(COUNT_PLACEHOLDERS, '');
       // {{table}}の中身にプレースホルダー風の文字列(タスク件名など)が入っても再展開しないよう、最後に差し込む
-      const body = replaceVars(inner, {
+      const body = replaceVars(tpl, {
         groupName: g.groupName, workspaceId: g.workspaceId, workspaceName: g.workspaceName, workspaceFile: g.workspaceFile,
         summary: parts.join(' / '), statusCounts: renderStatusCounts(g.statusCounts), doneCount: c.done, doingCount: c.doing, overdueCount: c.overdue, count: g.count,
         table: '\u0000TABLE\u0000',
@@ -668,20 +673,29 @@ function parseReportOptions(input, config, db) {
     groupBy = input.groupBy;
   }
   const groupByCategory = input.groupByCategory === true || input.groupByCategory === '1' || input.groupByCategory === 'true';
+  // showCounts(BM-155): 未指定/空はtrue(従来どおり件数情報を出す)。false/'0'/'false'で出さない。それ以外の値は400
+  let showCounts = true;
+  const sc = input.showCounts;
+  if (sc !== undefined && sc !== null && sc !== '') {
+    if (sc === false || sc === '0' || sc === 'false') showCounts = false;
+    else if (sc !== true && sc !== '1' && sc !== 'true') {
+      return { error: 'invalid_show_counts', message: `showCountsは1/0(true/false)で指定してください: ${String(sc)}` };
+    }
+  }
   // categories未指定=絞り込まない。配列の''(またはGETの__none__)はカテゴリなし
   let categories;
   if (Array.isArray(input.categories)) {
     if (input.categories.some(c => typeof c !== 'string')) return { error: 'invalid_category', message: 'categoriesは文字列の配列で指定してください' };
     categories = input.categories.map(c => (c === NO_CATEGORY_TOKEN ? '' : c));
   }
-  return { from, to, workspaces, statuses, groupBy, groupByCategory, categories };
+  return { from, to, workspaces, statuses, groupBy, groupByCategory, showCounts, categories };
 }
 
 function buildWeeklyReport(db, config, input, { template, columns }) {
   const opts = parseReportOptions(input, config, db);
   if (opts.error) return opts;
   const data = collectWeeklyReport(db, config, opts);
-  const { markdown, warnings, totalCount } = renderWeeklyReport(data, { template, columns });
+  const { markdown, warnings, totalCount } = renderWeeklyReport(data, { template, columns, showCounts: opts.showCounts });
   return { ok: true, from: opts.from, to: opts.to, markdown, warnings, totalCount, data };
 }
 
