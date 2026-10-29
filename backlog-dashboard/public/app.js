@@ -4447,6 +4447,7 @@ function renderBoard(data) {
   });
 
   updateSelectionBar();
+  refreshOpenTaskMarks(); // BM-154: ボードを作り直したので、開いているタスクの印を付け直す
   if (boardScrollTop > 0) {
     // BM-153: .board自体のスクロール位置を書き戻す（列のscrollTopと同じく、webview向けにrAF2段の保険つき）
     boardEl.scrollTop = boardScrollTop;
@@ -7061,6 +7062,39 @@ function dockOverlay(el, stackEl, shouldDock) {
   if (body) restoreDetailScroll(body, tops);
 }
 
+// --- BM-154: ボード上の「いま開いているタスク」の目印 ---
+// 図形(位置)の記憶で作業する人のために、開いているタスクのカードに印を付ける。見た目はCSS側で決める。
+//   is-open-task          : いま詳細に開いているタスクそのもの(aria-current も付ける)
+//   is-open-task-ancestor : 子を開いている時の、その親EPIC(「この中を開いている」弱い印)
+// 付ける先はメインボードと、開いているEPICのミニボード(詳細の中)。週次計画・ガントは対象外。
+// ボードはWebSocket更新のたびにDOMごと作り直されるため、描画のたびに付け直す。
+function markCardsById(root, id, className, withAria) {
+  if (!root || !id) return;
+  root.querySelectorAll(`.card[data-task-id="${CSS.escape(id)}"]`).forEach((el) => {
+    el.classList.add(className);
+    if (withAria) el.setAttribute('aria-current', 'true');
+  });
+}
+
+function refreshOpenTaskMarks() {
+  document.querySelectorAll('.is-open-task, .is-open-task-ancestor').forEach((el) => {
+    el.classList.remove('is-open-task', 'is-open-task-ancestor');
+    el.removeAttribute('aria-current');
+  });
+  const childEl = document.getElementById('child-modal-overlay');
+  const parentOpenId = modalEl && modalEl.classList.contains('modal-visible') ? currentModalItemId : null;
+  const childOpenId = childEl && childEl.classList.contains('modal-visible') ? currentChildModalItemId : null;
+  const primaryId = childOpenId || parentOpenId;
+  if (!primaryId) return;
+  markCardsById(boardEl, primaryId, 'is-open-task', true);
+  if (childOpenId) {
+    // 子を開いている時は、その親EPICを「この中を開いている」印にし、EPICのミニボード内の子カードを本人の印にする
+    const ancestor = parentOpenId ? findItemById(parentOpenId) : findParentEpicOfChildId(childOpenId);
+    if (ancestor) markCardsById(boardEl, ancestor.id, 'is-open-task-ancestor', false);
+    markCardsById(modalEl, childOpenId, 'is-open-task', true);
+  }
+}
+
 // 現在の状態(分割モード・画面幅・開いている画面)に合わせて、詳細(親・子)をペインへ移す／ポップアップへ戻す。冪等。
 // 子の詳細は親の上に重なったまま同じペインに入る（左のボードは操作できる）。
 function applyDetailDock() {
@@ -7080,6 +7114,7 @@ function applyDetailDock() {
   // 子の詳細が親の上に重なっている間は、親を奥のカードとして見せる（CSS: .has-child）
   const childEl = document.getElementById('child-modal-overlay');
   stackEl.classList.toggle('has-child', !!childEl && childEl.classList.contains('detail-docked'));
+  refreshOpenTaskMarks(); // BM-154: 開閉・リサイズのたびに、ボード上の「いま開いているタスク」の印を付け直す
   updateDetailLayoutBtn();
   updateBoardCompact();
 }
@@ -9066,6 +9101,7 @@ function buildMiniBoard(epic) {
       setTimeout(() => targetCard.classList.remove('card-highlight-pulse'), 2000);
     }
   }
+  refreshOpenTaskMarks(); // BM-154: ミニボードを作り直したので、開いている子の印を付け直す
 }
 
 function setupCardClick(card, item, isChildCard = false) {
