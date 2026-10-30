@@ -3884,6 +3884,7 @@ function buildCardCornerHtml(taskId, badgeHtml = '') {
 function renderBoard(data) {
   hideBoardInitialLoading();
   lastBoardData = data;
+  closeGithubLinkMenu(); // BM-163: カードを作り直すと、メニューのアンカー(GitHubボタン)が消えて位置が宙に浮くため先に閉じる
   suppressQuickTipScrollClose(); // BM-136: スクロール位置の書き戻しで右クリックTIPが閉じないようにする
 
   // BM-078: ピン留め等でWebSocket再描画が入ると列が丸ごと作り直されるため、
@@ -4125,8 +4126,7 @@ function renderBoard(data) {
           <button class="card-action-btn card-due-btn" data-task-id="${item.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
           <button class="card-action-btn card-tag-btn" data-task-id="${item.id}" title="タグを付け外し"><span class="material-icon icon-tag"></span></button>
           <button class="card-action-btn card-category-btn" data-task-id="${item.id}" title="カテゴリを設定"><span class="material-icon icon-stacks"></span></button>
-          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
-          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
+          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-btn" data-task-id="${item.id}" title="GitHub Issue（紐づける／新規作成）" aria-haspopup="menu">${GITHUB_MARK_SVG}</button>` : ''}
           <button class="card-action-btn card-redmine-link-btn" data-task-id="${item.id}" title="Redmineチケットと紐づける">${REDMINE_MARK_SVG}</button>
           ${!isEpic ? `<button class="card-action-btn card-delete-btn danger" data-task-id="${item.id}" title="削除"><span class="material-icon icon-delete"></span></button>` : ''}
         </div>`;
@@ -4442,33 +4442,21 @@ function renderBoard(data) {
     link.addEventListener('click', (e) => e.stopPropagation());
   });
 
-  // GitHub Issue紐付けボタンのイベントリスナー（BT-122）
-  boardEl.querySelectorAll('.card-github-link-btn').forEach(btn => {
+  // GitHubボタン(BM-163: 紐づけ/作成を1個にまとめた。BT-122の紐づけとBT-134の新規作成はメニューから開く)
+  boardEl.querySelectorAll('.card-github-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
-      const item = findItemById(btn.dataset.taskId);
-      if (item) openGithubLinkModal(item);
+      openGithubLinkMenu(btn);
     });
   });
 
-  // GitHub Issue新規作成ボタンのイベントリスナー（BT-134）
-  boardEl.querySelectorAll('.card-github-create-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      const item = findItemById(btn.dataset.taskId);
-      if (item) openGithubCreateConfirm(item, btn.dataset.isChild === 'true');
-    });
-  });
-
-  // Redmineチケット紐付けボタンのイベントリスナー（BM-126）
+  // Redmineチケット紐付けボタンのイベントリスナー（BM-126）。作成がないのでメニューは挟まない
   boardEl.querySelectorAll('.card-redmine-link-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
-      const item = findItemById(btn.dataset.taskId);
-      if (item) openRedmineLinkModal(item);
+      openCardRedmineLink(btn);
     });
   });
 
@@ -8923,9 +8911,8 @@ function buildMiniBoard(epic) {
             <button class="card-action-btn card-child-due-btn" data-task-id="${child.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
             <button class="card-action-btn card-tag-btn" data-task-id="${child.id}" title="タグを付け外し"><span class="material-icon icon-tag"></span></button>
             <button class="card-action-btn card-category-btn" data-task-id="${child.id}" title="カテゴリを設定"><span class="material-icon icon-stacks"></span></button>
-            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
-            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-create-btn" data-task-id="${child.id}" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
-            <button class="card-action-btn card-child-redmine-link-btn" data-task-id="${child.id}" title="Redmineチケットと紐づける">${REDMINE_MARK_SVG}</button>
+            ${!child.githubIssueNumber ? `<button class="card-action-btn card-github-btn" data-task-id="${child.id}" title="GitHub Issue（紐づける／新規作成）" aria-haspopup="menu">${GITHUB_MARK_SVG}</button>` : ''}
+            <button class="card-action-btn card-redmine-link-btn" data-task-id="${child.id}" title="Redmineチケットと紐づける">${REDMINE_MARK_SVG}</button>
             <button class="card-action-btn card-child-delete-btn danger" data-task-id="${child.id}" title="削除"><span class="material-icon icon-delete"></span></button>
           </div>`
         : '';
@@ -9010,36 +8997,23 @@ function buildMiniBoard(epic) {
         childRedmineBadgeEl.addEventListener('click', (e) => e.stopPropagation());
       }
 
-      // GitHub Issue紐付けボタンのイベント（BT-122）
-      const childGithubLinkBtnEl = card.querySelector('.card-child-github-link-btn');
-      if (childGithubLinkBtnEl) {
-        childGithubLinkBtnEl.addEventListener('click', (e) => {
+      // GitHubボタン（BM-163: 紐づけ(BT-122)と新規作成(BT-134)を1個にまとめ、メニューから開く）
+      const childGithubBtnEl = card.querySelector('.card-github-btn');
+      if (childGithubBtnEl) {
+        childGithubBtnEl.addEventListener('click', (e) => {
           e.stopPropagation();
           e.preventDefault();
-          const childWithProject = { ...child, project: epic.project };
-          openGithubLinkModal(childWithProject);
+          openGithubLinkMenu(childGithubBtnEl);
         });
       }
 
-      // GitHub Issue新規作成ボタンのイベント（BT-134）
-      const childGithubCreateBtnEl = card.querySelector('.card-child-github-create-btn');
-      if (childGithubCreateBtnEl) {
-        childGithubCreateBtnEl.addEventListener('click', (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          const childWithProject = { ...child, project: epic.project };
-          openGithubCreateConfirm(childWithProject, true);
-        });
-      }
-
-      // Redmineチケット紐付けボタンのイベント（BM-126）
-      const childRedmineLinkBtnEl = card.querySelector('.card-child-redmine-link-btn');
+      // Redmineチケット紐付けボタンのイベント（BM-126）。作成がないのでメニューは挟まない
+      const childRedmineLinkBtnEl = card.querySelector('.card-redmine-link-btn');
       if (childRedmineLinkBtnEl) {
         childRedmineLinkBtnEl.addEventListener('click', (e) => {
           e.stopPropagation();
           e.preventDefault();
-          const childWithProject = { ...child, project: epic.project };
-          openRedmineLinkModal(childWithProject);
+          openCardRedmineLink(childRedmineLinkBtnEl);
         });
       }
 
@@ -9465,6 +9439,91 @@ function resolveCardTipItem(btn) {
   const found = findItemById(taskId) || findChildItemById(taskId);
   if (!found) return null;
   return parentEpic ? { ...found, project: parentEpic.project } : found;
+}
+
+// BM-163: カードの外部連携ボタン(GitHub / Redmine)。カードのボタンは各サービスのブランドアイコン1個にまとめる。
+//   - GitHub: 押すと小さなメニュー(紐づける / 新規作成)が開く。作成できるのはGitHubだけ(Redmine・GitLabは書き戻さない方針)。
+//   - Redmine: 作成がないのでメニューは挟まず、そのまま紐づけダイアログを開く。
+// 対象はクリック時にタスクIDから引き直す(再描画でクロージャが握るitemが古くなるため)。
+// EPICの子かどうか(openGithubCreateConfirmのisChild)は、親EPICが見つかるかで判定する。
+function resolveCardLinkTarget(btn) {
+  const item = resolveCardTipItem(btn);
+  if (!item) return null;
+  const isChild = !!findParentEpicOfChildId(btn.dataset.taskId) && !findItemById(btn.dataset.taskId);
+  return { item, isChild };
+}
+
+function openCardRedmineLink(btn) {
+  const target = resolveCardLinkTarget(btn);
+  if (target) openRedmineLinkModal(target.item);
+}
+
+let githubLinkMenuEl = null;
+let githubLinkMenuCleanup = null;
+
+function closeGithubLinkMenu() {
+  if (githubLinkMenuCleanup) githubLinkMenuCleanup();
+  githubLinkMenuCleanup = null;
+  if (githubLinkMenuEl) githubLinkMenuEl.remove();
+  githubLinkMenuEl = null;
+}
+
+// GitHubボタンの下に「紐づける / 新規作成」のメニューを出す(期日ピッカーと同じ閉じ方: 外側クリック・Esc・スクロール・リサイズ)
+function openGithubLinkMenu(btn) {
+  const target = resolveCardLinkTarget(btn);
+  if (!target) return;
+  closeGithubLinkMenu();
+  const { item, isChild } = target;
+  const el = document.createElement('div');
+  el.className = 'card-link-menu';
+  el.setAttribute('role', 'menu');
+  el.setAttribute('aria-label', 'GitHub Issueの操作');
+  el.innerHTML = `
+    <button type="button" class="card-link-menu-item" role="menuitem" data-act="link"><span class="material-icon icon-link"></span> 既存のIssueと紐づける</button>
+    <button type="button" class="card-link-menu-item" role="menuitem" data-act="create"><span class="material-icon icon-upload"></span> Issueを新規作成</button>`;
+  // メニュー内のクリックがカード(詳細を開く・選択トグル)へ伝わらないようにする
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const act = e.target.closest('[data-act]');
+    if (!act) return;
+    closeGithubLinkMenu();
+    if (act.dataset.act === 'link') openGithubLinkModal(item);
+    else openGithubCreateConfirm(item, isChild);
+  });
+  el.addEventListener('contextmenu', (e) => e.stopPropagation());
+  document.body.appendChild(el);
+  githubLinkMenuEl = el;
+
+  const margin = 8;
+  const rect = btn.getBoundingClientRect();
+  const left = Math.min(rect.left, window.innerWidth - el.offsetWidth - margin);
+  const top = rect.bottom + 4 + el.offsetHeight > window.innerHeight - margin
+    ? rect.top - el.offsetHeight - 4
+    : rect.bottom + 4;
+  el.style.left = `${Math.max(margin, left)}px`;
+  el.style.top = `${Math.max(margin, top)}px`;
+  const first = el.querySelector('.card-link-menu-item');
+  if (first) first.focus();
+
+  const onPointerDown = (e) => { if (!el.contains(e.target)) closeGithubLinkMenu(); };
+  // Escはメニューが先に消費する(背後のモーダルまで一緒に閉じないように)
+  const onKeyDown = (e) => {
+    if (e.key !== 'Escape') return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    closeGithubLinkMenu();
+  };
+  const onScroll = (e) => { if (!el.contains(e.target)) closeGithubLinkMenu(); };
+  document.addEventListener('pointerdown', onPointerDown, true);
+  document.addEventListener('keydown', onKeyDown, true);
+  window.addEventListener('resize', closeGithubLinkMenu);
+  window.addEventListener('scroll', onScroll, true);
+  githubLinkMenuCleanup = () => {
+    document.removeEventListener('pointerdown', onPointerDown, true);
+    document.removeEventListener('keydown', onKeyDown, true);
+    window.removeEventListener('resize', closeGithubLinkMenu);
+    window.removeEventListener('scroll', onScroll, true);
+  };
 }
 
 // BM-136: カードのコメントボタン。右クリックTIPをボタンの下に開き、コメント入力欄にフォーカスする。
