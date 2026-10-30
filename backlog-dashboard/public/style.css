@@ -3532,9 +3532,12 @@ body {
   cursor: not-allowed;
 }
 
+/* BM-157: 外部連携アイコンは、普段見るブランドカラーで描く(BM-069で統一色にしたが、
+   馴染みすぎてどれか探すことになるため戻した)。GitHubは公式が黒のため、テーマの前景色に追従させる
+   (ライトは黒系、ダークは白系)。Redmine/GitLabは公式色を使う(GitLabの3色はapp.jsのSVGに持つ) */
 .github-mark-icon {
   flex-shrink: 0;
-  color: var(--text-muted);
+  color: var(--text);
 }
 
 .card-tag.github-issue-closed {
@@ -3594,7 +3597,17 @@ body {
 /* --- Redmineチケット取り込みタブ (BM-073) --- */
 .redmine-mark-icon {
   flex-shrink: 0;
-  color: var(--text-muted);
+  color: #b32024; /* Redmine公式の赤(BM-157) */
+}
+
+/* BM-157: 公式の赤はダーク背景だとコントラストが約2.3:1で沈むため、色は変えずに白い縁取りを足す。
+   strokeだと図形が内側に食い込むので、drop-shadowを四方に置いて外側へ縁取る。 */
+[data-theme="dark"] .redmine-mark-icon {
+  filter:
+    drop-shadow(0.75px 0 0 #fff)
+    drop-shadow(-0.75px 0 0 #fff)
+    drop-shadow(0 0.75px 0 #fff)
+    drop-shadow(0 -0.75px 0 #fff);
 }
 
 .card-tag.redmine-issue-badge {
@@ -3624,7 +3637,6 @@ body {
 /* --- GitLab issue取り込みタブ (BM-074) --- */
 .gitlab-mark-icon {
   flex-shrink: 0;
-  color: var(--text-muted);
 }
 
 .card-tag.gitlab-issue-badge {
