@@ -175,9 +175,9 @@
         </div>
         <div class="settings-column settings-column-github">
           <div class="settings-group settings-group-github">
-            <label>GitHub連携（ワークスペース単位）</label>
-            <input type="text" id="settings-github-repo-url" placeholder="https://github.com/owner/repo">
-            <input type="password" id="settings-github-token" placeholder="トークンを入力（未入力なら既存を保持）">
+            <label class="settings-brand-label"><span class="settings-brand-icon" data-brand="github" aria-hidden="true"></span>GitHub連携（ワークスペース単位）</label>
+            <div class="settings-field"><span class="material-icon icon-link settings-field-icon" title="リポジトリURL" aria-hidden="true"></span><input type="text" id="settings-github-repo-url" placeholder="https://github.com/owner/repo" aria-label="リポジトリURL"></div>
+            <div class="settings-field"><span class="material-icon icon-key settings-field-icon" title="トークン" aria-hidden="true"></span><input type="password" id="settings-github-token" placeholder="トークンを入力（未入力なら既存を保持）" aria-label="トークン"></div>
             <p class="settings-github-hint" id="settings-github-hint">Fine-grained PAT発行時は Repository permissions に「Issues: Read and write」を追加してください（Contents権限だけでは取得はできても作成・更新ができません）</p>
             <div class="settings-github-footer">
               <span id="settings-github-status"></span>
@@ -185,9 +185,9 @@
             </div>
           </div>
           <div class="settings-group settings-group-github settings-group-redmine">
-            <label>Redmine連携（ワークスペース単位。トークンはホスト単位で共有）</label>
-            <input type="text" id="settings-redmine-project-url" placeholder="http://host/redmine/projects/sample">
-            <input type="password" id="settings-redmine-token" placeholder="APIキーを入力（未入力なら既存を保持）">
+            <label class="settings-brand-label"><span class="settings-brand-icon" data-brand="redmine" aria-hidden="true"></span>Redmine連携（ワークスペース単位。トークンはホスト単位で共有）</label>
+            <div class="settings-field"><span class="material-icon icon-link settings-field-icon" title="プロジェクトURL" aria-hidden="true"></span><input type="text" id="settings-redmine-project-url" placeholder="http://host/redmine/projects/sample" aria-label="プロジェクトURL"></div>
+            <div class="settings-field"><span class="material-icon icon-key settings-field-icon" title="APIキー" aria-hidden="true"></span><input type="password" id="settings-redmine-token" placeholder="APIキーを入力（未入力なら既存を保持）" aria-label="APIキー"></div>
             <p class="settings-github-hint" id="settings-redmine-hint">APIキーはRedmineの「個人設定」ページから取得できます。同じRedmineホストなら他のワークスペースでも共有されます</p>
             <div class="settings-github-footer">
               <span id="settings-redmine-status"></span>
@@ -195,9 +195,9 @@
             </div>
           </div>
           <div class="settings-group settings-group-github settings-group-redmine">
-            <label>GitLab連携（ワークスペース単位。トークンはホスト単位で共有）</label>
-            <input type="text" id="settings-gitlab-project-url" placeholder="https://host/group/project">
-            <input type="password" id="settings-gitlab-token" placeholder="トークンを入力（未入力なら既存を保持）">
+            <label class="settings-brand-label"><span class="settings-brand-icon" data-brand="gitlab" aria-hidden="true"></span>GitLab連携（ワークスペース単位。トークンはホスト単位で共有）</label>
+            <div class="settings-field"><span class="material-icon icon-link settings-field-icon" title="プロジェクトURL" aria-hidden="true"></span><input type="text" id="settings-gitlab-project-url" placeholder="https://host/group/project" aria-label="プロジェクトURL"></div>
+            <div class="settings-field"><span class="material-icon icon-key settings-field-icon" title="トークン" aria-hidden="true"></span><input type="password" id="settings-gitlab-token" placeholder="トークンを入力（未入力なら既存を保持）" aria-label="トークン"></div>
             <p class="settings-github-hint" id="settings-gitlab-hint">Personal Access Tokenはread_apiスコープだけのものを推奨します。同じGitLabホストなら他のワークスペースでも共有されます</p>
             <div class="settings-github-footer">
               <span id="settings-gitlab-status"></span>
