@@ -31,7 +31,7 @@ function cleanup({ db, directory }) {
   fs.rmSync(directory, { recursive: true, force: true });
 }
 
-test('insertLink + findLinkedTask: only live tasks count as already imported', () => {
+test('insertLink + findLinkedTasks: only live tasks count as already imported', () => {
   const f = createTestDb();
   try {
     const task = tasksRepo.create(f.db, { workspace: 'test', title: 't', status: 'todo' });
@@ -39,30 +39,56 @@ test('insertLink + findLinkedTask: only live tasks count as already imported', (
       taskId: task.id, source: 'redmine', host: 'http://host/redmine', projectRef: 'proj',
       issueKey: 42, issueUrl: 'http://host/redmine/issues/42', linkedBy: 'kiro',
     });
-    const found = externalLinksRepo.findLinkedTask(f.db, { source: 'redmine', host: 'http://host/redmine', projectRef: 'proj', issueKey: 42 });
-    assert.equal(found.taskId, task.display_id);
-    const notFound = externalLinksRepo.findLinkedTask(f.db, { source: 'redmine', host: 'http://host/redmine', projectRef: 'proj', issueKey: 999 });
-    assert.equal(notFound, null);
+    const found = externalLinksRepo.findLinkedTasks(f.db, { source: 'redmine', host: 'http://host/redmine', projectRef: 'proj', issueKey: 42 });
+    assert.deepEqual(found, [task.display_id]);
+    const notFound = externalLinksRepo.findLinkedTasks(f.db, { source: 'redmine', host: 'http://host/redmine', projectRef: 'proj', issueKey: 999 });
+    assert.deepEqual(notFound, []);
 
     tasksRepo.softDelete(f.db, task.display_id);
     // BM-069方針C: 削除済みタスクのチケットは再度取り込める(取込済み判定から外れる)
-    const afterDelete = externalLinksRepo.findLinkedTask(f.db, { source: 'redmine', host: 'http://host/redmine', projectRef: 'proj', issueKey: 42 });
-    assert.equal(afterDelete, null);
+    const afterDelete = externalLinksRepo.findLinkedTasks(f.db, { source: 'redmine', host: 'http://host/redmine', projectRef: 'proj', issueKey: 42 });
+    assert.deepEqual(afterDelete, []);
   } finally {
     cleanup(f);
   }
 });
 
-test('findLinkedTasksByKeys resolves multiple keys in one call', () => {
+test('one issue can be linked to several tasks; findLinkedTasks lists them in creation order and honors exclude (BM-158)', () => {
   const f = createTestDb();
   try {
     const t1 = tasksRepo.create(f.db, { workspace: 'test', title: '1', status: 'todo' });
     const t2 = tasksRepo.create(f.db, { workspace: 'test', title: '2', status: 'todo' });
+    const t3 = tasksRepo.create(f.db, { workspace: 'test', title: '3', status: 'todo' });
+    const key = { source: 'redmine', host: 'h', projectRef: 'p', issueKey: 7 };
+    for (const t of [t3, t1, t2]) { // 紐づけた順ではなく、タスクの作成順で返ることを確かめる
+      externalLinksRepo.setLink(f.db, { taskId: t.id, source: 'redmine', host: 'h', projectRef: 'p', issueKey: 7, issueUrl: 'u7' });
+    }
+
+    assert.deepEqual(externalLinksRepo.findLinkedTasks(f.db, key), [t1.display_id, t2.display_id, t3.display_id]);
+    // 自分自身は共有扱いにしない(再紐づけ・上書きの判定用)
+    assert.deepEqual(externalLinksRepo.findLinkedTasks(f.db, key, t2.display_id), [t1.display_id, t3.display_id]);
+
+    // 論理削除されたタスクは共有先に数えない
+    tasksRepo.softDelete(f.db, t1.display_id);
+    assert.deepEqual(externalLinksRepo.findLinkedTasks(f.db, key), [t2.display_id, t3.display_id]);
+  } finally {
+    cleanup(f);
+  }
+});
+
+test('findLinkedTasksByKeys resolves multiple keys in one call, with every linked task per key (BM-158)', () => {
+  const f = createTestDb();
+  try {
+    const t1 = tasksRepo.create(f.db, { workspace: 'test', title: '1', status: 'todo' });
+    const t2 = tasksRepo.create(f.db, { workspace: 'test', title: '2', status: 'todo' });
+    const t3 = tasksRepo.create(f.db, { workspace: 'test', title: '3', status: 'todo' });
     externalLinksRepo.insertLink(f.db, { taskId: t1.id, source: 'redmine', host: 'h', projectRef: 'p', issueKey: 1, issueUrl: 'u1' });
     externalLinksRepo.insertLink(f.db, { taskId: t2.id, source: 'redmine', host: 'h', projectRef: 'p', issueKey: 2, issueUrl: 'u2' });
+    // チケット1は t3 とも共有する
+    externalLinksRepo.insertLink(f.db, { taskId: t3.id, source: 'redmine', host: 'h', projectRef: 'p', issueKey: 1, issueUrl: 'u1' });
     const map = externalLinksRepo.findLinkedTasksByKeys(f.db, { source: 'redmine', host: 'h', projectRef: 'p', issueKeys: [1, 2, 3] });
-    assert.equal(map.get('1'), t1.display_id);
-    assert.equal(map.get('2'), t2.display_id);
+    assert.deepEqual(map.get('1'), [t1.display_id, t3.display_id]);
+    assert.deepEqual(map.get('2'), [t2.display_id]);
     assert.equal(map.has('3'), false);
     assert.deepEqual(externalLinksRepo.findLinkedTasksByKeys(f.db, { source: 'redmine', host: 'h', projectRef: 'p', issueKeys: [] }), new Map());
   } finally {
@@ -106,7 +132,7 @@ test('setLink inserts when no link exists yet, and overwrites an existing link t
     assert.deepEqual(links[task.id], [{ source: 'redmine', key: '99', url: 'http://host/redmine/issues/99', projectRef: 'proj' }]);
 
     // 古いキー(42)への紐づけは消えている
-    assert.equal(externalLinksRepo.findLinkedTask(f.db, { source: 'redmine', host: 'http://host/redmine', projectRef: 'proj', issueKey: 42 }), null);
+    assert.deepEqual(externalLinksRepo.findLinkedTasks(f.db, { source: 'redmine', host: 'http://host/redmine', projectRef: 'proj', issueKey: 42 }), []);
   } finally {
     cleanup(f);
   }

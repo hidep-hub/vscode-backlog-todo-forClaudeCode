@@ -3,14 +3,19 @@
 // BM-126: 既存タスクへ外部ITS(現時点ではRedmineのみ)のチケットを後から紐づけるAPI。
 // GitHubの/api/github-link-issue(server.js)と同じ骨格だが、保存先はtasks.github_issue_*列ではなく
 // BM-071のtask_external_linksテーブル(externalLinksRepo)。
-//   POST /api/its-link-issue {taskId, source, issueKey}
-//     -> { ok, source, issueKey, issueUrl }
+//   POST /api/its-link-issue {taskId, source, issueKey, allowShared?, actor?}
+//     -> { ok, source, issueKey, issueUrl, sharedWith }
 //
 // スコープ(ユーザー合意事項、BM-126):
 //   - 既存タスクへの「紐づけ」のみ。チケットの新規作成はしない(github-create-issue相当は作らない)。
 //   - 上書き許可(間違えた場合の修正を想定)。同一タスク+sourceへの再紐づけはsetLink()で上書きする。
 //   - チケット番号はRedmine APIで実在確認してから保存する(its-credentials未設定なら400)。
 //   - GitLabの個別紐づけは対象外(sourceはredmineのみ受け付ける)。
+//
+// BM-158: 1チケット:nタスクを許可する。ただし打ち間違いが黙って通らないよう、既に別タスクへ
+// 紐づいているチケットは409 already_linked(linkedTaskIds付き)で止め、呼び出し側が
+// allowShared:true を付けて再送した時だけ紐づける(タグ作成のconfirmSimilarと同じ作法)。
+//   -> 成功時のレスポンスに sharedWith(同じチケットに紐づく他タスクのID配列、無ければ空)が付く。
 
 const redmineClient = require('./redmine-client');
 const itsCredentials = require('./its-credentials');
@@ -65,12 +70,16 @@ function createItsLinkApi({ config, credentialsPath, getDb, tasksRepo, readReque
       return;
     }
 
-    // 同一チケットが既に別タスクへ紐づいていないかチェック(上書きは同一タスクへの再設定のみ許可)
-    const linked = externalLinksRepo.findLinkedTask(db, {
+    // 同一チケットが既に別タスクへ紐づいている場合は、allowSharedが無い限り409で確認を求める(BM-158)
+    const sharedWith = externalLinksRepo.findLinkedTasks(db, {
       source, host: conn.host, projectRef: conn.projectRef, issueKey: normalizedKey,
-    });
-    if (linked && linked.taskId !== taskId) {
-      sendJson(res, 400, { error: `Issue #${normalizedKey} is already linked to another task (${linked.taskId})` });
+    }, taskId);
+    if (sharedWith.length > 0 && body.allowShared !== true) {
+      sendJson(res, 409, {
+        error: 'already_linked',
+        message: `Issue #${normalizedKey} is already linked to other task(s): ${sharedWith.join(', ')}`,
+        linkedTaskIds: sharedWith,
+      });
       return;
     }
 
@@ -98,7 +107,7 @@ function createItsLinkApi({ config, credentialsPath, getDb, tasksRepo, readReque
       linkedBy: tasksRepo.normalizeActor(body.actor),
     });
 
-    sendJson(res, 200, { ok: true, source, issueKey: String(issue.id), issueUrl });
+    sendJson(res, 200, { ok: true, source, issueKey: String(issue.id), issueUrl, sharedWith });
     onChange();
   }
 

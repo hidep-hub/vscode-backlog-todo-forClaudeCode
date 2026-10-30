@@ -60,7 +60,7 @@ async function startMockRedmine() {
   return { server, host: `http://127.0.0.1:${port}/redmine`, close: () => new Promise((r) => server.close(r)) };
 }
 
-test('its-link-issue links, overwrites, rejects duplicates, and validates (BM-126)', async (t) => {
+test('its-link-issue links, overwrites, asks before sharing an issue across tasks, and validates (BM-126, BM-158)', async (t) => {
   const sourceRoot = path.resolve(__dirname, '..');
   const fixtureRoot = fs.mkdtempSync(path.join(sourceRoot, '.api-test-'));
   const dataDir = path.join(fixtureRoot, 'data');
@@ -124,6 +124,7 @@ test('its-link-issue links, overwrites, rejects duplicates, and validates (BM-12
     assert.equal(linked.body.ok, true);
     assert.equal(linked.body.issueKey, '10');
     assert.equal(linked.body.issueUrl, `${mockRedmine.host}/issues/10`);
+    assert.deepEqual(linked.body.sharedWith, [], 'first link has nobody to share with');
 
     let detail = await get(baseUrl, `/api/task/${taskAId}`);
     assert.deepEqual(detail.body.externalLinks, [{ source: 'redmine', key: '10', url: `${mockRedmine.host}/issues/10`, projectRef: 'sample' }]);
@@ -131,20 +132,44 @@ test('its-link-issue links, overwrites, rejects duplicates, and validates (BM-12
     // Redmine側に存在しないチケット番号 -> 404
     assert.equal((await post(baseUrl, '/api/its-link-issue', { taskId: taskAId, source: 'redmine', issueKey: '999' })).status, 404);
 
-    // 別タスク(taskB)が同じチケット10を奪おうとすると400(重複紐付け防止)
+    // BM-158: 別タスク(taskB)が同じチケット10を紐づけようとすると、まず409で確認を求められ、何も保存されない
     const dup = await post(baseUrl, '/api/its-link-issue', { taskId: taskBId, source: 'redmine', issueKey: '10' });
-    assert.equal(dup.status, 400);
+    assert.equal(dup.status, 409);
+    assert.equal(dup.body.error, 'already_linked');
+    assert.deepEqual(dup.body.linkedTaskIds, [taskAId]);
+    assert.deepEqual((await get(baseUrl, `/api/task/${taskBId}`)).body.externalLinks, []);
 
-    // 上書き: taskAを別チケット(20)で紐づけ直す(ユーザー合意事項: 上書き許可)
+    // allowSharedがtrue(真偽値)以外なら確認済みとは扱わない
+    for (const allowShared of [false, 'true', 1]) {
+      const notConfirmed = await post(baseUrl, '/api/its-link-issue', { taskId: taskBId, source: 'redmine', issueKey: '10', allowShared });
+      assert.equal(notConfirmed.status, 409, `allowShared=${JSON.stringify(allowShared)}`);
+    }
+
+    // allowShared:true で再送すると、同じチケットを2タスクで共有できる(1チケット:nタスク)
+    const shared = await post(baseUrl, '/api/its-link-issue', { taskId: taskBId, source: 'redmine', issueKey: '10', allowShared: true });
+    assert.equal(shared.status, 200, JSON.stringify(shared.body));
+    assert.deepEqual(shared.body.sharedWith, [taskAId]);
+    const expectedLink10 = [{ source: 'redmine', key: '10', url: `${mockRedmine.host}/issues/10`, projectRef: 'sample' }];
+    assert.deepEqual((await get(baseUrl, `/api/task/${taskAId}`)).body.externalLinks, expectedLink10);
+    assert.deepEqual((await get(baseUrl, `/api/task/${taskBId}`)).body.externalLinks, expectedLink10);
+
+    // 共有済みのチケットに、自分自身(taskB)を再度紐づけ直しても確認は要らない(共有先は自分以外で数える)
+    const sameAgain = await post(baseUrl, '/api/its-link-issue', { taskId: taskBId, source: 'redmine', issueKey: '10', allowShared: true });
+    assert.equal(sameAgain.status, 200);
+    assert.deepEqual(sameAgain.body.sharedWith, [taskAId]);
+
+    // 上書き: taskAを別チケット(20)で紐づけ直す(ユーザー合意事項: 上書き許可)。taskBの10はそのまま残る
     const overwritten = await post(baseUrl, '/api/its-link-issue', { taskId: taskAId, source: 'redmine', issueKey: '20' });
     assert.equal(overwritten.status, 200, JSON.stringify(overwritten.body));
     assert.equal(overwritten.body.issueKey, '20');
     detail = await get(baseUrl, `/api/task/${taskAId}`);
     assert.deepEqual(detail.body.externalLinks, [{ source: 'redmine', key: '20', url: `${mockRedmine.host}/issues/20`, projectRef: 'sample' }]);
+    assert.deepEqual((await get(baseUrl, `/api/task/${taskBId}`)).body.externalLinks, expectedLink10);
 
-    // 上書きで解放されたチケット10は、今度はtaskBへ紐づけられる
+    // 共有が解消されたあと(taskAが20へ移動)は、確認なしでtaskB自身を10に紐づけ直せる
     const reLinked = await post(baseUrl, '/api/its-link-issue', { taskId: taskBId, source: 'redmine', issueKey: '10' });
     assert.equal(reLinked.status, 200, JSON.stringify(reLinked.body));
+    assert.deepEqual(reLinked.body.sharedWith, []);
 
     // 未設定ワークスペース(Redmine接続未設定)は400
     await post(baseUrl, '/api/create-workspace', { file: 'noconn', prefix: 'NC', name: 'NoConn' });

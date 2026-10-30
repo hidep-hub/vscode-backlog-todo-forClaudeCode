@@ -565,13 +565,30 @@ function getChildren(db, parentDisplayId) {
 }
 
 /**
- * 同一workspace内で指定のgithub_issue_numberを既に使っている他タスクがあるかを調べる
- * (重複紐付け防止、既存md版と同じ挙動)。excludeDisplayId自身は対象から除く。
+ * 同一workspace内で指定のgithub_issue_numberを使っているタスク(論理削除を除く)を全件返す。
+ * BM-158: 1issue:nタスクを許可したため、紐づけ前の共有確認と、完了時のclose判定に使う。
+ * excludeDisplayId自身は対象から除く。
  */
-function findByGithubIssueNumber(db, workspace, issueNumber, excludeDisplayId = null) {
+function listByGithubIssueNumber(db, workspace, issueNumber, excludeDisplayId = null) {
   return db.prepare(`SELECT * FROM tasks WHERE workspace = ? AND github_issue_number = ?
-    AND deleted_at IS NULL AND display_id != ?`)
-    .get(workspace, Number(issueNumber), excludeDisplayId || '');
+    AND deleted_at IS NULL AND display_id != ? ORDER BY id`)
+    .all(workspace, Number(issueNumber), excludeDisplayId || '');
+}
+
+/**
+ * BM-158: GitHub Issueが複数タスクで共有されている場合の、完了時の同期方針を決める。
+ * 完了コメントは各タスクの完了時に投稿し、issueのcloseは、同じissueに紐づく全タスク
+ * (論理削除を除く)がdoneになった時だけ行う。紐づくタスクが1つだけなら従来どおり常にclose。
+ * 完了したタスク自身のstatusはDBに反映済みの状態で呼ぶこと(他タスクだけを見る)。
+ * @returns {{shared: boolean, close: boolean, pendingTaskIds: string[]}}
+ */
+function planGithubCompletionSync(db, task) {
+  const others = listByGithubIssueNumber(db, task.workspace, task.github_issue_number, task.display_id);
+  if (others.length === 0) return { shared: false, close: true, pendingTaskIds: [] };
+  const pendingTaskIds = others
+    .filter((o) => getEffectiveStatus(db, o) !== 'done')
+    .map((o) => o.display_id);
+  return { shared: true, close: pendingTaskIds.length === 0, pendingTaskIds };
 }
 
 /**
@@ -637,6 +654,6 @@ module.exports = {
   allocateSeq, create, updateStatus,
   setPin, setRunning, isPinned, isRunning, updateFields, updateCommitHash, setArtifacts, softDelete,
   attachToParent, detachFromParent, reorder, moveWorkspace, getEffectiveStatus,
-  setGithubLink, getChildren, findByGithubIssueNumber, listGithubLinkedNumbers, insertEvent, normalizeActor,
+  setGithubLink, getChildren, listByGithubIssueNumber, planGithubCompletionSync, listGithubLinkedNumbers, insertEvent, normalizeActor,
   listDueDateHistory, searchByTitleIdAssignee, searchByBody, escapeLikePattern,
 };

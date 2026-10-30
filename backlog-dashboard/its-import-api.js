@@ -5,9 +5,11 @@
 //   GET  /api/its-meta?prefix=&source=redmine
 //     -> { projectName, trackers:[{id,name}] }(Redmine専用。GitLabはトラッカーの概念が無いため呼べない=400)
 //   GET  /api/its-preview?prefix=&source=redmine|gitlab&trackerId=(redmineのみ必須)&status=open|all&offset=0
-//     -> { issues:[{key,title,url,state,statusName,startDate,dueDate,alreadyImported,importedTaskId,parentKey,childKeys,
-//                    assignee,version,description}], total, nextOffset }
+//     -> { issues:[{key,title,url,state,statusName,startDate,dueDate,alreadyImported,importedTaskId,importedTaskIds,
+//                    parentKey,childKeys,assignee,version,description}], total, nextOffset }
 //          ※assignee/version/description はRedmineのみ(BM-099)。GitLabはassignee/versionが常にnull(descriptionはBT-422で対応)。
+//          ※BM-158: 1チケット:nタスクを許可したため、紐付いているタスクは importedTaskIds(配列、作成順)で返す。
+//            importedTaskId は互換のため先頭の1件(無ければnull)。
 //   POST /api/its-import {prefix, source, keys:[...]}
 //     -> { ok, added, skipped, errors }
 //
@@ -72,7 +74,8 @@ function toRedminePreviewItem(issue, { host, closedStatusIds, importedMap, child
     version: issue.fixed_version ? issue.fixed_version.name : null,
     description: issue.description || '',
     alreadyImported: importedMap.has(String(issue.id)),
-    importedTaskId: importedMap.get(String(issue.id)) || null,
+    importedTaskId: (importedMap.get(String(issue.id)) || [])[0] || null,
+    importedTaskIds: importedMap.get(String(issue.id)) || [],
     parentKey: issue.parent ? String(issue.parent.id) : null,
     childKeys: childKeys || [],
   };
@@ -96,7 +99,8 @@ function toGitlabPreviewItem(issue, { importedMap }) {
     version: null,
     description: issue.description || '',
     alreadyImported: importedMap.has(String(issue.iid)),
-    importedTaskId: importedMap.get(String(issue.iid)) || null,
+    importedTaskId: (importedMap.get(String(issue.iid)) || [])[0] || null,
+    importedTaskIds: importedMap.get(String(issue.iid)) || [],
     parentKey: null,
     childKeys: [],
   };

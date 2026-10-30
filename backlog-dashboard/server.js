@@ -640,22 +640,33 @@ function getCommitHashesForTask(workspace, taskId) {
  * タスク完了時、GitHub Issueに完了コメントを投稿してcloseする（BT-119相当）。
  * 失敗してもタスク完了自体は既に成功済みのため、ログ出力のみで握り潰す
  * （fire-and-forget。APIレスポンスをGitHub側の成否で待たせない）。
+ * BM-158: 同じissueが複数タスクで共有されている場合、コメントは各タスクの完了時に投稿し、
+ * issueのcloseは紐づく全タスクがdoneになった時だけ行う(plan.close。tasksRepo.planGithubCompletionSync)。
+ * 紐づくタスクが1つだけの場合は従来どおり(コメント文面もcloseも変えない)。
  * @param {string} prefix
  * @param {{display_id: string, description?: string, github_issue_number: number}} task
  * @param {string[]} commitHashes
+ * @param {{shared: boolean, close: boolean, pendingTaskIds: string[]}} plan
  */
-function syncCompletionToGithub(prefix, task, commitHashes) {
+function syncCompletionToGithub(prefix, task, commitHashes, plan = { shared: false, close: true, pendingTaskIds: [] }) {
   const creds = readGithubCredentials()[prefix];
   if (!creds || !creds.repoUrl || !creds.token) return;
 
-  const bodyLines = ['タスクが完了しました。', '', task.description || '(説明なし)'];
+  // 共有時は、どのタスクの完了コメントか分かるようにタスクIDを入れる
+  const headline = plan.shared ? `タスク ${task.display_id} が完了しました。` : 'タスクが完了しました。';
+  const bodyLines = [headline, '', task.description || '(説明なし)'];
   if (commitHashes.length > 0) {
     bodyLines.push('', `コミット: ${commitHashes.join(', ')}`);
   }
+  if (plan.shared && !plan.close) {
+    bodyLines.push('', `このIssueに紐づく未完了のタスクがあるため、Issueはcloseしていません: ${plan.pendingTaskIds.join(', ')}`);
+  }
 
-  githubClient.issues.createComment(creds.repoUrl, creds.token, task.github_issue_number, bodyLines.join('\n'))
-    .then(() => githubClient.issues.update(creds.repoUrl, creds.token, task.github_issue_number, { state: 'closed' }))
-    .catch(e => console.error(`[github-sync] Failed to sync completion for ${task.display_id}:`, e.message));
+  const commented = githubClient.issues.createComment(creds.repoUrl, creds.token, task.github_issue_number, bodyLines.join('\n'));
+  const finished = plan.close
+    ? commented.then(() => githubClient.issues.update(creds.repoUrl, creds.token, task.github_issue_number, { state: 'closed' }))
+    : commented;
+  finished.catch(e => console.error(`[github-sync] Failed to sync completion for ${task.display_id}:`, e.message));
 }
 
 // GitHub Issue⇔Backlogタスクの紐付けを示す固定ラベル(BT-143)
@@ -1324,7 +1335,9 @@ function serveStatic(req, res) {
       broadcast(buildBoard());
 
       if (isCompleting && existing.github_issue_number && project) {
-        syncCompletionToGithub(project.prefix, existing, commitHashes);
+        // updateStatus済み(自身はdone)の状態で、同じissueを共有する他タスクの完了状況からcloseするか決める(BM-158)
+        const plan = tasksRepo.planGithubCompletionSync(db, existing);
+        syncCompletionToGithub(project.prefix, existing, commitHashes, plan);
       }
     }).catch(e => {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -1594,8 +1607,11 @@ function serveStatic(req, res) {
   // md版にあった「完了済みタスクは非対応」制限(BT-129)はDB版では撤廃される
   // (完了済みでも行が消えず論理削除のみのため取得できる。これはBT-181の
   // 「この設計による副次効果」に沿った意図的な仕様変更)）
+  // BM-158: 1issue:nタスクを許可する。既に別タスクへ紐づいているissueは409 already_linked
+  // (linkedTaskIds付き)で止め、allowShared:true を付けて再送した時だけ紐づける。
+  // 成功時のレスポンスに sharedWith(同じissueに紐づく他タスクのID配列、無ければ空)が付く。
   if (req.url === '/api/github-link-issue' && req.method === 'POST') {
-    readRequestBody(req).then(({ taskId, issueNumber }) => {
+    readRequestBody(req).then(({ taskId, issueNumber, allowShared }) => {
       if (!taskId || !issueNumber) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'taskId and issueNumber are required' }));
@@ -1632,11 +1648,15 @@ function serveStatic(req, res) {
         return;
       }
 
-      // 同一workspace内で既にその番号を使っている他タスクがないかチェック(重複紐付け防止)
-      const duplicated = tasksRepo.findByGithubIssueNumber(db, task.workspace, normalizedNumber, taskId);
-      if (duplicated) {
-        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ error: `Issue #${normalizedNumber} is already linked to another task` }));
+      // 同一workspace内で既にその番号を使っている他タスクがある場合は、allowSharedが無い限り409で確認を求める
+      const sharedWith = tasksRepo.listByGithubIssueNumber(db, task.workspace, normalizedNumber, taskId).map(r => r.display_id);
+      if (sharedWith.length > 0 && allowShared !== true) {
+        res.writeHead(409, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({
+          error: 'already_linked',
+          message: `Issue #${normalizedNumber} is already linked to other task(s): ${sharedWith.join(', ')}`,
+          linkedTaskIds: sharedWith,
+        }));
         return;
       }
 
@@ -1644,7 +1664,7 @@ function serveStatic(req, res) {
         .then((issue) => {
           tasksRepo.setGithubLink(db, taskId, issue.number, issue.html_url);
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify({ ok: true, issueNumber: issue.number, issueUrl: issue.html_url }));
+          res.end(JSON.stringify({ ok: true, issueNumber: issue.number, issueUrl: issue.html_url, sharedWith }));
           broadcast(buildBoard());
         })
         .catch((e) => {
@@ -1679,11 +1699,17 @@ function serveStatic(req, res) {
       return;
     }
 
-    // 既取り込み済みのissue番号 → backlog内タスクID(このワークスペース内、親・子とも、BT-192: DB版)
+    // 既取り込み済みのissue番号 → backlog内タスクID配列(このワークスペース内、親・子とも、BT-192: DB版)。
+    // BM-158: 1issue:nタスクを許可したため、1つの番号に複数のタスクIDが紐づき得る(作成順)。
     const db = getDb(BACKLOG_DIR);
     const linkedRows = db.prepare(`SELECT display_id, github_issue_number FROM tasks
-      WHERE workspace = ? AND github_issue_number IS NOT NULL AND deleted_at IS NULL`).all(project.file);
-    const existingNumberToTaskId = new Map(linkedRows.map(r => [String(r.github_issue_number), r.display_id]));
+      WHERE workspace = ? AND github_issue_number IS NOT NULL AND deleted_at IS NULL ORDER BY id`).all(project.file);
+    const existingNumberToTaskIds = new Map();
+    for (const r of linkedRows) {
+      const key = String(r.github_issue_number);
+      if (!existingNumberToTaskIds.has(key)) existingNumberToTaskIds.set(key, []);
+      existingNumberToTaskIds.get(key).push(r.display_id);
+    }
 
     githubClient.issues.listForRepo(creds.repoUrl, creds.token, { state: 'all', perPage: 100 })
       .then((issues) => {
@@ -1700,8 +1726,9 @@ function serveStatic(req, res) {
           body: issue.body || '',
           url: issue.html_url,
           state: issue.state,
-          alreadyImported: existingNumberToTaskId.has(String(issue.number)),
-          importedTaskId: existingNumberToTaskId.get(String(issue.number)) || null,
+          alreadyImported: existingNumberToTaskIds.has(String(issue.number)),
+          importedTaskId: (existingNumberToTaskIds.get(String(issue.number)) || [])[0] || null,
+          importedTaskIds: existingNumberToTaskIds.get(String(issue.number)) || [],
           childIssueNumbers: parseTaskListChildren(issue.body),
         }));
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });

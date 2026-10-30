@@ -193,6 +193,24 @@ test('its-meta/its-preview/its-import work end to end against a mocked Redmine',
     // 未設定ワークスペースでの呼び出しは400、未対応sourceも400
     const added = await post(baseUrl, '/api/add-task', { title: 'extra ws probe', project: 'test', status: 'todo' });
     assert.equal(added.body.ok, true);
+
+    // BM-158: 取込済みチケット(4)に別タスクを共有で紐づけると、プレビューは紐づく全タスクを作成順で返す
+    // (importedTaskIdは互換のため先頭の1件)
+    const before = (await get(baseUrl, '/api/its-preview?prefix=TS&source=redmine&trackerId=1')).body.issues.find((i) => i.key === '4');
+    assert.equal(before.alreadyImported, true);
+    assert.deepEqual(before.importedTaskIds, [standaloneTask.id]);
+    assert.equal(before.importedTaskId, standaloneTask.id);
+    const sharedLink = await post(baseUrl, '/api/its-link-issue', { taskId: added.body.id, source: 'redmine', issueKey: '4', allowShared: true });
+    assert.equal(sharedLink.status, 200, JSON.stringify(sharedLink.body));
+    const after = (await get(baseUrl, '/api/its-preview?prefix=TS&source=redmine&trackerId=1')).body.issues.find((i) => i.key === '4');
+    assert.equal(after.alreadyImported, true);
+    assert.deepEqual(after.importedTaskIds, [standaloneTask.id, added.body.id]);
+    assert.equal(after.importedTaskId, standaloneTask.id);
+    // 共有していても再取り込みはskipped(今回は取り込みの挙動は変えない)
+    assert.equal((await post(baseUrl, '/api/its-import', { prefix: 'TS', source: 'redmine', keys: ['4'] })).body.skipped, 1);
+    // 取り込まれていないチケットは空配列
+    assert.deepEqual(previewOpen.body.issues.find((i) => i.key === '4').importedTaskIds, []);
+
     assert.equal((await post(baseUrl, '/api/its-import', { prefix: 'TS', source: 'gitlab', keys: ['1'] })).status, 400);
     assert.equal((await post(baseUrl, '/api/its-import', { prefix: 'TS', source: 'redmine', keys: [] })).status, 400);
   } finally {
