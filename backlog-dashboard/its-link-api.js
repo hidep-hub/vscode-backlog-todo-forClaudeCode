@@ -1,6 +1,6 @@
 'use strict';
 
-// BM-126: 既存タスクへ外部ITS(現時点ではRedmineのみ)のチケットを後から紐づけるAPI。
+// BM-126: 既存タスクへ外部ITS(Redmine / BM-164でGitLabを追加)のチケットを後から紐づけるAPI。
 // GitHubの/api/github-link-issue(server.js)と同じ骨格だが、保存先はtasks.github_issue_*列ではなく
 // BM-071のtask_external_linksテーブル(externalLinksRepo)。
 //   POST /api/its-link-issue {taskId, source, issueKey, allowShared?, actor?}
@@ -9,8 +9,11 @@
 // スコープ(ユーザー合意事項、BM-126):
 //   - 既存タスクへの「紐づけ」のみ。チケットの新規作成はしない(github-create-issue相当は作らない)。
 //   - 上書き許可(間違えた場合の修正を想定)。同一タスク+sourceへの再紐づけはsetLink()で上書きする。
-//   - チケット番号はRedmine APIで実在確認してから保存する(its-credentials未設定なら400)。
-//   - GitLabの個別紐づけは対象外(sourceはredmineのみ受け付ける)。
+//   - チケット番号は外部ITSのAPIで実在確認してから保存する(its-credentials未設定なら400)。
+//
+// BM-164: GitLabの個別紐づけに対応した(source: 'gitlab')。キーはissueのiid(プロジェクト内連番)で、
+// 実在確認は取り込み(BM-074)と同じgitlab-client.fetchIssuesByIidsを使い、URLはGitLabが返すweb_urlを保存する。
+// 外部への書き戻しはしない(読み取りのみ)。作成はGitHubだけ(BM-160の合意事項)。
 //
 // BM-158: 1チケット:nタスクを許可する。ただし打ち間違いが黙って通らないよう、既に別タスクへ
 // 紐づいているチケットは409 already_linked(linkedTaskIds付き)で止め、呼び出し側が
@@ -18,11 +21,33 @@
 //   -> 成功時のレスポンスに sharedWith(同じチケットに紐づく他タスクのID配列、無ければ空)が付く。
 
 const redmineClient = require('./redmine-client');
+const gitlabClient = require('./gitlab-client');
 const itsCredentials = require('./its-credentials');
 const externalLinksRepo = require('./db/external-links-repo');
 
-// BM-126時点ではRedmineのみ対応。GitLabは個別紐づけの対象外(スコープ外、ユーザー合意済み)。
-const SUPPORTED_SOURCES = ['redmine'];
+const SUPPORTED_SOURCES = ['redmine', 'gitlab'];
+
+// sourceごとの違い(表示名、実在確認、保存するキーとURL)をここに集める。
+// lookup は { key, url } を返し、見つからなければ null を返す。通信の失敗は例外のまま呼び出し元(502)へ渡す。
+const SOURCE_ADAPTERS = {
+  redmine: {
+    label: 'Redmine',
+    async lookup(conn, key) {
+      const issues = await redmineClient.fetchIssuesByIds(conn.host, conn.token, [key]);
+      const issue = issues.find((i) => String(i.id) === key);
+      return issue ? { key: String(issue.id), url: `${conn.host}/issues/${issue.id}` } : null;
+    },
+  },
+  gitlab: {
+    label: 'GitLab',
+    async lookup(conn, key) {
+      // projectRefで絞った検索なので、別プロジェクトの同じiidは返らない(空配列になり、見つからない扱い)
+      const issues = await gitlabClient.fetchIssuesByIids(conn.host, conn.token, conn.projectRef, [key]);
+      const issue = issues.find((i) => String(i.iid) === key);
+      return issue ? { key: String(issue.iid), url: issue.web_url } : null;
+    },
+  },
+};
 
 function sendJson(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -83,31 +108,30 @@ function createItsLinkApi({ config, credentialsPath, getDb, tasksRepo, readReque
       return;
     }
 
-    let issues;
+    const adapter = SOURCE_ADAPTERS[source];
+    let found;
     try {
-      issues = await redmineClient.fetchIssuesByIds(conn.host, conn.token, [normalizedKey]);
+      found = await adapter.lookup(conn, normalizedKey);
     } catch (e) {
-      sendJson(res, 502, { error: `Redmine API error: ${e.message}` });
+      sendJson(res, 502, { error: `${adapter.label} API error: ${e.message}` });
       return;
     }
-    const issue = issues.find((i) => String(i.id) === normalizedKey);
-    if (!issue) {
-      sendJson(res, 404, { error: `Redmine issue #${normalizedKey} not found` });
+    if (!found) {
+      sendJson(res, 404, { error: `${adapter.label} issue #${normalizedKey} not found` });
       return;
     }
 
-    const issueUrl = `${conn.host}/issues/${issue.id}`;
     externalLinksRepo.setLink(db, {
       taskId: task.id,
       source,
       host: conn.host,
       projectRef: conn.projectRef,
-      issueKey: issue.id,
-      issueUrl,
+      issueKey: found.key,
+      issueUrl: found.url,
       linkedBy: tasksRepo.normalizeActor(body.actor),
     });
 
-    sendJson(res, 200, { ok: true, source, issueKey: String(issue.id), issueUrl, sharedWith });
+    sendJson(res, 200, { ok: true, source, issueKey: found.key, issueUrl: found.url, sharedWith });
     onChange();
   }
 

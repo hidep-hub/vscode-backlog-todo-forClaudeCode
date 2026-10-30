@@ -5020,14 +5020,16 @@ body {
 /* BM-126: Redmine紐付けボタンはmaterial-icon(1em=0.7rem相当)ではなくSVGマークのため、
    他のcard-action-btnアイコンと高さを揃える(インラインのwidth/height=16を上書き) */
 .card-action-btn .redmine-mark-icon,
-.card-action-btn .github-mark-icon {
+.card-action-btn .github-mark-icon,
+.card-action-btn .gitlab-mark-icon {
   width: 0.9em;
   height: 0.9em;
 }
 
 /* 詳細操作のサービスロゴはMaterial Symbols系アイコンと同じ大きさに揃える。 */
 .add-child-btn .github-mark-icon,
-.add-child-btn .redmine-mark-icon {
+.add-child-btn .redmine-mark-icon,
+.add-child-btn .gitlab-mark-icon {
   width: 0.85em;
   height: 0.85em;
   vertical-align: -0.1em;

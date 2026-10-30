@@ -66,7 +66,8 @@ test('対象はクリック時にタスクIDから引き直し、子かどうか
 });
 
 test('スタイル: ブランドマークの寸法とメニュー', () => {
-  assert.match(css, /\.card-action-btn \.redmine-mark-icon,\s*\.card-action-btn \.github-mark-icon\s*\{[^}]*width:\s*0\.9em/);
+  // BM-164でGitLabも同じ寸法ルールに加わった(GitLabの確認は gitlab-link-ui.test.js)
+  assert.match(css, /\.card-action-btn \.redmine-mark-icon,\s*\.card-action-btn \.github-mark-icon(,\s*\.card-action-btn \.gitlab-mark-icon)?\s*\{[^}]*width:\s*0\.9em/);
   has(css, '.card-link-menu {');
   assert.match(css, /\.card-link-menu\s*\{[^}]*position:\s*fixed;[^}]*z-index:\s*2000/);
   has(css, '.card-link-menu-item:focus-visible');
