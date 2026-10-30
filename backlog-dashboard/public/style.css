@@ -2370,8 +2370,10 @@ body {
   opacity: 0.7;
 }
 
-/* メインボードのEpic進捗は、メタ情報行の右端へ配置する。 */
-.card-epic .card-meta > .card-badge {
+/* メインボードのEpic進捗は、メタ情報行の右端へ配置する。
+   BM-162: 完了列以外は右下の操作列(.card-corner)の中に置く。見た目は同じ */
+.card-epic .card-meta > .card-badge,
+.card-epic .card-corner > .card-badge {
   margin-left: auto;
   font-size: 0.66rem;
   border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
@@ -2382,7 +2384,9 @@ body {
 }
 
 .card-epic .card-meta > .card-badge .badge-num,
-.card-epic .card-meta > .card-badge .badge-den {
+.card-epic .card-meta > .card-badge .badge-den,
+.card-epic .card-corner > .card-badge .badge-num,
+.card-epic .card-corner > .card-badge .badge-den {
   padding: 2px 5px;
   background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0));
 }
@@ -8820,4 +8824,54 @@ html[data-board-compact] .column-compact {
   width: 10px;
   height: 10px;
   margin-left: 1px;
+}
+
+/* --- カード右下の操作列 (BM-162) ---
+   EPICの進捗バッジ、鉛筆・コメントのボタンを右下にまとめる。ボタンは常時表示する(ホバーで初めて出ると、
+   知らない人にはどこを押せばよいか見えないため)。普段は控えめな色で、カードにホバーすると少し濃くなる。
+   ボタンは親の不透明度で薄めず、色で調整する(親にopacityを掛けるとホバーしても薄いままになるため)。
+   カードの最下行(コメント行の下)に右寄せで置く。重ね置きは短いタイトルやコメント行の端を隠すため採用しなかった。 */
+.card-corner {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.card-corner-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.card-corner-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  /* 文字サイズはカードサイズ設定(S/M/L)の --fs-tag に連動させる */
+  font-size: calc(var(--fs-tag, 0.65rem) * 1.35);
+  line-height: 1;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  transition: color 0.15s, background 0.15s;
+}
+
+/* 普段は控えめ、カードにホバーすると少し濃くする(ボタン自身のホバーはさらに濃く) */
+.card:hover .card-corner-btn {
+  color: color-mix(in srgb, var(--text) 70%, var(--text-muted));
+}
+
+/* カードのホバー規則(.card:hover .card-corner-btn)より詳細度が低いと負けるため、.card を前置する */
+.card .card-corner-btn:hover,
+.card .card-corner-btn:focus-visible {
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* ミニボードの子カードは文字が小さいので固定サイズ */
+.mini-col-body .card-child .card-corner-btn {
+  font-size: 0.75rem;
+  padding: 1px 2px;
 }

@@ -3869,6 +3869,18 @@ function hideBoardInitialLoading() {
 
 let lastBoardScrollKey = null; // BM-153: .boardのスクロール位置を引き継いでよい表示条件(ワークスペース絞り込み|レーン表示)
 
+// BM-162: カード右下の操作列(EPIC進捗バッジ・ミニ編集の鉛筆・コメント)。メインボードのカードと
+// EPICミニボードの子カードで共通。鉛筆とコメントは右クリックTIPを開く(openCardEditTip / openCardCommentTip)。
+// カードの最下行に置く(コメント行の下)。重ね置きだと短いタイトルやコメント行の端を隠すため、独立した行にした。
+// ボタンはホバー時だけ表示するが、行の高さは常に確保する(ホバーでカードの高さが変わらないように)。
+function buildCardCornerHtml(taskId, badgeHtml = '') {
+  const id = escapeHtml(taskId);
+  return `<div class="card-corner">${badgeHtml}<span class="card-corner-btns">`
+    + `<button type="button" class="card-corner-btn card-edit-tip-btn" data-task-id="${id}" title="ミニ編集（件名・説明）"><span class="material-icon icon-edit"></span></button>`
+    + `<button type="button" class="card-corner-btn card-comment-btn" data-task-id="${id}" title="コメントを書く"><span class="material-icon icon-add-comment"></span></button>`
+    + `</span></div>`;
+}
+
 function renderBoard(data) {
   hideBoardInitialLoading();
   lastBoardData = data;
@@ -4085,7 +4097,10 @@ function renderBoard(data) {
       // BT-395: タグは小さなチップで表示(完了カラムのコンパクトカードでは出さない)
       const tagsHtml = isCompact ? '' : tagLogic.buildCardTagsHtml(item.tags, item.childTags);
       const metaParts = [projectTag, category, artifactIndicator, githubBadge, redmineBadge, gitlabBadge, dueBadge, completedDate, tagsHtml].filter(Boolean);
-      if (badge) metaParts.push(badge);
+      // BM-162: 完了列(compact)以外は、EPICの進捗バッジを右下の操作列(.card-corner)へ移す。compactは従来どおりメタ行の末尾
+      const hasCorner = !isCompact && !!item.id && item.id !== '-';
+      if (badge && !hasCorner) metaParts.push(badge);
+      const cornerFooterHtml = hasCorner ? buildCardCornerHtml(item.id, badge) : '';
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
 
       // ピンボタン（完了カラムには不要）
@@ -4110,8 +4125,6 @@ function renderBoard(data) {
           <button class="card-action-btn card-due-btn" data-task-id="${item.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
           <button class="card-action-btn card-tag-btn" data-task-id="${item.id}" title="タグを付け外し"><span class="material-icon icon-tag"></span></button>
           <button class="card-action-btn card-category-btn" data-task-id="${item.id}" title="カテゴリを設定"><span class="material-icon icon-stacks"></span></button>
-          <button class="card-action-btn card-comment-btn" data-task-id="${item.id}" title="コメントを書く"><span class="material-icon icon-add-comment"></span></button>
-          <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集"><span class="material-icon icon-edit"></span></button>
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
           ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
           <button class="card-action-btn card-redmine-link-btn" data-task-id="${item.id}" title="Redmineチケットと紐づける">${REDMINE_MARK_SVG}</button>
@@ -4124,7 +4137,7 @@ function renderBoard(data) {
       // EPICはEPIC自身のコメントのみ。
       const commentLineHtml = commentLogic.buildCardCommentHtml(item.latestComment);
 
-      card.innerHTML = `${pinHtml}${cardActionsHtml}${idHtml}${titleHtml}${metaHtml}${commentLineHtml}`;
+      card.innerHTML = `${pinHtml}${cardActionsHtml}${idHtml}${titleHtml}${metaHtml}${commentLineHtml}${cornerFooterHtml}`;
 
       // 親Epicリンクのクリック（BT-201）: カード自体のクリック（子タスク詳細を開く）とは独立させ、
       // 親Epicの詳細（ミニボード）をこのカードをハイライトした状態で開く
@@ -4401,13 +4414,12 @@ function renderBoard(data) {
     });
   });
 
-  // カード直接編集ボタンのイベントリスナー（BT-041）
-  boardEl.querySelectorAll('.card-edit-btn').forEach(btn => {
+  // カードの鉛筆ボタン（BM-162）: 右クリックTIPを編集モード(件名・説明)で開く。詳細モーダルは開かない
+  boardEl.querySelectorAll('.card-edit-tip-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
-      const item = findItemById(btn.dataset.taskId);
-      if (item) openCardEditDirect(item);
+      openCardEditTip(btn);
     });
   });
 
@@ -4647,31 +4659,6 @@ function startWorkspaceSummaryEdit(overview, project, initialSummary) {
     if (event.key === 'Escape') { event.preventDefault(); finish(false); }
   });
   input.addEventListener('blur', () => finish(true));
-}
-
-/**
- * カードの編集ボタンから直接呼ばれる: 詳細モーダルを開いて即編集モードにする（BT-041）
- * @param {object} item
- */
-function openCardEditDirect(item) {
-  openCardDetail(item);
-  const modal = getOrCreateModal();
-  const body = modal.querySelector('.modal-body');
-  const isEpic = item.children && item.children.length > 0;
-  const isArchivedSingle = !isEpic && item.statusCode === 'done';
-  enterEditMode(item, body, isArchivedSingle, renderModalContent);
-}
-
-/**
- * ミニボード子カードの編集ボタンから直接呼ばれる: 子詳細モーダルを開いて即編集モードにする（BT-041）
- * @param {object} childWithProject
- * @param {object} epic
- */
-function openChildCardEditDirect(childWithProject, epic) {
-  openCardDetail(childWithProject, epic);
-  const modal = getOrCreateChildModal();
-  const body = modal.querySelector('.modal-body');
-  enterEditMode(childWithProject, body, false, openChildModal);
 }
 
 // 期日が期限切れ（期日 <= 今日(JST)）かつ未完了か判定する（BT-336）
@@ -8921,6 +8908,8 @@ function buildMiniBoard(epic) {
       if (child.tags && child.tags.length > 0) {
         mParts.push(tagLogic.buildCardTagsHtml(child.tags, null));
       }
+      // BM-162: 右下の操作列(鉛筆・コメント)。子カードにはEPICバッジがないので操作ボタンだけ
+      const childCornerFooterHtml = child.id ? buildCardCornerHtml(child.id) : '';
       const mHtml = mParts.length > 0 ? `<div class="card-meta">${mParts.join('')}</div>` : '';
 
       // ピンボタン（ミニボード子カード）
@@ -8934,8 +8923,6 @@ function buildMiniBoard(epic) {
             <button class="card-action-btn card-child-due-btn" data-task-id="${child.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
             <button class="card-action-btn card-tag-btn" data-task-id="${child.id}" title="タグを付け外し"><span class="material-icon icon-tag"></span></button>
             <button class="card-action-btn card-category-btn" data-task-id="${child.id}" title="カテゴリを設定"><span class="material-icon icon-stacks"></span></button>
-            <button class="card-action-btn card-comment-btn" data-task-id="${child.id}" title="コメントを書く"><span class="material-icon icon-add-comment"></span></button>
-            <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集"><span class="material-icon icon-edit"></span></button>
             ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
             ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-create-btn" data-task-id="${child.id}" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
             <button class="card-action-btn card-child-redmine-link-btn" data-task-id="${child.id}" title="Redmineチケットと紐づける">${REDMINE_MARK_SVG}</button>
@@ -8943,7 +8930,7 @@ function buildMiniBoard(epic) {
           </div>`
         : '';
 
-      card.innerHTML = `${childPinHtml}${childActionsHtml}${childId}${childTitle}${mHtml}`;
+      card.innerHTML = `${childPinHtml}${childActionsHtml}${childId}${childTitle}${mHtml}${childCornerFooterHtml}`;
       card.classList.add('card-clickable');
       setupTaskQuickTip(card, { ...child, project: epic.project });
       card.addEventListener('click', (e) => {
@@ -8993,14 +8980,13 @@ function buildMiniBoard(epic) {
         });
       }
 
-      // 編集ボタンのイベント（BT-041）
-      const childEditBtnEl = card.querySelector('.card-child-edit-btn');
-      if (childEditBtnEl) {
-        childEditBtnEl.addEventListener('click', (e) => {
+      // 鉛筆ボタンのイベント（BM-162）: 右クリックTIPを編集モードで開く
+      const childEditTipBtnEl = card.querySelector('.card-edit-tip-btn');
+      if (childEditTipBtnEl) {
+        childEditTipBtnEl.addEventListener('click', (e) => {
           e.stopPropagation();
           e.preventDefault();
-          const childWithProject = { ...child, project: epic.project };
-          openChildCardEditDirect(childWithProject, epic);
+          openCardEditTip(childEditTipBtnEl);
         });
       }
 
@@ -9429,7 +9415,7 @@ function wireTaskQuickTipEditButton(tip, item) {
 
 // BM-136: 右クリックTIPを指定位置に開く。コメントボタン（focusComment=true）からも使うため、
 // 右クリックのハンドラから切り出した。focusCommentを付けるとコメント入力欄にフォーカスする。
-function openTaskQuickTip(item, x, y, { focusComment = false } = {}) {
+function openTaskQuickTip(item, x, y, { focusComment = false, editMode = false } = {}) {
   const tip = getOrCreateTaskQuickTip();
   taskQuickTipHasUnsavedChanges = null; // 新しいTIPを開くたびに前回の編集状態をリセット
   taskQuickTipOrigin = { x, y };
@@ -9437,6 +9423,9 @@ function openTaskQuickTip(item, x, y, { focusComment = false } = {}) {
   tip.classList.add('task-quick-tip-visible');
   positionTaskQuickTip(tip);
   if (focusComment) focusCommentInput(tip);
+  // BM-162: 鉛筆ボタンから開く時は、表示モードを挟まず編集モード(件名・説明)にする。
+  // 軽量item(descriptionキー無し)はenterTaskQuickTipEditMode側で全文を取得してから開き直す(本文を空で保存する事故の防止)
+  if (editMode) enterTaskQuickTipEditMode(tip, item);
 
   // BM-084: board用の軽量item(descriptionキー無し)の場合、表示直後に完全なデータを
   // 非同期取得して再描画する(BM-083のloadFullDescriptionIfMissingと同じパターン)。
@@ -9468,16 +9457,31 @@ function setupTaskQuickTip(card, item) {
   });
 }
 
-// BM-136: カードのコメントボタン。右クリックTIPをボタンの下に開き、コメント入力欄にフォーカスする。
-// EPICのミニボード上の子カードにも付く（タグボタンと同じく、子はprojectを持たないため親EPICから補う）。
-function openCardCommentTip(btn) {
+// BM-136/BM-162: カード上のボタンからTIPを開く時の対象解決。クリック時にタスクIDから引き直す
+// (再描画でクロージャが握るitemが古くなるため)。子カードはprojectを持たないので親EPICから補う。
+function resolveCardTipItem(btn) {
   const taskId = btn.dataset.taskId;
   const parentEpic = findItemById(taskId) ? null : findParentEpicOfChildId(taskId);
   const found = findItemById(taskId) || findChildItemById(taskId);
-  if (!found) return;
-  const item = parentEpic ? { ...found, project: parentEpic.project } : found;
+  if (!found) return null;
+  return parentEpic ? { ...found, project: parentEpic.project } : found;
+}
+
+// BM-136: カードのコメントボタン。右クリックTIPをボタンの下に開き、コメント入力欄にフォーカスする。
+// EPICのミニボード上の子カードにも付く（タグボタンと同じく、子はprojectを持たないため親EPICから補う）。
+function openCardCommentTip(btn) {
+  const item = resolveCardTipItem(btn);
+  if (!item) return;
   const rect = btn.getBoundingClientRect();
   openTaskQuickTip(item, rect.left, rect.bottom + 6, { focusComment: true });
+}
+
+// BM-162: カードの鉛筆ボタン。右クリックTIPを編集モード(件名・説明のミニ編集)で開く。
+function openCardEditTip(btn) {
+  const item = resolveCardTipItem(btn);
+  if (!item) return;
+  const rect = btn.getBoundingClientRect();
+  openTaskQuickTip(item, rect.left, rect.bottom + 6, { editMode: true });
 }
 
 // --- 複数選択→親付け (BT-034) ---

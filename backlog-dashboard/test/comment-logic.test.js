@@ -136,13 +136,20 @@ test('画面の配線: スクリプトの読み込み順、カード・TIP・詳
   has(app, 'const commentLineHtml = commentLogic.buildCardCommentHtml(item.latestComment);');
   assert.ok(!app.includes("commentLineHtml = isCompact ? ''"), '完了カラム(compact)にも最新コメントを出す');
   assert.match(css, /\.card-compact \.card-comment\s*\{[^}]*font-size:\s*var\(--fs-c-tag/, 'compactはcompact用の文字サイズ変数に連動する');
-  assert.equal((app.match(/class="card-action-btn card-comment-btn"/g) || []).length, 2, '本体カードと子カードの2か所');
+  // BM-162: コメントボタンは右下の操作列(buildCardCornerHtml)に移り、本体カードと子カードで共通の1か所で作る
+  assert.equal((app.match(/class="card-corner-btn card-comment-btn"/g) || []).length, 1, '右下の操作列の1か所(本体カードと子カードで共通)');
+  assert.ok(!/class="card-action-btn card-comment-btn"/.test(app), '右上のツールバーには置かない');
+  assert.equal((app.match(/buildCardCornerHtml\(/g) || []).length, 3, '定義1+本体カード1+子カード1');
   has(app, 'openCardCommentTip(btn)');
   has(app, 'openCardCommentTip(childCommentBtnEl)');
+  // 鉛筆ボタン: 詳細モーダルではなく、右クリックTIPを編集モードで開く
+  has(app, 'openCardEditTip(btn)');
+  has(app, 'openCardEditTip(childEditTipBtnEl)');
+  has(app, 'if (editMode) enterTaskQuickTipEditMode(tip, item);');
 
   // 右クリックTIP: コメント欄、開く処理の共通化、フォーカス
   has(app, "buildTaskCommentSectionHtml(item, 'tip')");
-  has(app, 'function openTaskQuickTip(item, x, y, { focusComment = false } = {})');
+  has(app, 'function openTaskQuickTip(item, x, y, { focusComment = false, editMode = false } = {})');
   has(app, 'if (focusComment) focusCommentInput(tip);');
 
   // 詳細モーダル: 情報の下・成果物の上(スクロール側カラムの先頭)に置く。本体と子の2か所
