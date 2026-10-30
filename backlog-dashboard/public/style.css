@@ -54,6 +54,7 @@
 .material-icon.icon-play-arrow    { -webkit-mask-image: url('icons/play_arrow.svg'); mask-image: url('icons/play_arrow.svg'); }
 .material-icon.icon-arrow-forward { -webkit-mask-image: url('icons/arrow_forward.svg'); mask-image: url('icons/arrow_forward.svg'); }
 .material-icon.icon-terminal      { -webkit-mask-image: url('icons/terminal.svg'); mask-image: url('icons/terminal.svg'); }
+.material-icon.icon-key           { -webkit-mask-image: url('icons/key.svg'); mask-image: url('icons/key.svg'); }
 
 /* --- Theme Variables --- */
 :root,
@@ -3948,6 +3949,49 @@ body {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid var(--border);
+}
+
+/* BM-161: 連携欄の見出しにブランドアイコン、URL/トークンの入力欄の左にリンク・鍵のアイコンを付ける。
+   入力欄はラベルを持たずplaceholderだけだったため、何の欄か入力後に分からなくなっていた。
+   .settings-group label / input (後方定義) に負けないよう、.settings-group 配下で指定する。 */
+.settings-group .settings-brand-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* アイコンはapp.jsが既存のSVG定数（バッジ・タブと同じ色と縁取り）を差し込む */
+.settings-brand-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.settings-brand-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-group .settings-field {
+  position: relative;
+  margin-bottom: 8px;
+}
+
+/* 下の余白は.settings-fieldが持つため、中のinputの余白は消して二重にしない */
+.settings-group-github .settings-field input {
+  margin-bottom: 0;
+  padding-left: 32px;
+  box-sizing: border-box;
+}
+
+.settings-field-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 15px;
+  height: 15px;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
 }
 
 /* --- Settings Panel 2カラム化 (BM-015) --- */
