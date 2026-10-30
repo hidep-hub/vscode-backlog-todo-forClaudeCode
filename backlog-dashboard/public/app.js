@@ -3869,9 +3869,22 @@ function hideBoardInitialLoading() {
 
 let lastBoardScrollKey = null; // BM-153: .boardのスクロール位置を引き継いでよい表示条件(ワークスペース絞り込み|レーン表示)
 
+// BM-162: カード右下の操作列(EPIC進捗バッジ・ミニ編集の鉛筆・コメント)。メインボードのカードと
+// EPICミニボードの子カードで共通。鉛筆とコメントは右クリックTIPを開く(openCardEditTip / openCardCommentTip)。
+// カードの最下行に置く(コメント行の下)。重ね置きだと短いタイトルやコメント行の端を隠すため、独立した行にした。
+// ボタンはホバー時だけ表示するが、行の高さは常に確保する(ホバーでカードの高さが変わらないように)。
+function buildCardCornerHtml(taskId, badgeHtml = '') {
+  const id = escapeHtml(taskId);
+  return `<div class="card-corner">${badgeHtml}<span class="card-corner-btns">`
+    + `<button type="button" class="card-corner-btn card-edit-tip-btn" data-task-id="${id}" title="ミニ編集（件名・説明）"><span class="material-icon icon-edit"></span></button>`
+    + `<button type="button" class="card-corner-btn card-comment-btn" data-task-id="${id}" title="コメントを書く"><span class="material-icon icon-add-comment"></span></button>`
+    + `</span></div>`;
+}
+
 function renderBoard(data) {
   hideBoardInitialLoading();
   lastBoardData = data;
+  closeGithubLinkMenu(); // BM-163: カードを作り直すと、メニューのアンカー(GitHubボタン)が消えて位置が宙に浮くため先に閉じる
   suppressQuickTipScrollClose(); // BM-136: スクロール位置の書き戻しで右クリックTIPが閉じないようにする
 
   // BM-078: ピン留め等でWebSocket再描画が入ると列が丸ごと作り直されるため、
@@ -4085,7 +4098,10 @@ function renderBoard(data) {
       // BT-395: タグは小さなチップで表示(完了カラムのコンパクトカードでは出さない)
       const tagsHtml = isCompact ? '' : tagLogic.buildCardTagsHtml(item.tags, item.childTags);
       const metaParts = [projectTag, category, artifactIndicator, githubBadge, redmineBadge, gitlabBadge, dueBadge, completedDate, tagsHtml].filter(Boolean);
-      if (badge) metaParts.push(badge);
+      // BM-162: 完了列(compact)以外は、EPICの進捗バッジを右下の操作列(.card-corner)へ移す。compactは従来どおりメタ行の末尾
+      const hasCorner = !isCompact && !!item.id && item.id !== '-';
+      if (badge && !hasCorner) metaParts.push(badge);
+      const cornerFooterHtml = hasCorner ? buildCardCornerHtml(item.id, badge) : '';
       const metaHtml = metaParts.length > 0 ? `<div class="card-meta">${metaParts.join('')}</div>` : '';
 
       // ピンボタン（完了カラムには不要）
@@ -4110,11 +4126,9 @@ function renderBoard(data) {
           <button class="card-action-btn card-due-btn" data-task-id="${item.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
           <button class="card-action-btn card-tag-btn" data-task-id="${item.id}" title="タグを付け外し"><span class="material-icon icon-tag"></span></button>
           <button class="card-action-btn card-category-btn" data-task-id="${item.id}" title="カテゴリを設定"><span class="material-icon icon-stacks"></span></button>
-          <button class="card-action-btn card-comment-btn" data-task-id="${item.id}" title="コメントを書く"><span class="material-icon icon-add-comment"></span></button>
-          <button class="card-action-btn card-edit-btn" data-task-id="${item.id}" title="編集"><span class="material-icon icon-edit"></span></button>
-          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-link-btn" data-task-id="${item.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
-          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-create-btn" data-task-id="${item.id}" data-is-child="false" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
+          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-btn" data-task-id="${item.id}" title="GitHub Issue（紐づける／新規作成）" aria-haspopup="menu">${GITHUB_MARK_SVG}</button>` : ''}
           <button class="card-action-btn card-redmine-link-btn" data-task-id="${item.id}" title="Redmineチケットと紐づける">${REDMINE_MARK_SVG}</button>
+          <button class="card-action-btn card-gitlab-link-btn" data-task-id="${item.id}" title="GitLab issueと紐づける">${GITLAB_MARK_SVG}</button>
           ${!isEpic ? `<button class="card-action-btn card-delete-btn danger" data-task-id="${item.id}" title="削除"><span class="material-icon icon-delete"></span></button>` : ''}
         </div>`;
       }
@@ -4124,7 +4138,7 @@ function renderBoard(data) {
       // EPICはEPIC自身のコメントのみ。
       const commentLineHtml = commentLogic.buildCardCommentHtml(item.latestComment);
 
-      card.innerHTML = `${pinHtml}${cardActionsHtml}${idHtml}${titleHtml}${metaHtml}${commentLineHtml}`;
+      card.innerHTML = `${pinHtml}${cardActionsHtml}${idHtml}${titleHtml}${metaHtml}${commentLineHtml}${cornerFooterHtml}`;
 
       // 親Epicリンクのクリック（BT-201）: カード自体のクリック（子タスク詳細を開く）とは独立させ、
       // 親Epicの詳細（ミニボード）をこのカードをハイライトした状態で開く
@@ -4401,13 +4415,12 @@ function renderBoard(data) {
     });
   });
 
-  // カード直接編集ボタンのイベントリスナー（BT-041）
-  boardEl.querySelectorAll('.card-edit-btn').forEach(btn => {
+  // カードの鉛筆ボタン（BM-162）: 右クリックTIPを編集モード(件名・説明)で開く。詳細モーダルは開かない
+  boardEl.querySelectorAll('.card-edit-tip-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
-      const item = findItemById(btn.dataset.taskId);
-      if (item) openCardEditDirect(item);
+      openCardEditTip(btn);
     });
   });
 
@@ -4429,34 +4442,35 @@ function renderBoard(data) {
   boardEl.querySelectorAll('.redmine-issue-badge').forEach(link => {
     link.addEventListener('click', (e) => e.stopPropagation());
   });
+  // GitLabバッジも同様(BM-164: これまで漏れていて、バッジをクリックするとリンク遷移と同時にカード詳細も開いていた)
+  boardEl.querySelectorAll('.gitlab-issue-badge').forEach(link => {
+    link.addEventListener('click', (e) => e.stopPropagation());
+  });
 
-  // GitHub Issue紐付けボタンのイベントリスナー（BT-122）
-  boardEl.querySelectorAll('.card-github-link-btn').forEach(btn => {
+  // GitHubボタン(BM-163: 紐づけ/作成を1個にまとめた。BT-122の紐づけとBT-134の新規作成はメニューから開く)
+  boardEl.querySelectorAll('.card-github-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
-      const item = findItemById(btn.dataset.taskId);
-      if (item) openGithubLinkModal(item);
+      openGithubLinkMenu(btn);
     });
   });
 
-  // GitHub Issue新規作成ボタンのイベントリスナー（BT-134）
-  boardEl.querySelectorAll('.card-github-create-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      const item = findItemById(btn.dataset.taskId);
-      if (item) openGithubCreateConfirm(item, btn.dataset.isChild === 'true');
-    });
-  });
-
-  // Redmineチケット紐付けボタンのイベントリスナー（BM-126）
+  // Redmineチケット紐付けボタンのイベントリスナー（BM-126）。作成がないのでメニューは挟まない
   boardEl.querySelectorAll('.card-redmine-link-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
-      const item = findItemById(btn.dataset.taskId);
-      if (item) openRedmineLinkModal(item);
+      openCardRedmineLink(btn);
+    });
+  });
+
+  // GitLab issue紐付けボタンのイベントリスナー（BM-164）。Redmineと同じく作成がないのでメニューは挟まない
+  boardEl.querySelectorAll('.card-gitlab-link-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      openCardGitlabLink(btn);
     });
   });
 
@@ -4647,31 +4661,6 @@ function startWorkspaceSummaryEdit(overview, project, initialSummary) {
     if (event.key === 'Escape') { event.preventDefault(); finish(false); }
   });
   input.addEventListener('blur', () => finish(true));
-}
-
-/**
- * カードの編集ボタンから直接呼ばれる: 詳細モーダルを開いて即編集モードにする（BT-041）
- * @param {object} item
- */
-function openCardEditDirect(item) {
-  openCardDetail(item);
-  const modal = getOrCreateModal();
-  const body = modal.querySelector('.modal-body');
-  const isEpic = item.children && item.children.length > 0;
-  const isArchivedSingle = !isEpic && item.statusCode === 'done';
-  enterEditMode(item, body, isArchivedSingle, renderModalContent);
-}
-
-/**
- * ミニボード子カードの編集ボタンから直接呼ばれる: 子詳細モーダルを開いて即編集モードにする（BT-041）
- * @param {object} childWithProject
- * @param {object} epic
- */
-function openChildCardEditDirect(childWithProject, epic) {
-  openCardDetail(childWithProject, epic);
-  const modal = getOrCreateChildModal();
-  const body = modal.querySelector('.modal-body');
-  enterEditMode(childWithProject, body, false, openChildModal);
 }
 
 // 期日が期限切れ（期日 <= 今日(JST)）かつ未完了か判定する（BT-336）
@@ -7587,6 +7576,11 @@ function openChildModal(item, parentEpic = null) {
     ? `<button class="add-child-btn" id="modal-redmine-link-btn">${REDMINE_MARK_SVG} 紐づけ</button>`
     : '';
 
+  // GitLab issue紐付けボタン（BM-164: Redmineと同じく上書き許可のため常に表示。作成はGitHubだけ）
+  const gitlabLinkBtnHtml = (item.id && item.id !== '-')
+    ? `<button class="add-child-btn" id="modal-gitlab-link-btn">${GITLAB_MARK_SVG} 紐づけ</button>`
+    : '';
+
   // ワークスペース導線ボタン（BT-053）
   const workspaceOpenActionHtml = buildWorkspaceOpenActionHtml(item);
   const workspaceCreateActionHtml = buildWorkspaceCreateActionHtml(item);
@@ -7611,7 +7605,7 @@ function openChildModal(item, parentEpic = null) {
       actionGroup('タスク操作', editBtnHtml, copyBtnHtml, deleteBtnHtml, detachBtn),
       actionGroup('開く', workspaceOpenActionHtml),
       actionGroup('WS操作', workspaceCreateActionHtml, moveActionHtml),
-      actionGroup('外部連携', githubLinkBtnHtml, githubCreateBtnHtml, redmineLinkBtnHtml)
+      actionGroup('外部連携', githubLinkBtnHtml, githubCreateBtnHtml, redmineLinkBtnHtml, gitlabLinkBtnHtml)
     )}
   `;
 
@@ -7672,6 +7666,12 @@ function openChildModal(item, parentEpic = null) {
   const redmineLinkBtnEl = body.querySelector('#modal-redmine-link-btn');
   if (redmineLinkBtnEl) {
     redmineLinkBtnEl.addEventListener('click', () => openRedmineLinkModal(item));
+  }
+
+  // GitLab issue紐付けボタンのイベント（BM-164）
+  const gitlabLinkBtnEl = body.querySelector('#modal-gitlab-link-btn');
+  if (gitlabLinkBtnEl) {
+    gitlabLinkBtnEl.addEventListener('click', () => openGitlabLinkModal(item));
   }
 
   // 編集ボタンのイベント（BT-036: 子タスクは常に説明編集可）
@@ -8282,29 +8282,44 @@ function openGithubLinkModal(item) {
   el.classList.add('modal-visible');
 }
 
-// --- Redmineチケット紐付けダイアログ (BM-126: 既存タスクカードへ後から紐付ける。GitHubのopenGithubLinkModalと同じパターン) ---
-function getOrCreateRedmineLinkModal() {
-  let el = document.getElementById('redmine-link-overlay');
+// --- 外部ITS(Redmine / GitLab)のチケット紐付けダイアログ (BM-126: 既存タスクカードへ後から紐付ける。BM-164: GitLabを追加し共通化) ---
+// 2つのサービスで違うのは、見出し・ブランドアイコン・文言(チケット/issue)・入力例だけ。
+// 開閉、番号の取り出し、共有の確認(BM-158)、/api/its-link-issue の呼び出しは共通の1つのダイアログで行う。
+// 作成はGitHubだけ(外部へ書き戻さない方針)なので、ここは「紐づけ」だけ。
+const ITS_LINK_SOURCES = {
+  redmine: {
+    label: 'Redmine', kind: 'チケット',
+    placeholder: '例: 123 / #123 / https://redmine.example.com/issues/123',
+  },
+  gitlab: {
+    label: 'GitLab', kind: 'issue',
+    placeholder: '例: 12 / #12 / https://gitlab.example.com/group/project/-/issues/12',
+  },
+};
+
+function getOrCreateItsLinkModal() {
+  let el = document.getElementById('its-link-overlay');
   if (el) return el;
   el = document.createElement('div');
-  el.id = 'redmine-link-overlay';
+  el.id = 'its-link-overlay';
   el.className = 'modal-overlay modal-front';
   el.innerHTML = `<div class="modal-content github-link-modal"></div>`;
   document.body.appendChild(el);
   el.addEventListener('click', (e) => {
-    if (e.target === el) closeRedmineLinkModal();
+    if (e.target === el) closeItsLinkModal();
   });
-  closeOnEscape(el, 'modal-visible', closeRedmineLinkModal);
+  closeOnEscape(el, 'modal-visible', closeItsLinkModal);
   return el;
 }
 
-function closeRedmineLinkModal() {
-  const el = document.getElementById('redmine-link-overlay');
+function closeItsLinkModal() {
+  const el = document.getElementById('its-link-overlay');
   if (el) el.classList.remove('modal-visible');
 }
 
-// チケット番号の生入力("123" / "#123" / チケットURL)から番号だけを取り出す(GitHubのparseIssueNumberInputと同じ考え方)
-function parseRedmineIssueKeyInput(raw) {
+// 番号の生入力("123" / "#123" / URL)から番号だけを取り出す(GitHubのparseIssueNumberInputと同じ考え方)。
+// Redmineは .../issues/123、GitLabは .../-/issues/12 で、どちらも /issues/<数字> を含む
+function parseItsIssueKeyInput(raw) {
   const s = (raw || '').trim();
   const urlMatch = /\/issues\/(\d+)/.exec(s);
   if (urlMatch) return urlMatch[1];
@@ -8314,44 +8329,47 @@ function parseRedmineIssueKeyInput(raw) {
 }
 
 /**
- * Redmineチケット紐付けモーダルを開く(BM-126: 上書き許可のため、既にリンク済みでも常に開ける。
+ * 外部ITSのチケット紐付けモーダルを開く(BM-126: 上書き許可のため、既にリンク済みでも常に開ける。
  * 既存リンクがあれば入力欄にプレフィルする)
  * @param {object} item - 紐付け対象タスク
+ * @param {'redmine'|'gitlab'} source
  */
-function openRedmineLinkModal(item) {
-  const el = getOrCreateRedmineLinkModal();
+function openItsLinkModal(item, source) {
+  const cfg = ITS_LINK_SOURCES[source];
+  if (!cfg) return;
+  const el = getOrCreateItsLinkModal();
   document.body.appendChild(el);
   const content = el.querySelector('.modal-content');
-  const existing = (item.externalLinks || []).find((l) => l.source === 'redmine');
+  const existing = (item.externalLinks || []).find((l) => l.source === source);
   const existingNote = existing
-    ? `<p class="delete-confirm-text">現在 Redmine #${escapeHtml(existing.key)} に紐づいているよ。別のチケット番号を入れると上書きされるよ。</p>`
+    ? `<p class="delete-confirm-text">現在 ${cfg.label} #${escapeHtml(existing.key)} に紐づいているよ。別の番号を入れると上書きされるよ。</p>`
     : '';
   content.innerHTML = `
-    <button class="modal-close" id="redmine-link-close">&times;</button>
-    <h3 class="add-form-title"><span class="material-icon icon-link"></span> Redmineチケットと紐づける</h3>
-    <p class="delete-confirm-text">「${escapeHtml(item.title)}」(${escapeHtml(item.id)}) に紐づけるチケット番号かURLを入力してね。</p>
+    <button class="modal-close" id="its-link-close">&times;</button>
+    <h3 class="add-form-title"><span class="material-icon icon-link"></span> ${cfg.label}の${cfg.kind}と紐づける</h3>
+    <p class="delete-confirm-text">「${escapeHtml(item.title)}」(${escapeHtml(item.id)}) に紐づける${cfg.kind}の番号かURLを入力してね。</p>
     ${existingNote}
-    <input type="text" id="redmine-link-input" class="parent-picker-search" placeholder="例: 123 / #123 / https://redmine.example.com/issues/123" value="${existing ? escapeHtml(existing.key) : ''}">
+    <input type="text" id="its-link-input" class="parent-picker-search" placeholder="${escapeHtml(cfg.placeholder)}" value="${existing ? escapeHtml(existing.key) : ''}">
     <p class="delete-confirm-text shared-link-confirm" style="display:none;"></p>
     <p class="delete-confirm-error" style="display:none;"></p>
     <div class="edit-form-actions">
-      <button class="add-task-submit" id="redmine-link-ok">紐づける</button>
-      <button class="add-child-btn" id="redmine-link-cancel">キャンセル</button>
+      <button class="add-task-submit" id="its-link-ok">紐づける</button>
+      <button class="add-child-btn" id="its-link-cancel">キャンセル</button>
     </div>
   `;
 
-  content.querySelector('#redmine-link-close').addEventListener('click', closeRedmineLinkModal);
-  content.querySelector('#redmine-link-cancel').addEventListener('click', closeRedmineLinkModal);
-  const okBtn = content.querySelector('#redmine-link-ok');
+  content.querySelector('#its-link-close').addEventListener('click', closeItsLinkModal);
+  content.querySelector('#its-link-cancel').addEventListener('click', closeItsLinkModal);
+  const okBtn = content.querySelector('#its-link-ok');
   const sharedConfirm = createSharedLinkConfirm({
-    content, okBtn, inputEl: content.querySelector('#redmine-link-input'), kindLabel: 'チケット',
+    content, okBtn, inputEl: content.querySelector('#its-link-input'), kindLabel: cfg.kind,
   });
   okBtn.addEventListener('click', async () => {
     const errorEl = content.querySelector('.delete-confirm-error');
     errorEl.style.display = 'none';
-    const issueKey = parseRedmineIssueKeyInput(content.querySelector('#redmine-link-input').value);
+    const issueKey = parseItsIssueKeyInput(content.querySelector('#its-link-input').value);
     if (!issueKey) {
-      errorEl.textContent = 'チケット番号を入力してね';
+      errorEl.textContent = `${cfg.kind}の番号を入力してね`;
       errorEl.style.display = 'block';
       return;
     }
@@ -8359,7 +8377,7 @@ function openRedmineLinkModal(item) {
       const resp = await fetch('/api/its-link-issue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId: item.id, source: 'redmine', issueKey, ...(sharedConfirm.isConfirmed() ? { allowShared: true } : {}) }),
+        body: JSON.stringify({ taskId: item.id, source, issueKey, ...(sharedConfirm.isConfirmed() ? { allowShared: true } : {}) }),
       });
       const data = await resp.json();
       if (resp.status === 409 && data.error === 'already_linked') {
@@ -8372,9 +8390,9 @@ function openRedmineLinkModal(item) {
         errorEl.style.display = 'block';
         return;
       }
-      closeRedmineLinkModal();
+      closeItsLinkModal();
     } catch (e) {
-      console.error('[redmine-link] Network error:', e);
+      console.error(`[${source}-link] Network error:`, e);
       errorEl.textContent = 'ネットワークエラーが発生したよ';
       errorEl.style.display = 'block';
     }
@@ -8382,6 +8400,10 @@ function openRedmineLinkModal(item) {
 
   el.classList.add('modal-visible');
 }
+
+// 呼び出し側は従来の名前のまま使える薄いラッパー
+function openRedmineLinkModal(item) { openItsLinkModal(item, 'redmine'); }
+function openGitlabLinkModal(item) { openItsLinkModal(item, 'gitlab'); }
 
 // --- GitHub Issue新規作成確認ダイアログ (BT-134: backlogタスク→GitHub Issue新規作成、Epicはsub-issue化) ---
 function getOrCreateGithubCreateConfirm() {
@@ -8631,6 +8653,11 @@ function renderModalContent(item) {
     ? `<button class="add-child-btn" id="modal-redmine-link-btn">${REDMINE_MARK_SVG} 紐づけ</button>`
     : '';
 
+  // GitLab issue紐付けボタン（BM-164: Redmineと同じく上書き許可のため常に表示。作成はGitHubだけ）
+  const gitlabLinkBtnHtml = (item.id && item.id !== '-')
+    ? `<button class="add-child-btn" id="modal-gitlab-link-btn">${GITLAB_MARK_SVG} 紐づけ</button>`
+    : '';
+
   // ワークスペース導線ボタン（BT-053）
   const workspaceOpenActionHtml = buildWorkspaceOpenActionHtml(item);
   const workspaceCreateActionHtml = buildWorkspaceCreateActionHtml(item);
@@ -8655,7 +8682,7 @@ function renderModalContent(item) {
       actionGroup('タスク操作', editBtnHtml, copyBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn),
       actionGroup('開く', workspaceOpenActionHtml),
       actionGroup('WS操作', workspaceCreateActionHtml, moveActionHtml),
-      actionGroup('外部連携', githubLinkBtnHtml, githubCreateBtnHtml, redmineLinkBtnHtml)
+      actionGroup('外部連携', githubLinkBtnHtml, githubCreateBtnHtml, redmineLinkBtnHtml, gitlabLinkBtnHtml)
     )}
   `;
 
@@ -8729,6 +8756,12 @@ function renderModalContent(item) {
   const redmineLinkBtnEl = body.querySelector('#modal-redmine-link-btn');
   if (redmineLinkBtnEl) {
     redmineLinkBtnEl.addEventListener('click', () => openRedmineLinkModal(item));
+  }
+
+  // GitLab issue紐付けボタンのイベント（BM-164）
+  const gitlabLinkBtnEl = body.querySelector('#modal-gitlab-link-btn');
+  if (gitlabLinkBtnEl) {
+    gitlabLinkBtnEl.addEventListener('click', () => openGitlabLinkModal(item));
   }
 
   // 編集ボタンのイベント（BT-036: 完了済み単発タスクは説明編集不可）
@@ -8921,6 +8954,8 @@ function buildMiniBoard(epic) {
       if (child.tags && child.tags.length > 0) {
         mParts.push(tagLogic.buildCardTagsHtml(child.tags, null));
       }
+      // BM-162: 右下の操作列(鉛筆・コメント)。子カードにはEPICバッジがないので操作ボタンだけ
+      const childCornerFooterHtml = child.id ? buildCardCornerHtml(child.id) : '';
       const mHtml = mParts.length > 0 ? `<div class="card-meta">${mParts.join('')}</div>` : '';
 
       // ピンボタン（ミニボード子カード）
@@ -8934,16 +8969,14 @@ function buildMiniBoard(epic) {
             <button class="card-action-btn card-child-due-btn" data-task-id="${child.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
             <button class="card-action-btn card-tag-btn" data-task-id="${child.id}" title="タグを付け外し"><span class="material-icon icon-tag"></span></button>
             <button class="card-action-btn card-category-btn" data-task-id="${child.id}" title="カテゴリを設定"><span class="material-icon icon-stacks"></span></button>
-            <button class="card-action-btn card-comment-btn" data-task-id="${child.id}" title="コメントを書く"><span class="material-icon icon-add-comment"></span></button>
-            <button class="card-action-btn card-child-edit-btn" data-task-id="${child.id}" title="編集"><span class="material-icon icon-edit"></span></button>
-            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-link-btn" data-task-id="${child.id}" title="GitHub Issueと紐づける"><span class="material-icon icon-link"></span></button>` : ''}
-            ${!child.githubIssueNumber ? `<button class="card-action-btn card-child-github-create-btn" data-task-id="${child.id}" title="GitHub Issueを新規作成"><span class="material-icon icon-upload"></span></button>` : ''}
-            <button class="card-action-btn card-child-redmine-link-btn" data-task-id="${child.id}" title="Redmineチケットと紐づける">${REDMINE_MARK_SVG}</button>
+            ${!child.githubIssueNumber ? `<button class="card-action-btn card-github-btn" data-task-id="${child.id}" title="GitHub Issue（紐づける／新規作成）" aria-haspopup="menu">${GITHUB_MARK_SVG}</button>` : ''}
+            <button class="card-action-btn card-redmine-link-btn" data-task-id="${child.id}" title="Redmineチケットと紐づける">${REDMINE_MARK_SVG}</button>
+            <button class="card-action-btn card-gitlab-link-btn" data-task-id="${child.id}" title="GitLab issueと紐づける">${GITLAB_MARK_SVG}</button>
             <button class="card-action-btn card-child-delete-btn danger" data-task-id="${child.id}" title="削除"><span class="material-icon icon-delete"></span></button>
           </div>`
         : '';
 
-      card.innerHTML = `${childPinHtml}${childActionsHtml}${childId}${childTitle}${mHtml}`;
+      card.innerHTML = `${childPinHtml}${childActionsHtml}${childId}${childTitle}${mHtml}${childCornerFooterHtml}`;
       card.classList.add('card-clickable');
       setupTaskQuickTip(card, { ...child, project: epic.project });
       card.addEventListener('click', (e) => {
@@ -8993,14 +9026,13 @@ function buildMiniBoard(epic) {
         });
       }
 
-      // 編集ボタンのイベント（BT-041）
-      const childEditBtnEl = card.querySelector('.card-child-edit-btn');
-      if (childEditBtnEl) {
-        childEditBtnEl.addEventListener('click', (e) => {
+      // 鉛筆ボタンのイベント（BM-162）: 右クリックTIPを編集モードで開く
+      const childEditTipBtnEl = card.querySelector('.card-edit-tip-btn');
+      if (childEditTipBtnEl) {
+        childEditTipBtnEl.addEventListener('click', (e) => {
           e.stopPropagation();
           e.preventDefault();
-          const childWithProject = { ...child, project: epic.project };
-          openChildCardEditDirect(childWithProject, epic);
+          openCardEditTip(childEditTipBtnEl);
         });
       }
 
@@ -9023,37 +9055,38 @@ function buildMiniBoard(epic) {
       if (childRedmineBadgeEl) {
         childRedmineBadgeEl.addEventListener('click', (e) => e.stopPropagation());
       }
+      const childGitlabBadgeEl = card.querySelector('.gitlab-issue-badge'); // BM-164: 漏れていたため追加
+      if (childGitlabBadgeEl) {
+        childGitlabBadgeEl.addEventListener('click', (e) => e.stopPropagation());
+      }
 
-      // GitHub Issue紐付けボタンのイベント（BT-122）
-      const childGithubLinkBtnEl = card.querySelector('.card-child-github-link-btn');
-      if (childGithubLinkBtnEl) {
-        childGithubLinkBtnEl.addEventListener('click', (e) => {
+      // GitHubボタン（BM-163: 紐づけ(BT-122)と新規作成(BT-134)を1個にまとめ、メニューから開く）
+      const childGithubBtnEl = card.querySelector('.card-github-btn');
+      if (childGithubBtnEl) {
+        childGithubBtnEl.addEventListener('click', (e) => {
           e.stopPropagation();
           e.preventDefault();
-          const childWithProject = { ...child, project: epic.project };
-          openGithubLinkModal(childWithProject);
+          openGithubLinkMenu(childGithubBtnEl);
         });
       }
 
-      // GitHub Issue新規作成ボタンのイベント（BT-134）
-      const childGithubCreateBtnEl = card.querySelector('.card-child-github-create-btn');
-      if (childGithubCreateBtnEl) {
-        childGithubCreateBtnEl.addEventListener('click', (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          const childWithProject = { ...child, project: epic.project };
-          openGithubCreateConfirm(childWithProject, true);
-        });
-      }
-
-      // Redmineチケット紐付けボタンのイベント（BM-126）
-      const childRedmineLinkBtnEl = card.querySelector('.card-child-redmine-link-btn');
+      // Redmineチケット紐付けボタンのイベント（BM-126）。作成がないのでメニューは挟まない
+      const childRedmineLinkBtnEl = card.querySelector('.card-redmine-link-btn');
       if (childRedmineLinkBtnEl) {
         childRedmineLinkBtnEl.addEventListener('click', (e) => {
           e.stopPropagation();
           e.preventDefault();
-          const childWithProject = { ...child, project: epic.project };
-          openRedmineLinkModal(childWithProject);
+          openCardRedmineLink(childRedmineLinkBtnEl);
+        });
+      }
+
+      // GitLab issue紐付けボタンのイベント（BM-164）
+      const childGitlabLinkBtnEl = card.querySelector('.card-gitlab-link-btn');
+      if (childGitlabLinkBtnEl) {
+        childGitlabLinkBtnEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          openCardGitlabLink(childGitlabLinkBtnEl);
         });
       }
 
@@ -9429,7 +9462,7 @@ function wireTaskQuickTipEditButton(tip, item) {
 
 // BM-136: 右クリックTIPを指定位置に開く。コメントボタン（focusComment=true）からも使うため、
 // 右クリックのハンドラから切り出した。focusCommentを付けるとコメント入力欄にフォーカスする。
-function openTaskQuickTip(item, x, y, { focusComment = false } = {}) {
+function openTaskQuickTip(item, x, y, { focusComment = false, editMode = false } = {}) {
   const tip = getOrCreateTaskQuickTip();
   taskQuickTipHasUnsavedChanges = null; // 新しいTIPを開くたびに前回の編集状態をリセット
   taskQuickTipOrigin = { x, y };
@@ -9437,6 +9470,9 @@ function openTaskQuickTip(item, x, y, { focusComment = false } = {}) {
   tip.classList.add('task-quick-tip-visible');
   positionTaskQuickTip(tip);
   if (focusComment) focusCommentInput(tip);
+  // BM-162: 鉛筆ボタンから開く時は、表示モードを挟まず編集モード(件名・説明)にする。
+  // 軽量item(descriptionキー無し)はenterTaskQuickTipEditMode側で全文を取得してから開き直す(本文を空で保存する事故の防止)
+  if (editMode) enterTaskQuickTipEditMode(tip, item);
 
   // BM-084: board用の軽量item(descriptionキー無し)の場合、表示直後に完全なデータを
   // 非同期取得して再描画する(BM-083のloadFullDescriptionIfMissingと同じパターン)。
@@ -9468,16 +9504,122 @@ function setupTaskQuickTip(card, item) {
   });
 }
 
-// BM-136: カードのコメントボタン。右クリックTIPをボタンの下に開き、コメント入力欄にフォーカスする。
-// EPICのミニボード上の子カードにも付く（タグボタンと同じく、子はprojectを持たないため親EPICから補う）。
-function openCardCommentTip(btn) {
+// BM-136/BM-162: カード上のボタンからTIPを開く時の対象解決。クリック時にタスクIDから引き直す
+// (再描画でクロージャが握るitemが古くなるため)。子カードはprojectを持たないので親EPICから補う。
+function resolveCardTipItem(btn) {
   const taskId = btn.dataset.taskId;
   const parentEpic = findItemById(taskId) ? null : findParentEpicOfChildId(taskId);
   const found = findItemById(taskId) || findChildItemById(taskId);
-  if (!found) return;
-  const item = parentEpic ? { ...found, project: parentEpic.project } : found;
+  if (!found) return null;
+  return parentEpic ? { ...found, project: parentEpic.project } : found;
+}
+
+// BM-163: カードの外部連携ボタン(GitHub / Redmine)。カードのボタンは各サービスのブランドアイコン1個にまとめる。
+//   - GitHub: 押すと小さなメニュー(紐づける / 新規作成)が開く。作成できるのはGitHubだけ(Redmine・GitLabは書き戻さない方針)。
+//   - Redmine: 作成がないのでメニューは挟まず、そのまま紐づけダイアログを開く。
+// 対象はクリック時にタスクIDから引き直す(再描画でクロージャが握るitemが古くなるため)。
+// EPICの子かどうか(openGithubCreateConfirmのisChild)は、親EPICが見つかるかで判定する。
+function resolveCardLinkTarget(btn) {
+  const item = resolveCardTipItem(btn);
+  if (!item) return null;
+  const isChild = !!findParentEpicOfChildId(btn.dataset.taskId) && !findItemById(btn.dataset.taskId);
+  return { item, isChild };
+}
+
+function openCardRedmineLink(btn) {
+  const target = resolveCardLinkTarget(btn);
+  if (target) openRedmineLinkModal(target.item);
+}
+
+// BM-164: GitLabも作成がないので、メニューは挟まず直接紐づけダイアログを開く
+function openCardGitlabLink(btn) {
+  const target = resolveCardLinkTarget(btn);
+  if (target) openGitlabLinkModal(target.item);
+}
+
+let githubLinkMenuEl = null;
+let githubLinkMenuCleanup = null;
+
+function closeGithubLinkMenu() {
+  if (githubLinkMenuCleanup) githubLinkMenuCleanup();
+  githubLinkMenuCleanup = null;
+  if (githubLinkMenuEl) githubLinkMenuEl.remove();
+  githubLinkMenuEl = null;
+}
+
+// GitHubボタンの下に「紐づける / 新規作成」のメニューを出す(期日ピッカーと同じ閉じ方: 外側クリック・Esc・スクロール・リサイズ)
+function openGithubLinkMenu(btn) {
+  const target = resolveCardLinkTarget(btn);
+  if (!target) return;
+  closeGithubLinkMenu();
+  const { item, isChild } = target;
+  const el = document.createElement('div');
+  el.className = 'card-link-menu';
+  el.setAttribute('role', 'menu');
+  el.setAttribute('aria-label', 'GitHub Issueの操作');
+  el.innerHTML = `
+    <button type="button" class="card-link-menu-item" role="menuitem" data-act="link"><span class="material-icon icon-link"></span> 既存のIssueと紐づける</button>
+    <button type="button" class="card-link-menu-item" role="menuitem" data-act="create"><span class="material-icon icon-upload"></span> Issueを新規作成</button>`;
+  // メニュー内のクリックがカード(詳細を開く・選択トグル)へ伝わらないようにする
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const act = e.target.closest('[data-act]');
+    if (!act) return;
+    closeGithubLinkMenu();
+    if (act.dataset.act === 'link') openGithubLinkModal(item);
+    else openGithubCreateConfirm(item, isChild);
+  });
+  el.addEventListener('contextmenu', (e) => e.stopPropagation());
+  document.body.appendChild(el);
+  githubLinkMenuEl = el;
+
+  const margin = 8;
+  const rect = btn.getBoundingClientRect();
+  const left = Math.min(rect.left, window.innerWidth - el.offsetWidth - margin);
+  const top = rect.bottom + 4 + el.offsetHeight > window.innerHeight - margin
+    ? rect.top - el.offsetHeight - 4
+    : rect.bottom + 4;
+  el.style.left = `${Math.max(margin, left)}px`;
+  el.style.top = `${Math.max(margin, top)}px`;
+  const first = el.querySelector('.card-link-menu-item');
+  if (first) first.focus();
+
+  const onPointerDown = (e) => { if (!el.contains(e.target)) closeGithubLinkMenu(); };
+  // Escはメニューが先に消費する(背後のモーダルまで一緒に閉じないように)
+  const onKeyDown = (e) => {
+    if (e.key !== 'Escape') return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    closeGithubLinkMenu();
+  };
+  const onScroll = (e) => { if (!el.contains(e.target)) closeGithubLinkMenu(); };
+  document.addEventListener('pointerdown', onPointerDown, true);
+  document.addEventListener('keydown', onKeyDown, true);
+  window.addEventListener('resize', closeGithubLinkMenu);
+  window.addEventListener('scroll', onScroll, true);
+  githubLinkMenuCleanup = () => {
+    document.removeEventListener('pointerdown', onPointerDown, true);
+    document.removeEventListener('keydown', onKeyDown, true);
+    window.removeEventListener('resize', closeGithubLinkMenu);
+    window.removeEventListener('scroll', onScroll, true);
+  };
+}
+
+// BM-136: カードのコメントボタン。右クリックTIPをボタンの下に開き、コメント入力欄にフォーカスする。
+// EPICのミニボード上の子カードにも付く（タグボタンと同じく、子はprojectを持たないため親EPICから補う）。
+function openCardCommentTip(btn) {
+  const item = resolveCardTipItem(btn);
+  if (!item) return;
   const rect = btn.getBoundingClientRect();
   openTaskQuickTip(item, rect.left, rect.bottom + 6, { focusComment: true });
+}
+
+// BM-162: カードの鉛筆ボタン。右クリックTIPを編集モード(件名・説明のミニ編集)で開く。
+function openCardEditTip(btn) {
+  const item = resolveCardTipItem(btn);
+  if (!item) return;
+  const rect = btn.getBoundingClientRect();
+  openTaskQuickTip(item, rect.left, rect.bottom + 6, { editMode: true });
 }
 
 // --- 複数選択→親付け (BT-034) ---
