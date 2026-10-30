@@ -3,29 +3,33 @@
 // BM-071: 外部ITS(Redmine/GitLab)連携リンク(task_external_links)のリポジトリ層。
 // GitHubは既存のtasks.github_issue_*列のまま触らず、Redmine/GitLabはこちらを使う
 // (source列で区別。1タスクにつきsourceごとに1件まで)。
-// 重複判定の対象は「同じsource/host/projectRef/issueKeyで、タスクが論理削除されていないもの」。
+// 「紐付いているタスク」の対象は「同じsource/host/projectRef/issueKeyで、タスクが論理削除されていないもの」。
 // 削除済みタスクのチケットは再度取り込める(現行GitHubと同じ挙動、BM-069方針C)。
+// BM-158: 1チケット:nタスクを許可している(UNIQUEは(task_id, source)のみ)。そのため
+// 「紐付いているタスク」は常に配列(0件以上)で返し、タスク作成順(tasks.id順)に並べる。
 
 /**
- * 指定チケット(source/host/projectRef/issueKey)が、論理削除されていないタスクに
- * 既に紐付いているかを調べる。取り込みプレビューの「取込済み」判定で使う。
- * @returns {{taskId: string}|null} 紐付いていればタスクのdisplay_id、無ければnull
+ * 指定チケット(source/host/projectRef/issueKey)に紐付いている、論理削除されていないタスクの
+ * display_idを返す。取り込みプレビューの「取込済み」表示と、紐づけ時の共有確認で使う。
+ * @param {string|null} excludeDisplayId 結果から除くタスク(自分自身への再紐づけを共有扱いにしない)
+ * @returns {string[]} 紐付いているタスクのdisplay_id(無ければ空配列)
  */
-function findLinkedTask(db, { source, host, projectRef, issueKey }) {
-  const row = db.prepare(`
+function findLinkedTasks(db, { source, host, projectRef, issueKey }, excludeDisplayId = null) {
+  const rows = db.prepare(`
     SELECT t.display_id AS display_id
     FROM task_external_links l
     JOIN tasks t ON t.id = l.task_id
     WHERE l.source = ? AND l.host = ? AND l.project_ref = ? AND l.issue_key = ?
-      AND t.deleted_at IS NULL
-  `).get(source, host, projectRef, String(issueKey));
-  return row ? { taskId: row.display_id } : null;
+      AND t.deleted_at IS NULL AND t.display_id != ?
+    ORDER BY t.id
+  `).all(source, host, projectRef, String(issueKey), excludeDisplayId || '');
+  return rows.map((r) => r.display_id);
 }
 
 /**
  * 複数チケットキーについて、まとめて取込済み判定を行う(プレビュー一覧の都度クエリを避ける)。
  * @param {Array<string|number>} issueKeys
- * @returns {Map<string, string>} issueKey(文字列化) -> taskId のMap
+ * @returns {Map<string, string[]>} issueKey(文字列化) -> 紐付いているタスクのdisplay_id配列(1件以上のキーだけ入る)
  */
 function findLinkedTasksByKeys(db, { source, host, projectRef, issueKeys }) {
   const result = new Map();
@@ -37,8 +41,12 @@ function findLinkedTasksByKeys(db, { source, host, projectRef, issueKeys }) {
     JOIN tasks t ON t.id = l.task_id
     WHERE l.source = ? AND l.host = ? AND l.project_ref = ? AND l.issue_key IN (${placeholders})
       AND t.deleted_at IS NULL
+    ORDER BY t.id
   `).all(source, host, projectRef, ...issueKeys.map(String));
-  for (const row of rows) result.set(row.issue_key, row.display_id);
+  for (const row of rows) {
+    if (!result.has(row.issue_key)) result.set(row.issue_key, []);
+    result.get(row.issue_key).push(row.display_id);
+  }
   return result;
 }
 
@@ -104,7 +112,7 @@ function setLink(db, { taskId, source, host, projectRef, issueKey, issueUrl, lin
 }
 
 module.exports = {
-  findLinkedTask,
+  findLinkedTasks,
   findLinkedTasksByKeys,
   listLinksForTasks,
   insertLink,
