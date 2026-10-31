@@ -7600,7 +7600,7 @@ function openChildModal(item, parentEpic = null) {
       ${statusBadge}
       ${project}${githubBadge}${redmineBadge}${gitlabBadge}
     </div>
-    <h3 class="detail-title">${escapeHtml(item.title)}${titlePinBtnHtml}</h3>
+    <h3 class="detail-title">${escapeHtml(item.title)}${buildTitleActionsHtml(item, titlePinBtnHtml)}</h3>
     ${actionGroups(
       actionGroup('タスク操作', editBtnHtml, copyBtnHtml, deleteBtnHtml, detachBtn),
       actionGroup('開く', workspaceOpenActionHtml),
@@ -7675,12 +7675,11 @@ function openChildModal(item, parentEpic = null) {
   }
 
   // 編集ボタンのイベント（BT-036: 子タスクは常に説明編集可）
-  const editBtnEl = body.querySelector('#modal-edit-btn');
-  if (editBtnEl) {
+  body.querySelectorAll('#modal-edit-btn, #modal-title-edit-btn').forEach(editBtnEl => {
     editBtnEl.addEventListener('click', () => {
       enterEditMode(item, body, false, openChildModal);
     });
-  }
+  });
 
   // 削除ボタンのイベント（BT-031）
   const deleteBtnEl = body.querySelector('#modal-delete-btn');
@@ -7759,6 +7758,13 @@ async function detachTask(taskId) {
  * @param {boolean} isArchivedSingle - 完了済みアーカイブ単発タスクか（説明編集不可）
  * @param {(item: object) => void} renderFn - 表示モードに戻す際に呼ぶ描画関数
  */
+// BT-469: タイトル行右端の操作。鉛筆は常にピンの左に固定し、ピンを出さないEPICでも同じ位置に来るよう場所を空ける
+function buildTitleActionsHtml(item, pinBtnHtml) {
+  if (!item.id || item.id === '-') return '';
+  const editBtnHtml = `<button class="detail-title-edit-btn" id="modal-title-edit-btn" title="編集" aria-label="編集"><span class="material-icon icon-edit"></span></button>`;
+  return `<span class="detail-title-actions">${editBtnHtml}${pinBtnHtml || '<span class="detail-title-pin-spacer"></span>'}</span>`;
+}
+
 function enterEditMode(item, body, isArchivedSingle, renderFn) {
   // BM-083: board用の軽量item(descriptionキー無し)で編集フォームを開くと、取得前の空文字を
   // 保存して本文を消してしまう事故になる。キーが無い場合は完全なデータを取得してから
@@ -8677,7 +8683,7 @@ function renderModalContent(item) {
       ${badgeHtml}
       ${project}${githubBadge}${redmineBadge}${gitlabBadge}
     </div>
-    <h3 class="detail-title"><span class="detail-title-text">${isEpic ? '<span class="epic-title-chip" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : SINGLE_TITLE_CHIP_HTML}${escapeHtml(item.title)}</span>${titlePinBtnHtml}</h3>
+    <h3 class="detail-title"><span class="detail-title-text">${isEpic ? '<span class="epic-title-chip" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : SINGLE_TITLE_CHIP_HTML}${escapeHtml(item.title)}</span>${buildTitleActionsHtml(item, titlePinBtnHtml)}</h3>
     ${actionGroups(
       actionGroup('タスク操作', editBtnHtml, copyBtnHtml, deleteBtnHtml, addChildBtn, setParentBtn),
       actionGroup('開く', workspaceOpenActionHtml),
@@ -8765,13 +8771,12 @@ function renderModalContent(item) {
   }
 
   // 編集ボタンのイベント（BT-036: 完了済み単発タスクは説明編集不可）
-  const editBtnEl = body.querySelector('#modal-edit-btn');
-  if (editBtnEl) {
+  body.querySelectorAll('#modal-edit-btn, #modal-title-edit-btn').forEach(editBtnEl => {
     editBtnEl.addEventListener('click', () => {
       const isArchivedSingle = !isEpic && item.statusCode === 'done';
       enterEditMode(item, body, isArchivedSingle, renderModalContent);
     });
-  }
+  });
 
   // 削除ボタンのイベント（BT-031）
   const deleteBtnEl = body.querySelector('#modal-delete-btn');
