@@ -21,6 +21,8 @@
     due_date_changed: 'Due',
     tag_added: 'Tag',
     tag_removed: 'Untag',
+    external_link_added: 'Link',
+    external_link_removed: 'Unlink',
     deleted: 'Delete',
   };
 
@@ -62,6 +64,10 @@
     }
     if (ev.eventType === 'tag_added' || ev.eventType === 'tag_removed') {
       return { action, detail: ev.eventType === 'tag_added' ? ev.newValue || '' : ev.oldValue || '' };
+    }
+    // BT-470: 外部連携の紐づけ/解除。値は「GitHub #12」形式
+    if (ev.eventType === 'external_link_added' || ev.eventType === 'external_link_removed') {
+      return { action, detail: ev.eventType === 'external_link_added' ? ev.newValue || '' : ev.oldValue || '' };
     }
     return { action, detail: '' };
   }

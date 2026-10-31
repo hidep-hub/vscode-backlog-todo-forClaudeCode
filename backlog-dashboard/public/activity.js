@@ -221,6 +221,8 @@ const ACTIVITY_EVENT_LABEL = {
   due_date_changed: '期日変更',
   tag_added: 'タグ追加',
   tag_removed: 'タグ解除',
+  external_link_added: '外部連携を紐づけ',
+  external_link_removed: '外部連携を解除',
   deleted: '削除',
 };
 
@@ -735,7 +737,8 @@ function buildActivityRowEl(ev, opts = {}) {
     changeHtml = `<span class="activity-tag">${activityHighlightHtml(ev.oldValue)} → ${activityHighlightHtml(ev.newValue)}</span>`;
   } else if (ev.eventType === 'due_date_changed' && (ev.oldValue || ev.newValue)) {
     changeHtml = `<span class="activity-tag">${activityHighlightHtml(ev.oldValue || '-')} → ${activityHighlightHtml(ev.newValue || '-')}</span>`;
-  } else if ((ev.eventType === 'tag_added' || ev.eventType === 'tag_removed') && (ev.newValue || ev.oldValue)) {
+  } else if ((ev.eventType === 'tag_added' || ev.eventType === 'tag_removed'
+      || ev.eventType === 'external_link_added' || ev.eventType === 'external_link_removed') && (ev.newValue || ev.oldValue)) {
     changeHtml = `<span class="activity-tag">${activityHighlightHtml(ev.newValue || ev.oldValue)}</span>`;
   }
 

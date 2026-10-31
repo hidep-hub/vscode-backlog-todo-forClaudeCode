@@ -545,14 +545,62 @@ function moveWorkspace(db, displayId, targetFile, projects) {
   return { oldId: displayId, newId: newDisplayId, targetFile: targetProject.file };
 }
 
+// BT-470: 外部連携の履歴(external_link_added/removed)に記録する値。例: "GitHub #12"
+const EXTERNAL_LINK_LABELS = { github: 'GitHub', redmine: 'Redmine', gitlab: 'GitLab' };
+function formatExternalLinkValue(source, key) {
+  return `${EXTERNAL_LINK_LABELS[source] || source} #${key}`;
+}
+
 /**
  * タスクにGitHub Issue番号/URLを紐付ける(BT-192)。
+ * BT-470: 履歴(external_link_added)を同一トランザクションで記録する。既に別の番号が付いていれば
+ * 解除(external_link_removed)も先に記録する(上書き時は解除+付与の2件)。
  */
-function setGithubLink(db, displayId, issueNumber, issueUrl) {
+function setGithubLink(db, displayId, issueNumber, issueUrl, actor = 'user') {
   const now = nowIso();
-  db.prepare('UPDATE tasks SET github_issue_number = ?, github_issue_url = ?, updated_at = ?, updated_by = ? WHERE display_id = ?')
-    .run(Number(issueNumber), issueUrl, now, 'user', displayId);
+  const task = getByDisplayId(db, displayId);
+  const actionActor = normalizeActor(actor);
+  db.exec('BEGIN');
+  try {
+    if (task && task.github_issue_number) {
+      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'external_link_removed',
+        oldValue: formatExternalLinkValue('github', task.github_issue_number), actor: actionActor });
+    }
+    db.prepare('UPDATE tasks SET github_issue_number = ?, github_issue_url = ?, updated_at = ?, updated_by = ? WHERE display_id = ?')
+      .run(Number(issueNumber), issueUrl, now, actionActor, displayId);
+    if (task) {
+      insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'external_link_added',
+        newValue: formatExternalLinkValue('github', issueNumber), actor: actionActor });
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
   return getByDisplayId(db, displayId);
+}
+
+/**
+ * タスクのGitHub Issue紐づけを解除する(BT-470)。こちら側の列を空に戻すだけで、GitHub側へは何もしない。
+ * 紐づいていなければ何もせずnullを返す。解除した場合は解除前の番号を返す。
+ */
+function clearGithubLink(db, displayId, actor = 'user') {
+  const task = getByDisplayId(db, displayId);
+  if (!task || !task.github_issue_number) return null;
+  const actionActor = normalizeActor(actor);
+  const previous = task.github_issue_number;
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE tasks SET github_issue_number = NULL, github_issue_url = NULL, updated_at = ?, updated_by = ? WHERE id = ?')
+      .run(nowIso(), actionActor, task.id);
+    insertEvent(db, { taskId: task.id, taskDisplayId: displayId, eventType: 'external_link_removed',
+      oldValue: formatExternalLinkValue('github', previous), actor: actionActor });
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return previous;
 }
 
 /**
@@ -654,6 +702,6 @@ module.exports = {
   allocateSeq, create, updateStatus,
   setPin, setRunning, isPinned, isRunning, updateFields, updateCommitHash, setArtifacts, softDelete,
   attachToParent, detachFromParent, reorder, moveWorkspace, getEffectiveStatus,
-  setGithubLink, getChildren, listByGithubIssueNumber, planGithubCompletionSync, listGithubLinkedNumbers, insertEvent, normalizeActor,
+  setGithubLink, clearGithubLink, formatExternalLinkValue, getChildren, listByGithubIssueNumber, planGithubCompletionSync, listGithubLinkedNumbers, insertEvent, normalizeActor,
   listDueDateHistory, searchByTitleIdAssignee, searchByBody, escapeLikePattern,
 };

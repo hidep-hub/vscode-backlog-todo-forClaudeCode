@@ -21,25 +21,30 @@ test('カードのGitHubボタンは1個にまとまり、旧の紐づけ/作成
   for (const old of ['card-github-link-btn', 'card-github-create-btn', 'card-child-github-link-btn', 'card-child-github-create-btn']) {
     assert.ok(!app.includes(old), `${old} は残さない`);
   }
-  // GitHubは紐づけ済みなら出さない(従来どおり。サーバーも再紐づけを400で拒否する)
-  has(app, '${!item.githubIssueNumber ? `<button class="card-action-btn card-github-btn"');
-  has(app, '${!child.githubIssueNumber ? `<button class="card-action-btn card-github-btn"');
+  // BT-470: 紐づけ済みでも出す(メニューの「解除」を選べるようにするため。紐づける/作成は無効になる)
+  assert.ok(!/githubIssueNumber \? `<button class="card-action-btn card-github-btn"/.test(app), 'GitHubボタンは紐づけ済みでも隠さない');
 });
 
-test('Redmineボタンは本体・子とも同じクラスの1個で、メニューを挟まずに紐づけを開く', () => {
+test('Redmineボタンは本体・子とも同じクラスの1個で、メニュー(紐づける/解除)を開く', () => {
   assert.equal(count(app, /class="card-action-btn card-redmine-link-btn"/g), 2, '本体カードと子カードの2か所');
   assert.ok(!app.includes('card-child-redmine-link-btn'), '子専用のクラスは残さない');
   has(app, 'openCardRedmineLink(btn)');
   has(app, 'openCardRedmineLink(childRedmineLinkBtnEl)');
-  has(app, 'if (target) openRedmineLinkModal(target.item);');
+  has(app, "openCardItsLinkMenu(btn, 'redmine')");
 });
 
-test('GitHubメニュー: 紐づけ/作成の2項目で、既存のダイアログを呼ぶ', () => {
+test('GitHubメニュー: 紐づけ/作成/解除の3項目で、既存のダイアログを呼ぶ', () => {
   has(app, 'function openGithubLinkMenu(btn)');
-  has(app, 'data-act="link"');
-  has(app, 'data-act="create"');
-  has(app, "if (act.dataset.act === 'link') openGithubLinkModal(item);");
-  has(app, 'else openGithubCreateConfirm(item, isChild);');
+  has(app, 'data-act="${en.act}"');
+  has(app, "act: 'link'");
+  has(app, "act: 'create'");
+  has(app, "act: 'unlink'");
+  has(app, 'run: () => openGithubLinkModal(item)');
+  has(app, 'run: () => openGithubCreateConfirm(item, isChild)');
+  has(app, "run: () => openExternalUnlinkConfirm(item, 'github')");
+  // 紐づけ済みなら紐づける/作成は無効、未紐づけなら解除は無効(グレイアウト)
+  has(app, "label: '既存のIssueと紐づける', disabled: linked");
+  has(app, "label: '紐づけを解除', disabled: !linked");
   has(app, 'openGithubLinkMenu(btn)');
   has(app, 'openGithubLinkMenu(childGithubBtnEl)');
   // メニュー内のクリックがカード(詳細を開く・選択トグル)へ伝わらない
