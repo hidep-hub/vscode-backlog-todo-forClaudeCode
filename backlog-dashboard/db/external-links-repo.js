@@ -111,10 +111,19 @@ function setLink(db, { taskId, source, host, projectRef, issueKey, issueUrl, lin
   `).run(taskId, source, host, projectRef, String(issueKey), issueUrl, now, linkedBy);
 }
 
+/**
+ * タスクの外部リンクを(task_id, source)で1件削除する(BT-470)。削除した行があればtrue。
+ */
+function removeLink(db, { taskId, source }) {
+  const r = db.prepare('DELETE FROM task_external_links WHERE task_id = ? AND source = ?').run(taskId, source);
+  return r.changes > 0;
+}
+
 module.exports = {
   findLinkedTasks,
   findLinkedTasksByKeys,
   listLinksForTasks,
   insertLink,
   setLink,
+  removeLink,
 };

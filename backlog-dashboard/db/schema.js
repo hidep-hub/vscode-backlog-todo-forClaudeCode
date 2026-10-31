@@ -212,6 +212,9 @@ const EVENT_TYPE_SEED = [
   // BM-105: カテゴリ変更。old_value/new_valueにはカテゴリ名(無しはnull)を記録する
   { code: 'category_changed', label: 'カテゴリ変更', sort_order: 12 },
   { code: 'completed_at_changed', label: '完了日時変更', sort_order: 13 },
+  // BT-470: 外部連携(GitHub/Redmine/GitLab)の紐づけ・解除。値には「GitHub #12」形式で記録する
+  { code: 'external_link_added', label: '外部連携を紐づけ', sort_order: 14 },
+  { code: 'external_link_removed', label: '外部連携を解除', sort_order: 15 },
 ];
 
 /**

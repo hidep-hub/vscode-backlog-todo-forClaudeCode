@@ -4126,9 +4126,9 @@ function renderBoard(data) {
           <button class="card-action-btn card-due-btn" data-task-id="${item.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
           <button class="card-action-btn card-tag-btn" data-task-id="${item.id}" title="タグを付け外し"><span class="material-icon icon-tag"></span></button>
           <button class="card-action-btn card-category-btn" data-task-id="${item.id}" title="カテゴリを設定"><span class="material-icon icon-stacks"></span></button>
-          ${!item.githubIssueNumber ? `<button class="card-action-btn card-github-btn" data-task-id="${item.id}" title="GitHub Issue（紐づける／新規作成）" aria-haspopup="menu">${GITHUB_MARK_SVG}</button>` : ''}
-          <button class="card-action-btn card-redmine-link-btn" data-task-id="${item.id}" title="Redmineチケットと紐づける">${REDMINE_MARK_SVG}</button>
-          <button class="card-action-btn card-gitlab-link-btn" data-task-id="${item.id}" title="GitLab issueと紐づける">${GITLAB_MARK_SVG}</button>
+          <button class="card-action-btn card-github-btn" data-task-id="${item.id}" title="GitHub Issue（紐づける／新規作成／解除）" aria-haspopup="menu">${GITHUB_MARK_SVG}</button>
+          <button class="card-action-btn card-redmine-link-btn" data-task-id="${item.id}" title="Redmineチケット（紐づける／解除）" aria-haspopup="menu">${REDMINE_MARK_SVG}</button>
+          <button class="card-action-btn card-gitlab-link-btn" data-task-id="${item.id}" title="GitLab issue（紐づける／解除）" aria-haspopup="menu">${GITLAB_MARK_SVG}</button>
           ${!isEpic ? `<button class="card-action-btn card-delete-btn danger" data-task-id="${item.id}" title="削除"><span class="material-icon icon-delete"></span></button>` : ''}
         </div>`;
       }
@@ -7561,25 +7561,19 @@ function openChildModal(item, parentEpic = null) {
   const copyBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn" id="modal-copy-btn"><span class="material-icon icon-content-copy"></span> 複製</button>` : '';
   const deleteBtnHtml = (item.id && item.id !== '-') ? `<button class="detail-action-btn danger" id="modal-delete-btn"><span class="material-icon icon-delete"></span> 削除</button>` : '';
 
-  // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
-  const githubLinkBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn" id="modal-github-link-btn">${GITHUB_MARK_SVG} 紐づけ</button>`
-    : '';
+  // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備。BT-470: 紐づき済みは番号表示）
+  const githubLinkBtnHtml = buildDetailLinkBtnHtml(item, 'github');
 
   // GitHub Issue新規作成ボタン（BT-134）
   const githubCreateBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
     ? `<button class="add-child-btn btn-add" id="modal-github-create-btn">${GITHUB_MARK_SVG} 作成</button>`
     : '';
 
-  // Redmineチケット紐付けボタン（BM-126: GitHubと同様にカードと詳細モーダルの両方に配備。上書き許可のため常に表示）
-  const redmineLinkBtnHtml = (item.id && item.id !== '-')
-    ? `<button class="add-child-btn" id="modal-redmine-link-btn">${REDMINE_MARK_SVG} 紐づけ</button>`
-    : '';
+  // Redmineチケット紐付けボタン（BM-126。BT-470: 紐づき済みは番号表示、押すと小メニュー）
+  const redmineLinkBtnHtml = buildDetailLinkBtnHtml(item, 'redmine');
 
-  // GitLab issue紐付けボタン（BM-164: Redmineと同じく上書き許可のため常に表示。作成はGitHubだけ）
-  const gitlabLinkBtnHtml = (item.id && item.id !== '-')
-    ? `<button class="add-child-btn" id="modal-gitlab-link-btn">${GITLAB_MARK_SVG} 紐づけ</button>`
-    : '';
+  // GitLab issue紐付けボタン（BM-164。BT-470: Redmineと同じ扱い）
+  const gitlabLinkBtnHtml = buildDetailLinkBtnHtml(item, 'gitlab');
 
   // ワークスペース導線ボタン（BT-053）
   const workspaceOpenActionHtml = buildWorkspaceOpenActionHtml(item);
@@ -7651,10 +7645,7 @@ function openChildModal(item, parentEpic = null) {
   }
 
   // GitHub Issue紐付けボタンのイベント（BT-122）
-  const githubLinkBtnEl = body.querySelector('#modal-github-link-btn');
-  if (githubLinkBtnEl) {
-    githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item));
-  }
+  bindDetailLinkBtn(body, item, 'github');
 
   // GitHub Issue新規作成ボタンのイベント（BT-134）
   const githubCreateBtnEl = body.querySelector('#modal-github-create-btn');
@@ -7663,16 +7654,10 @@ function openChildModal(item, parentEpic = null) {
   }
 
   // Redmineチケット紐付けボタンのイベント（BM-126）
-  const redmineLinkBtnEl = body.querySelector('#modal-redmine-link-btn');
-  if (redmineLinkBtnEl) {
-    redmineLinkBtnEl.addEventListener('click', () => openRedmineLinkModal(item));
-  }
+  bindDetailLinkBtn(body, item, 'redmine');
 
   // GitLab issue紐付けボタンのイベント（BM-164）
-  const gitlabLinkBtnEl = body.querySelector('#modal-gitlab-link-btn');
-  if (gitlabLinkBtnEl) {
-    gitlabLinkBtnEl.addEventListener('click', () => openGitlabLinkModal(item));
-  }
+  bindDetailLinkBtn(body, item, 'gitlab');
 
   // 編集ボタンのイベント（BT-036: 子タスクは常に説明編集可）
   body.querySelectorAll('#modal-edit-btn, #modal-title-edit-btn').forEach(editBtnEl => {
@@ -8411,6 +8396,129 @@ function openItsLinkModal(item, source) {
 function openRedmineLinkModal(item) { openItsLinkModal(item, 'redmine'); }
 function openGitlabLinkModal(item) { openItsLinkModal(item, 'gitlab'); }
 
+// --- 外部連携の紐づけ解除と、詳細画面の連携ボタン (BT-470) ---
+// 3サービス(github / redmine / gitlab)の「紐づいているか」「どのAPIで解除するか」の違いをここに集める。
+// GitHubはtasks列(githubIssueNumber/Url)、Redmine/GitLabはexternalLinksに載る。
+const EXTERNAL_LINK_SERVICES = {
+  github: { label: 'GitHub', kind: 'Issue', mark: () => GITHUB_MARK_SVG, openModal: (item) => openGithubLinkModal(item) },
+  redmine: { label: 'Redmine', kind: 'チケット', mark: () => REDMINE_MARK_SVG, openModal: (item) => openRedmineLinkModal(item) },
+  gitlab: { label: 'GitLab', kind: 'issue', mark: () => GITLAB_MARK_SVG, openModal: (item) => openGitlabLinkModal(item) },
+};
+
+// 紐づいていれば {key, url}、無ければ null
+function getExternalLinkInfo(item, source) {
+  if (source === 'github') {
+    return item.githubIssueNumber ? { key: String(item.githubIssueNumber), url: item.githubIssueUrl || '' } : null;
+  }
+  const link = (item.externalLinks || []).find((l) => l.source === source);
+  return link ? { key: String(link.key), url: link.url || '' } : null;
+}
+
+function getOrCreateExternalUnlinkConfirm() {
+  let el = document.getElementById('external-unlink-confirm-overlay');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'external-unlink-confirm-overlay';
+  el.className = 'modal-overlay modal-front';
+  el.innerHTML = `<div class="modal-content delete-confirm-modal"></div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', (e) => {
+    if (e.target === el) closeExternalUnlinkConfirm();
+  });
+  closeOnEscape(el, 'modal-visible', closeExternalUnlinkConfirm);
+  return el;
+}
+
+function closeExternalUnlinkConfirm() {
+  const el = document.getElementById('external-unlink-confirm-overlay');
+  if (el) el.classList.remove('modal-visible');
+}
+
+/**
+ * 紐づけ解除の確認ダイアログを開く。解除はこちら側のリンクを外すだけで、外部のチケット/Issueには何もしない。
+ * @param {object} item - 対象タスク
+ * @param {'github'|'redmine'|'gitlab'} source
+ */
+function openExternalUnlinkConfirm(item, source) {
+  const svc = EXTERNAL_LINK_SERVICES[source];
+  const info = getExternalLinkInfo(item, source);
+  if (!svc || !info) return;
+  const el = getOrCreateExternalUnlinkConfirm();
+  document.body.appendChild(el);
+  const content = el.querySelector('.modal-content');
+  content.innerHTML = `
+    <button class="modal-close" id="external-unlink-close">&times;</button>
+    <h3 class="add-form-title"><span class="material-icon icon-close"></span> ${svc.label}の紐づけを解除</h3>
+    <p class="delete-confirm-text">「${escapeHtml(item.title)}」(${escapeHtml(item.id)}) と ${svc.label} #${escapeHtml(info.key)} の紐づけを解除するよ。${svc.label}側の${svc.kind}はそのまま残るよ。大丈夫?</p>
+    <p class="delete-confirm-error" style="display:none;"></p>
+    <div class="edit-form-actions">
+      <button class="add-task-submit" id="external-unlink-ok">解除する</button>
+      <button class="add-child-btn" id="external-unlink-cancel">キャンセル</button>
+    </div>
+  `;
+  content.querySelector('#external-unlink-close').addEventListener('click', closeExternalUnlinkConfirm);
+  content.querySelector('#external-unlink-cancel').addEventListener('click', closeExternalUnlinkConfirm);
+  const okBtn = content.querySelector('#external-unlink-ok');
+  okBtn.addEventListener('click', async () => {
+    const errorEl = content.querySelector('.delete-confirm-error');
+    errorEl.style.display = 'none';
+    okBtn.disabled = true;
+    try {
+      const resp = await fetch(source === 'github' ? '/api/github-unlink-issue' : '/api/its-unlink-issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(source === 'github' ? { taskId: item.id } : { taskId: item.id, source }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        errorEl.textContent = data.error || '解除に失敗したよ';
+        errorEl.style.display = 'block';
+        okBtn.disabled = false;
+        return;
+      }
+      closeExternalUnlinkConfirm();
+    } catch (e) {
+      console.error(`[${source}-unlink] Network error:`, e);
+      errorEl.textContent = 'ネットワークエラーが発生したよ';
+      errorEl.style.display = 'block';
+      okBtn.disabled = false;
+    }
+  });
+  el.classList.add('modal-visible');
+}
+
+// 詳細画面の連携ボタン。未紐づけは「紐づけ」、紐づき済みは番号を出し、マウスオーバーでURLを見せる
+function buildDetailLinkBtnHtml(item, source) {
+  if (!item.id || item.id === '-') return '';
+  const svc = EXTERNAL_LINK_SERVICES[source];
+  const info = getExternalLinkInfo(item, source);
+  if (!info) return `<button class="add-child-btn" id="modal-${source}-link-btn">${svc.mark()} 紐づけ</button>`;
+  const title = info.url ? `${svc.label} #${info.key}\n${info.url}` : `${svc.label} #${info.key}`;
+  return `<button class="add-child-btn" id="modal-${source}-link-btn" title="${escapeHtml(title)}" aria-haspopup="menu">${svc.mark()} #${escapeHtml(info.key)}</button>`;
+}
+
+// 詳細画面の連携ボタンのイベント。未紐づけは直接ダイアログ、紐づき済みは小メニュー(開く/変更/解除)
+function bindDetailLinkBtn(body, item, source) {
+  const btn = body.querySelector(`#modal-${source}-link-btn`);
+  if (!btn) return;
+  const svc = EXTERNAL_LINK_SERVICES[source];
+  btn.addEventListener('click', () => {
+    const info = getExternalLinkInfo(item, source);
+    if (!info) {
+      svc.openModal(item);
+      return;
+    }
+    const entries = [
+      { act: 'open', icon: 'icon-link', label: `${svc.label}で開く`, disabled: !info.url,
+        run: () => window.open(info.url, '_blank', 'noopener') },
+      // GitHubは再紐づけをサーバーが拒否する(先に解除する)ため、変更はRedmine/GitLabだけ
+      ...(source === 'github' ? [] : [{ act: 'change', icon: 'icon-edit', label: '紐づけを変更', run: () => svc.openModal(item) }]),
+      { act: 'unlink', icon: 'icon-close', label: '紐づけを解除', run: () => openExternalUnlinkConfirm(item, source) },
+    ];
+    showLinkMenu(btn, `${svc.label}の操作`, entries);
+  });
+}
+
 // --- GitHub Issue新規作成確認ダイアログ (BT-134: backlogタスク→GitHub Issue新規作成、Epicはsub-issue化) ---
 function getOrCreateGithubCreateConfirm() {
   let el = document.getElementById('github-create-confirm-overlay');
@@ -8644,25 +8752,19 @@ function renderModalContent(item) {
   const copyBtnHtml = (item.id && item.id !== '-' && !isEpic) ? `<button class="detail-action-btn" id="modal-copy-btn"><span class="material-icon icon-content-copy"></span> 複製</button>` : '';
   const deleteBtnHtml = (item.id && item.id !== '-' && !isEpic) ? `<button class="detail-action-btn danger" id="modal-delete-btn"><span class="material-icon icon-delete"></span> 削除</button>` : '';
 
-  // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備）
-  const githubLinkBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
-    ? `<button class="add-child-btn" id="modal-github-link-btn">${GITHUB_MARK_SVG} 紐づけ</button>`
-    : '';
+  // GitHub Issue紐付けボタン（BT-122: カードと同じ操作を詳細モーダルにも配備。BT-470: 紐づき済みは番号表示）
+  const githubLinkBtnHtml = buildDetailLinkBtnHtml(item, 'github');
 
   // GitHub Issue新規作成ボタン（BT-134: Epicの場合は子タスクもsub-issueとして一括作成）
   const githubCreateBtnHtml = (item.id && item.id !== '-' && !item.githubIssueNumber)
     ? `<button class="add-child-btn btn-add" id="modal-github-create-btn">${GITHUB_MARK_SVG} 作成</button>`
     : '';
 
-  // Redmineチケット紐付けボタン（BM-126: GitHubと同様にカードと詳細モーダルの両方に配備。上書き許可のため常に表示）
-  const redmineLinkBtnHtml = (item.id && item.id !== '-')
-    ? `<button class="add-child-btn" id="modal-redmine-link-btn">${REDMINE_MARK_SVG} 紐づけ</button>`
-    : '';
+  // Redmineチケット紐付けボタン（BM-126。BT-470: 紐づき済みは番号表示、押すと小メニュー）
+  const redmineLinkBtnHtml = buildDetailLinkBtnHtml(item, 'redmine');
 
-  // GitLab issue紐付けボタン（BM-164: Redmineと同じく上書き許可のため常に表示。作成はGitHubだけ）
-  const gitlabLinkBtnHtml = (item.id && item.id !== '-')
-    ? `<button class="add-child-btn" id="modal-gitlab-link-btn">${GITLAB_MARK_SVG} 紐づけ</button>`
-    : '';
+  // GitLab issue紐付けボタン（BM-164。BT-470: Redmineと同じ扱い）
+  const gitlabLinkBtnHtml = buildDetailLinkBtnHtml(item, 'gitlab');
 
   // ワークスペース導線ボタン（BT-053）
   const workspaceOpenActionHtml = buildWorkspaceOpenActionHtml(item);
@@ -8747,10 +8849,7 @@ function renderModalContent(item) {
   }
 
   // GitHub Issue紐付けボタンのイベント（BT-122）
-  const githubLinkBtnEl = body.querySelector('#modal-github-link-btn');
-  if (githubLinkBtnEl) {
-    githubLinkBtnEl.addEventListener('click', () => openGithubLinkModal(item));
-  }
+  bindDetailLinkBtn(body, item, 'github');
 
   // GitHub Issue新規作成ボタンのイベント（BT-134）
   const githubCreateBtnEl = body.querySelector('#modal-github-create-btn');
@@ -8759,16 +8858,10 @@ function renderModalContent(item) {
   }
 
   // Redmineチケット紐付けボタンのイベント（BM-126）
-  const redmineLinkBtnEl = body.querySelector('#modal-redmine-link-btn');
-  if (redmineLinkBtnEl) {
-    redmineLinkBtnEl.addEventListener('click', () => openRedmineLinkModal(item));
-  }
+  bindDetailLinkBtn(body, item, 'redmine');
 
   // GitLab issue紐付けボタンのイベント（BM-164）
-  const gitlabLinkBtnEl = body.querySelector('#modal-gitlab-link-btn');
-  if (gitlabLinkBtnEl) {
-    gitlabLinkBtnEl.addEventListener('click', () => openGitlabLinkModal(item));
-  }
+  bindDetailLinkBtn(body, item, 'gitlab');
 
   // 編集ボタンのイベント（BT-036: 完了済み単発タスクは説明編集不可）
   body.querySelectorAll('#modal-edit-btn, #modal-title-edit-btn').forEach(editBtnEl => {
@@ -8974,9 +9067,9 @@ function buildMiniBoard(epic) {
             <button class="card-action-btn card-child-due-btn" data-task-id="${child.id}" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button>
             <button class="card-action-btn card-tag-btn" data-task-id="${child.id}" title="タグを付け外し"><span class="material-icon icon-tag"></span></button>
             <button class="card-action-btn card-category-btn" data-task-id="${child.id}" title="カテゴリを設定"><span class="material-icon icon-stacks"></span></button>
-            ${!child.githubIssueNumber ? `<button class="card-action-btn card-github-btn" data-task-id="${child.id}" title="GitHub Issue（紐づける／新規作成）" aria-haspopup="menu">${GITHUB_MARK_SVG}</button>` : ''}
-            <button class="card-action-btn card-redmine-link-btn" data-task-id="${child.id}" title="Redmineチケットと紐づける">${REDMINE_MARK_SVG}</button>
-            <button class="card-action-btn card-gitlab-link-btn" data-task-id="${child.id}" title="GitLab issueと紐づける">${GITLAB_MARK_SVG}</button>
+            <button class="card-action-btn card-github-btn" data-task-id="${child.id}" title="GitHub Issue（紐づける／新規作成／解除）" aria-haspopup="menu">${GITHUB_MARK_SVG}</button>
+            <button class="card-action-btn card-redmine-link-btn" data-task-id="${child.id}" title="Redmineチケット（紐づける／解除）" aria-haspopup="menu">${REDMINE_MARK_SVG}</button>
+            <button class="card-action-btn card-gitlab-link-btn" data-task-id="${child.id}" title="GitLab issue（紐づける／解除）" aria-haspopup="menu">${GITLAB_MARK_SVG}</button>
             <button class="card-action-btn card-child-delete-btn danger" data-task-id="${child.id}" title="削除"><span class="material-icon icon-delete"></span></button>
           </div>`
         : '';
@@ -9519,9 +9612,10 @@ function resolveCardTipItem(btn) {
   return parentEpic ? { ...found, project: parentEpic.project } : found;
 }
 
-// BM-163: カードの外部連携ボタン(GitHub / Redmine)。カードのボタンは各サービスのブランドアイコン1個にまとめる。
-//   - GitHub: 押すと小さなメニュー(紐づける / 新規作成)が開く。作成できるのはGitHubだけ(Redmine・GitLabは書き戻さない方針)。
-//   - Redmine: 作成がないのでメニューは挟まず、そのまま紐づけダイアログを開く。
+// BM-163: カードの外部連携ボタン(GitHub / Redmine / GitLab)。カードのボタンは各サービスのブランドアイコン1個にまとめる。
+//   - GitHub: 押すと小さなメニュー(紐づける / 新規作成 / 解除)が開く。作成できるのはGitHubだけ(Redmine・GitLabは書き戻さない方針)。
+//   - Redmine / GitLab: BT-470で解除を足したため、同じ形のメニュー(紐づける / 解除)を挟む。
+//   紐づけ済みなら「解除」だけ選べ、未紐づけなら「解除」はグレイアウトする(GitHubは再紐づけ・再作成も不可)。
 // 対象はクリック時にタスクIDから引き直す(再描画でクロージャが握るitemが古くなるため)。
 // EPICの子かどうか(openGithubCreateConfirmのisChild)は、親EPICが見つかるかで判定する。
 function resolveCardLinkTarget(btn) {
@@ -9531,16 +9625,21 @@ function resolveCardLinkTarget(btn) {
   return { item, isChild };
 }
 
-function openCardRedmineLink(btn) {
+// BT-470: Redmine / GitLabのカードメニュー(紐づける / 解除)
+function openCardItsLinkMenu(btn, source) {
   const target = resolveCardLinkTarget(btn);
-  if (target) openRedmineLinkModal(target.item);
+  if (!target) return;
+  const { item } = target;
+  const svc = EXTERNAL_LINK_SERVICES[source];
+  const linked = !!getExternalLinkInfo(item, source);
+  showLinkMenu(btn, `${svc.label}${svc.kind}の操作`, [
+    { act: 'link', icon: 'icon-link', label: `既存の${svc.kind}と紐づける`, run: () => svc.openModal(item) },
+    { act: 'unlink', icon: 'icon-close', label: '紐づけを解除', disabled: !linked, run: () => openExternalUnlinkConfirm(item, source) },
+  ]);
 }
 
-// BM-164: GitLabも作成がないので、メニューは挟まず直接紐づけダイアログを開く
-function openCardGitlabLink(btn) {
-  const target = resolveCardLinkTarget(btn);
-  if (target) openGitlabLinkModal(target.item);
-}
+function openCardRedmineLink(btn) { openCardItsLinkMenu(btn, 'redmine'); }
+function openCardGitlabLink(btn) { openCardItsLinkMenu(btn, 'gitlab'); }
 
 let githubLinkMenuEl = null;
 let githubLinkMenuCleanup = null;
@@ -9552,27 +9651,42 @@ function closeGithubLinkMenu() {
   githubLinkMenuEl = null;
 }
 
-// GitHubボタンの下に「紐づける / 新規作成」のメニューを出す(期日ピッカーと同じ閉じ方: 外側クリック・Esc・スクロール・リサイズ)
+// GitHubボタンの下に「紐づける / 新規作成 / 解除」のメニューを出す
 function openGithubLinkMenu(btn) {
   const target = resolveCardLinkTarget(btn);
   if (!target) return;
-  closeGithubLinkMenu();
   const { item, isChild } = target;
+  const linked = !!getExternalLinkInfo(item, 'github');
+  showLinkMenu(btn, 'GitHub Issueの操作', [
+    { act: 'link', icon: 'icon-link', label: '既存のIssueと紐づける', disabled: linked, run: () => openGithubLinkModal(item) },
+    { act: 'create', icon: 'icon-upload', label: 'Issueを新規作成', disabled: linked, run: () => openGithubCreateConfirm(item, isChild) },
+    { act: 'unlink', icon: 'icon-close', label: '紐づけを解除', disabled: !linked, run: () => openExternalUnlinkConfirm(item, 'github') },
+  ]);
+}
+
+/**
+ * ボタンの下に小さなメニューを出す(カードの外部連携ボタンと、詳細画面の連携ボタンで共通。BT-470)。
+ * 期日ピッカーと同じ閉じ方: 外側クリック・Esc・スクロール・リサイズ。
+ * @param {HTMLElement} btn - アンカーにするボタン
+ * @param {string} ariaLabel
+ * @param {Array<{act: string, icon: string, label: string, disabled?: boolean, run: () => void}>} entries
+ */
+function showLinkMenu(btn, ariaLabel, entries) {
+  closeGithubLinkMenu();
   const el = document.createElement('div');
   el.className = 'card-link-menu';
   el.setAttribute('role', 'menu');
-  el.setAttribute('aria-label', 'GitHub Issueの操作');
-  el.innerHTML = `
-    <button type="button" class="card-link-menu-item" role="menuitem" data-act="link"><span class="material-icon icon-link"></span> 既存のIssueと紐づける</button>
-    <button type="button" class="card-link-menu-item" role="menuitem" data-act="create"><span class="material-icon icon-upload"></span> Issueを新規作成</button>`;
+  el.setAttribute('aria-label', ariaLabel);
+  el.innerHTML = entries.map((en) => `
+    <button type="button" class="card-link-menu-item" role="menuitem" data-act="${en.act}"${en.disabled ? ' disabled aria-disabled="true"' : ''}><span class="material-icon ${en.icon}"></span> ${escapeHtml(en.label)}</button>`).join('');
   // メニュー内のクリックがカード(詳細を開く・選択トグル)へ伝わらないようにする
   el.addEventListener('click', (e) => {
     e.stopPropagation();
     const act = e.target.closest('[data-act]');
-    if (!act) return;
+    if (!act || act.disabled) return;
     closeGithubLinkMenu();
-    if (act.dataset.act === 'link') openGithubLinkModal(item);
-    else openGithubCreateConfirm(item, isChild);
+    const entry = entries.find((en) => en.act === act.dataset.act);
+    if (entry) entry.run();
   });
   el.addEventListener('contextmenu', (e) => e.stopPropagation());
   document.body.appendChild(el);
@@ -9586,7 +9700,7 @@ function openGithubLinkMenu(btn) {
     : rect.bottom + 4;
   el.style.left = `${Math.max(margin, left)}px`;
   el.style.top = `${Math.max(margin, top)}px`;
-  const first = el.querySelector('.card-link-menu-item');
+  const first = el.querySelector('.card-link-menu-item:not(:disabled)');
   if (first) first.focus();
 
   const onPointerDown = (e) => { if (!el.contains(e.target)) closeGithubLinkMenu(); };

@@ -5,6 +5,7 @@
 // BM-071のtask_external_linksテーブル(externalLinksRepo)。
 //   POST /api/its-link-issue {taskId, source, issueKey, allowShared?, actor?}
 //     -> { ok, source, issueKey, issueUrl, sharedWith }
+// BT-470: 紐づけ/解除は履歴(external_link_added/removed)に記録する。解除は POST /api/its-unlink-issue。
 //
 // スコープ(ユーザー合意事項、BM-126):
 //   - 既存タスクへの「紐づけ」のみ。チケットの新規作成はしない(github-create-issue相当は作らない)。
@@ -121,21 +122,82 @@ function createItsLinkApi({ config, credentialsPath, getDb, tasksRepo, readReque
       return;
     }
 
-    externalLinksRepo.setLink(db, {
-      taskId: task.id,
-      source,
-      host: conn.host,
-      projectRef: conn.projectRef,
-      issueKey: found.key,
-      issueUrl: found.url,
-      linkedBy: tasksRepo.normalizeActor(body.actor),
-    });
+    // BT-470: リンクの保存と履歴(external_link_added)を同一トランザクションにする。
+    // 同じタスク+sourceに既存リンクがあれば、上書きなので解除(external_link_removed)も先に記録する
+    const actor = tasksRepo.normalizeActor(body.actor);
+    const previous = (externalLinksRepo.listLinksForTasks(db, [task.id])[task.id] || []).find((l) => l.source === source);
+    db.exec('BEGIN');
+    try {
+      if (previous) {
+        tasksRepo.insertEvent(db, { taskId: task.id, taskDisplayId: task.display_id, eventType: 'external_link_removed',
+          oldValue: tasksRepo.formatExternalLinkValue(source, previous.key), actor });
+      }
+      externalLinksRepo.setLink(db, {
+        taskId: task.id,
+        source,
+        host: conn.host,
+        projectRef: conn.projectRef,
+        issueKey: found.key,
+        issueUrl: found.url,
+        linkedBy: actor,
+      });
+      tasksRepo.insertEvent(db, { taskId: task.id, taskDisplayId: task.display_id, eventType: 'external_link_added',
+        newValue: tasksRepo.formatExternalLinkValue(source, found.key), actor });
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
 
     sendJson(res, 200, { ok: true, source, issueKey: found.key, issueUrl: found.url, sharedWith });
     onChange();
   }
 
+  // BT-470: 紐づけ解除。こちら側のリンクを外すだけで、外部ITSへは何もしない(読み取り専用の方針)。
+  //   POST /api/its-unlink-issue {taskId, source, actor?} -> { ok, source, issueKey }
+  function handleUnlink(req, res, body) {
+    const { taskId, source } = body;
+    if (!taskId) {
+      sendJson(res, 400, { error: 'taskId is required' });
+      return;
+    }
+    if (!SUPPORTED_SOURCES.includes(source)) {
+      sendJson(res, 400, { error: `source must be one of: ${SUPPORTED_SOURCES.join(', ')}` });
+      return;
+    }
+    const db = getDb();
+    const task = tasksRepo.getByDisplayId(db, taskId);
+    if (!task) {
+      sendJson(res, 404, { error: `Task ${taskId} not found` });
+      return;
+    }
+    const existing = (externalLinksRepo.listLinksForTasks(db, [task.id])[task.id] || []).find((l) => l.source === source);
+    if (!existing) {
+      sendJson(res, 404, { error: `Task ${taskId} is not linked to ${source}` });
+      return;
+    }
+    const actor = tasksRepo.normalizeActor(body.actor);
+    db.exec('BEGIN');
+    try {
+      externalLinksRepo.removeLink(db, { taskId: task.id, source });
+      tasksRepo.insertEvent(db, { taskId: task.id, taskDisplayId: task.display_id, eventType: 'external_link_removed',
+        oldValue: tasksRepo.formatExternalLinkValue(source, existing.key), actor });
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+    sendJson(res, 200, { ok: true, source, issueKey: existing.key });
+    onChange();
+  }
+
   return function handle(req, res) {
+    if (req.method === 'POST' && req.url === '/api/its-unlink-issue') {
+      readRequestBody(req).then((body) => handleUnlink(req, res, body || {})).catch(() => {
+        sendJson(res, 400, { error: 'Invalid JSON body' });
+      });
+      return true;
+    }
     if (req.method === 'POST' && req.url === '/api/its-link-issue') {
       readRequestBody(req).then((body) => handleLink(req, res, body || {})).catch(() => {
         sendJson(res, 400, { error: 'Invalid JSON body' });

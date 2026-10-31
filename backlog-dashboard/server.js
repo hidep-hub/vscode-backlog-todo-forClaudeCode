@@ -1522,7 +1522,7 @@ function serveStatic(req, res) {
   // API: POST /api/github-create-issue（BT-079/BT-134、BT-192: DB版。isChildパラメータは廃止(BT-187)、
   // Epic判定はtasksRepo.getChildren()の有無で行う）
   if (req.url === '/api/github-create-issue' && req.method === 'POST') {
-    readRequestBody(req).then(({ taskId }) => {
+    readRequestBody(req).then(({ taskId, actor }) => {
       if (!taskId) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'taskId is required' }));
@@ -1563,7 +1563,7 @@ function serveStatic(req, res) {
         labels: [BACKLOG_LINK_LABEL],
       })
         .then(async (issue) => {
-          tasksRepo.setGithubLink(db, taskId, issue.number, issue.html_url);
+          tasksRepo.setGithubLink(db, taskId, issue.number, issue.html_url, actor);
 
           const subIssues = [];
           const failedChildIds = [];
@@ -1577,7 +1577,7 @@ function serveStatic(req, res) {
                   labels: [BACKLOG_LINK_LABEL],
                 });
                 await githubClient.issues.addSubIssue(creds.repoUrl, creds.token, issue.number, subIssue.id);
-                tasksRepo.setGithubLink(db, child.display_id, subIssue.number, subIssue.html_url);
+                tasksRepo.setGithubLink(db, child.display_id, subIssue.number, subIssue.html_url, actor);
                 subIssues.push({ taskId: child.display_id, issueNumber: subIssue.number, issueUrl: subIssue.html_url });
               } catch (e) {
                 console.error(`[github-create-issue] Failed to create sub-issue for ${child.display_id}:`, e.message);
@@ -1611,7 +1611,7 @@ function serveStatic(req, res) {
   // (linkedTaskIds付き)で止め、allowShared:true を付けて再送した時だけ紐づける。
   // 成功時のレスポンスに sharedWith(同じissueに紐づく他タスクのID配列、無ければ空)が付く。
   if (req.url === '/api/github-link-issue' && req.method === 'POST') {
-    readRequestBody(req).then(({ taskId, issueNumber, allowShared }) => {
+    readRequestBody(req).then(({ taskId, issueNumber, allowShared, actor }) => {
       if (!taskId || !issueNumber) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'taskId and issueNumber are required' }));
@@ -1662,7 +1662,7 @@ function serveStatic(req, res) {
 
       githubClient.issues.get(creds.repoUrl, creds.token, normalizedNumber)
         .then((issue) => {
-          tasksRepo.setGithubLink(db, taskId, issue.number, issue.html_url);
+          tasksRepo.setGithubLink(db, taskId, issue.number, issue.html_url, actor);
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(JSON.stringify({ ok: true, issueNumber: issue.number, issueUrl: issue.html_url, sharedWith }));
           broadcast(buildBoard());
@@ -1671,6 +1671,38 @@ function serveStatic(req, res) {
           res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(JSON.stringify({ error: `GitHub API error: ${e.message}` }));
         });
+    }).catch(e => {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    });
+    return;
+  }
+
+  // API: POST /api/github-unlink-issue（BT-470）。こちら側のGitHub Issue紐づけを外すだけで、GitHubへは何もしない。
+  // 履歴(external_link_removed)を記録する。紐づいていなければ404。
+  if (req.url === '/api/github-unlink-issue' && req.method === 'POST') {
+    readRequestBody(req).then(({ taskId, actor }) => {
+      if (!taskId) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'taskId is required' }));
+        return;
+      }
+      const db = getDb(BACKLOG_DIR);
+      const task = tasksRepo.getByDisplayId(db, taskId);
+      if (!task) {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `Task ${taskId} not found` }));
+        return;
+      }
+      const previous = tasksRepo.clearGithubLink(db, taskId, actor);
+      if (!previous) {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: `Task ${taskId} is not linked to a GitHub issue` }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: true, issueNumber: previous }));
+      broadcast(buildBoard());
     }).catch(e => {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'Invalid JSON body' }));

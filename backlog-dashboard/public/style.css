@@ -8940,3 +8940,13 @@ html[data-board-compact] .column-compact {
   background: var(--card-hover);
   outline: none;
 }
+
+/* BT-470: 選べない項目(未紐づけの「解除」、紐づき済みの「紐づける」等)はグレイアウトする */
+.card-link-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.card-link-menu-item:disabled:hover {
+  background: none;
+}

@@ -14,15 +14,15 @@ const css = fs.readFileSync(path.join(publicDir, 'style.css'), 'utf8');
 const has = (src, text) => assert.ok(src.includes(text), `${text} が見つからない`);
 const count = (src, re) => (src.match(re) || []).length;
 
-test('カードのGitLabボタン: 本体・子カードとも、ブランドアイコン1個でメニューを挟まず紐づけを開く', () => {
+test('カードのGitLabボタン: 本体・子カードとも、ブランドアイコン1個でメニュー(紐づける/解除)を開く', () => {
   assert.equal(count(app, /class="card-action-btn card-gitlab-link-btn"[^>]*>\$\{GITLAB_MARK_SVG\}/g), 2, '本体カードと子カードの2か所');
   // GitHubと違い、紐づけ済みでも出す(上書き可。Redmineと同じ)
   assert.ok(!/githubIssueNumber[^`]*card-gitlab-link-btn/.test(app), 'GitLabボタンは紐づけ済みでも隠さない');
   has(app, 'openCardGitlabLink(btn)');
   has(app, 'openCardGitlabLink(childGitlabLinkBtnEl)');
-  has(app, 'if (target) openGitlabLinkModal(target.item);');
+  has(app, "openCardItsLinkMenu(btn, 'gitlab')");
   // 対象はクリック時にタスクIDから引き直す(Redmine/GitHubと同じ)
-  assert.match(app, /function openCardGitlabLink\(btn\) \{\s*const target = resolveCardLinkTarget\(btn\);/);
+  assert.match(app, /function openCardItsLinkMenu\(btn, source\) \{\s*const target = resolveCardLinkTarget\(btn\);/);
 });
 
 test('GitLabバッジのクリックはカードに伝わらない(これまで漏れていた)', () => {
@@ -32,11 +32,13 @@ test('GitLabバッジのクリックはカードに伝わらない(これまで�
 });
 
 test('詳細モーダル: 外部連携グループにGitLabの紐づけボタンがあり、親・子の両方で配線されている', () => {
-  assert.equal(count(app, /id="modal-gitlab-link-btn">\$\{GITLAB_MARK_SVG\} 紐づけ</g), 2, '親/単発の詳細と子の詳細の2か所');
+  // BT-470: ボタンの組み立ては3サービス共通の関数で、紐づき済みは番号を出す
+  assert.equal(count(app, /buildDetailLinkBtnHtml\(item, 'gitlab'\)/g), 2, '親/単発の詳細と子の詳細の2か所');
+  has(app, 'id="modal-${source}-link-btn">${svc.mark()} 紐づけ</button>');
   assert.equal(count(app, /actionGroup\('外部連携', githubLinkBtnHtml, githubCreateBtnHtml, redmineLinkBtnHtml, gitlabLinkBtnHtml\)/g), 2);
-  assert.equal(count(app, /body\.querySelector\('#modal-gitlab-link-btn'\)/g), 2);
-  // クリックでダイアログを開く配線(関数の定義 function openGitlabLinkModal(item) は数えない)
-  assert.equal(count(app, /gitlabLinkBtnEl\.addEventListener\('click', \(\) => openGitlabLinkModal\(item\)\)/g), 2);
+  assert.equal(count(app, /bindDetailLinkBtn\(body, item, 'gitlab'\)/g), 2);
+  // 未紐づけはダイアログを直接開く(関数の定義 function openGitlabLinkModal(item) は数えない)
+  has(app, "gitlab: { label: 'GitLab', kind: 'issue', mark: () => GITLAB_MARK_SVG, openModal: (item) => openGitlabLinkModal(item) }");
 });
 
 test('紐づけダイアログはRedmineとGitLabで1つに共通化され、旧のRedmine専用は残っていない', () => {
