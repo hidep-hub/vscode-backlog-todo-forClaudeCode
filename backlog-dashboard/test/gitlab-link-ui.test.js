@@ -63,7 +63,11 @@ test('紐づけダイアログはRedmineとGitLabで1つに共通化され、旧
 });
 
 test('URL入力からの番号取り出しは、Redmine(.../issues/12)とGitLab(.../-/issues/12)の両方に使える', () => {
-  const src = app.slice(app.indexOf('function parseItsIssueKeyInput'), app.indexOf('/**\n * 外部ITSのチケット紐付けモーダルを開く'));
+  // 終端は改行コードに依存しない関数宣言で切る(CRLFのチェックアウトでも範囲が外れない)
+  const start = app.indexOf('function parseItsIssueKeyInput');
+  const end = app.indexOf('function openItsLinkModal');
+  assert.ok(start >= 0 && end > start, 'parseItsIssueKeyInputの切り出し範囲が見つからない');
+  const src = app.slice(start, end);
   // 関数をそのまま取り出して動かす(画面の外でも実際の入力例で確かめる)
   const parse = new Function(`${src}; return parseItsIssueKeyInput;`)();
   assert.equal(parse('12'), '12');
