@@ -1838,6 +1838,10 @@ body {
   overflow: hidden;
 }
 
+.column.column-done {
+  background: color-mix(in srgb, var(--compact-card-bg) 82%, white);
+}
+
 .column-header {
   padding: 10px 14px;
   font-size: 0.85rem;
@@ -2116,12 +2120,12 @@ body {
 .card-compact {
   padding: var(--card-c-pad, 6px 8px);
   border-left-width: 2px;
-  background: var(--compact-card-bg);
+  background: color-mix(in srgb, var(--compact-card-bg) 91%, black);
   opacity: 0.75;
 }
 
 .card-compact:hover {
-  background: var(--compact-card-hover);
+  background: color-mix(in srgb, var(--compact-card-hover) 91%, black);
   opacity: 0.85;
 }
 
@@ -3692,6 +3696,10 @@ body {
   overflow: hidden;
 }
 
+.mini-col.column-done {
+  background: color-mix(in srgb, var(--compact-card-bg) 82%, white);
+}
+
 .mini-col-header {
   padding: 3px 6px;
   font-size: 0.58rem;
@@ -3727,6 +3735,14 @@ body {
   border-radius: 3px;
   cursor: grab;
   background: var(--card);
+}
+
+.mini-col-body .card-child.card-compact {
+  background: color-mix(in srgb, var(--compact-card-bg) 91%, black);
+}
+
+.mini-col-body .card-child.card-compact:hover {
+  background: color-mix(in srgb, var(--compact-card-hover) 91%, black);
 }
 
 /* BT-425: ミニボード末尾の「＋」はタスクではないため、子カードの左線色・grabカーソルを打ち消す */
