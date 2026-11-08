@@ -3415,12 +3415,12 @@ function renderHeaderHeatmap() {
     const lx = colX[col] - (HEATMAP_GAP + HEATMAP_MONTH_GAP) / 2;
     return `<line x1="${lx}" y1="0" x2="${lx}" y2="${height}" class="header-heatmap-month-line"/>`;
   }).join('');
-  // 月の数字は奇数月だけ(隣り合う月が詰まって9と10などが読みにくくなるのを避ける)。短すぎる区間は出さない
+  // 月の数字は表示範囲内の全月を出す。2桁月だけは小さくして隣接月との窮屈さを抑える。
   const monthTexts = headerHeatmap.buildMonthSegments(cells)
-    .filter(seg => seg.month % 2 === 1 && seg.endCol - seg.startCol + 1 >= 3)
     .map(seg => {
       const cx = (colX[seg.startCol] + colX[seg.endCol] + HEATMAP_CELL) / 2;
-      return `<text x="${cx}" y="${height / 2}" text-anchor="middle" dominant-baseline="central" class="header-heatmap-month">${seg.month}</text>`;
+      const digitClass = seg.month >= 10 ? ' header-heatmap-month-double' : '';
+      return `<text x="${cx}" y="${height / 2}" text-anchor="middle" dominant-baseline="central" class="header-heatmap-month${digitClass}">${seg.month}</text>`;
     }).join('');
   const rects = cells.map(c => {
     const title = `${c.date}（${dow[c.row]}） ${c.count}件`;

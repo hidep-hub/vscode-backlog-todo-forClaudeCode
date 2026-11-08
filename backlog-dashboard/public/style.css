@@ -453,14 +453,18 @@ body {
   max-width: 100%;
 }
 
-/* 奇数月だけ出す月の数字。セルの背後に薄く敷く透かしで、操作対象にしない */
+/* 全月に出す月の数字。セルの背後に薄く敷く透かしで、操作対象にしない */
 .header-heatmap-month {
   fill: var(--brand-fg);
-  fill-opacity: 0.16;
+  fill-opacity: 0.08;
   font-size: 20px;
   font-weight: 700;
   pointer-events: none;
   user-select: none;
+}
+
+.header-heatmap-month-double {
+  font-size: 16px;
 }
 
 /* 月の区切り線。セルより目立たないよう細く薄くする */

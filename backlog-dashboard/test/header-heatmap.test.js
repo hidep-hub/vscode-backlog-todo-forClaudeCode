@@ -2,6 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { buildDailyCounts, buildDailyCountsByProject, selectCounts, buildMonthBoundaries, buildMonthSegments, buildHeatmapGrid, levelFor } = require('../public/header-heatmap.js');
 
 test('buildDailyCounts aggregates events by local date and ignores invalid input', () => {
@@ -60,4 +62,17 @@ test('buildMonthSegments groups consecutive weeks by the Monday month', () => {
     { month: 9, startCol: 6, endCol: 9 },
     { month: 10, startCol: 10, endCol: 11 },
   ]);
+});
+
+test('header heatmap renders every month segment with a subdued label and smaller two-digit months', () => {
+  const publicDir = path.join(__dirname, '..', 'public');
+  const app = fs.readFileSync(path.join(publicDir, 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(publicDir, 'style.css'), 'utf8');
+
+  const start = app.indexOf('const monthTexts =');
+  const monthLabels = app.slice(start, app.indexOf('const rects =', start));
+  assert.doesNotMatch(monthLabels, /\.filter\s*\(/);
+  assert.match(monthLabels, /header-heatmap-month-double/);
+  assert.match(css, /\.header-heatmap-month\s*\{[\s\S]*?fill-opacity:\s*0\.08;/);
+  assert.match(css, /\.header-heatmap-month-double\s*\{[\s\S]*?font-size:\s*16px;/);
 });
