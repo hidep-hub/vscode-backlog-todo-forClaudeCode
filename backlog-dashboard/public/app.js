@@ -5479,9 +5479,10 @@ function escapeHtml(str) {
 }
 
 // 本日（JST）の日付文字列 YYYY-MM-DD を返す。サーバーの完了日採番(JST)と揃える。
-function getTodayJST() {
-  const now = new Date();
-  const jst = new Date(now.getTime() + (now.getTimezoneOffset() + 540) * 60000);
+// Date#toISOString()は常にUTCなので、実行端末のタイムゾーンには依存させず
+// UTC時刻へJSTのオフセットだけを加えて日付を取り出す。
+function getTodayJST(now = new Date()) {
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   return jst.toISOString().slice(0, 10);
 }
 
