@@ -3975,7 +3975,7 @@ function renderBoard(data) {
     }
 
     const colEl = document.createElement('div');
-    colEl.className = 'column' + (isCompact ? ' column-compact' : '');
+    colEl.className = 'column' + (isCompact ? ' column-compact' : '') + (col.id === 'done' ? ' column-done' : '');
     // BM-049: レーン表示中は同じcol.idが複数回出現するため、id重複(無効なDOM)を避けて
     // narrow-rail-target-*のidは一枚ボード表示時のみ付与する(narrow railもレーン表示中は無効化する)。
     if (laneKey === null) {
@@ -8964,7 +8964,7 @@ function buildMiniBoard(epic) {
     }
 
     const colEl = document.createElement('div');
-    colEl.className = 'mini-col';
+    colEl.className = 'mini-col' + (col.id === 'done' ? ' column-done' : '');
 
     // 完了カラム用「本日完了だけ」トグル＋達成感カウント
     const doneTodayToggleHtml = isDoneCol
@@ -8997,7 +8997,7 @@ function buildMiniBoard(epic) {
 
     for (const child of matchedChildren) {
       const card = document.createElement('div');
-      card.className = 'card card-child card-draggable';
+      card.className = 'card card-child card-draggable' + (isDoneCol ? ' card-compact' : '');
       if (child.todayFlag) card.classList.add('card-today');
       if (child.running) card.classList.add('is-running');
       if (activityHighlightTaskIds && activityHighlightTaskIds.has(child.id)) card.classList.add('card-activity-highlight');
