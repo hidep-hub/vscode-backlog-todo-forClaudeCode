@@ -13,12 +13,13 @@ try {
   if (saved && BADGE_MODES[saved]) badgeMode = saved;
 } catch (_) {}
 
-// BM-143: 単発タスク(親も子も持たない)のタイトル先頭チップ。EPICの「青地に白の3枚レイヤー」に対し、
-// 「白地に、一番上の1枚だけアクセント色で塗り、下の2枚は薄いアクセント色の線」で描く。
-// 2色を使うためマスク方式(icons/*.svg + .material-icon)ではなくインラインSVGにしている。
-// 形はicons/stacks.svgの3枚(上段=塗り、下2段=線)をそのまま分けたもので、色はCSS(.single-title-chip)側で付ける。
+// BT-474: 単発タスク(親も子も持たない)は、EPICの3枚レイヤーと対になる
+// Material Symbolsの1枚メモ(note)を使う。表示箇所ごとの差を防ぐため共通部品として持つ。
 // 使う場所: メインボードのカード、Plan Boardの単発カード、詳細モーダルのタイトル、ガントの単発見出し(ctx.singleChipHtml経由)
-const SINGLE_TITLE_CHIP_HTML = '<span class="single-title-chip" title="単発タスク（親を持たないタスク）"><svg viewBox="0 -960 960 960" aria-hidden="true" focusable="false"><path class="single-chip-top" d="M465.5-419.5Q459-421 452-425L90-619q-8-5-11.5-11.5T75-645q0-8 3.5-14.5T90-671l362-194q7-4 13.5-5.5T480-872q8 0 14.5 1.5T508-865l362 194q8 5 12 11.5t4 14.5q0 8-4 14.5T870-619L508-425q-7 4-13.5 5.5T480-418q-8 0-14.5-1.5Z"/><path class="single-chip-lines" d="M480-313l339-181q2-1 14-3 12 0 21 8.5t9 21.5q0 8-4 14.5T847-441L508-260q-7 4-13.5 5.5T480-253q-8 0-14.5-1.5T452-260L114-441q-8-5-12-11.5T98-467q0-13 9-21.5t21-8.5q4 0 7.5 1t6.5 3l338 180ZM480-148l339-181q2-1 14-3 12 0 21 8.5t9 21.5q0 8-4 14.5T847-276L508-95q-7 4-13.5 5.5T480-88q-8 0-14.5-1.5T452-95L114-276q-8-5-12-11.5T98-302q0-13 9-21.5t21-8.5q4 0 7.5 1t6.5 3l338 180Z"/></svg></span>';
+const SINGLE_TITLE_CHIP_HTML = '<span class="single-title-chip" title="単発タスク（親を持たないタスク）"><span class="material-icon icon-note"></span></span>';
+// BT-474: 子タスクは、単発タスクが以前使っていたレイヤー表現を引き継ぐ。
+// 上段だけを塗り、下2段を淡い線にして、EPIC・単発と形で区別する。
+const CHILD_TITLE_CHIP_HTML = '<span class="child-title-chip" title="子タスク（EPICに紐づくタスク）"><svg viewBox="0 -960 960 960" aria-hidden="true" focusable="false"><path d="M465.5-419.5Q459-421 452-425L90-619q-8-5-11.5-11.5T75-645q0-8 3.5-14.5T90-671l362-194q7-4 13.5-5.5T480-872q8 0 14.5 1.5T508-865l362 194q8 5 12 11.5t4 14.5q0 8-4 14.5T870-619L508-425q-7 4-13.5 5.5T480-418q-8 0-14.5-1.5Z"/><path class="child-chip-lines" d="M480-313l339-181q2-1 14-3 12 0 21 8.5t9 21.5q0 8-4 14.5T847-441L508-260q-7 4-13.5 5.5T480-253q-8 0-14.5-1.5T452-260L114-441q-8-5-12-11.5T98-467q0-13 9-21.5t21-8.5q4 0 7.5 1t6.5 3l338 180ZM480-148l339-181q2-1 14-3 12 0 21 8.5t9 21.5q0 8-4 14.5T847-276L508-95q-7 4-13.5 5.5T480-88q-8 0-14.5-1.5T452-95L114-276q-8-5-12-11.5T98-302q0-13 9-21.5t21-8.5q4 0 7.5 1t6.5 3l338 180Z"/></svg></span>';
 
 const boardEl = document.getElementById('board');
 const statusEl = document.getElementById('status');
@@ -4079,12 +4080,12 @@ function renderBoard(data) {
       // BT-450: 通常カードはタイトル先頭のチップで目立たせ、窮屈な完了列(compact)だけ従来どおりID行の小アイコン
       const epicTitleChip = (isEpic && !isCompact) ? '<span class="epic-title-chip" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : '';
       const epicIcon = (isEpic && isCompact) ? '<span class="epic-icon" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>' : '';
-      // BM-143: 単発タスクにも通常カードだけチップを付ける。完了列(compact)は単発が大半で窮屈なので付けない。
-      // parentIdを持つのは完了列に混在する完了済みの子タスク(単発ではない)
+      // BT-474: 通常・子・EPICをアイコンで区別する。完了列(compact)は表示密度を優先して付けない。
       const singleTitleChip = (!isEpic && !item.parentId && !isCompact) ? SINGLE_TITLE_CHIP_HTML : '';
+      const childTitleChip = (!isEpic && item.parentId && !isCompact) ? CHILD_TITLE_CHIP_HTML : '';
 
       const idHtml = id ? `<div class="card-id">${spinnerHtml}${epicIcon}${parentEpicLinkHtml}<span>${id}</span>${originIcon}</div>` : (originIcon || epicIcon ? `<div class="card-id">${spinnerHtml}${epicIcon}${originIcon}</div>` : '');
-      const titleHtml = showField('title') ? `<div class="card-title">${epicTitleChip}${singleTitleChip}${escapeHtml(item.title)}</div>` : '';
+      const titleHtml = showField('title') ? `<div class="card-title">${epicTitleChip}${singleTitleChip}${childTitleChip}${escapeHtml(item.title)}</div>` : '';
       // BM-111: ワークスペースを1つに絞っているとき(currentFilterが非空)は全カード同じ値になり
       // 情報量がゼロなので出さない(Plan Board側のwsBadge/BM-012と同じ考え方)。
       // レーン表示中(laneKey!==null)はレーン見出しに既にワークスペース名が出ているため、
@@ -6308,9 +6309,9 @@ function planBuildCard(item, bucketId, parentEpic = null) {
   // BT-315: ホバーで出る期日カレンダーボタン（メインボードのカードと同じ操作）。完了済みは期日を触らない
   const dueBtnHtml = isDone ? ''
     : `<div class="card-actions plan-card-actions"><button type="button" class="card-action-btn plan-card-due-btn" title="期日を設定"><span class="material-icon icon-calendar-month"></span></button></div>`;
-  // BM-143: 親EPICを持たない(=単発の)カードだけタイトル先頭にチップを付ける。EPICの子には付けない
-  const singleChip = parentEpic ? '' : SINGLE_TITLE_CHIP_HTML;
-  card.innerHTML = `${dueBtnHtml}<div class="card-id">${spinner}${pinIcon}${escapeHtml(item.id)}</div><div class="card-title">${singleChip}${escapeHtml(item.title)}</div>${metaHtml}`;
+  // BT-474: 親EPICの有無で、単発と子タスクをアイコンで区別する。
+  const titleChip = parentEpic ? CHILD_TITLE_CHIP_HTML : SINGLE_TITLE_CHIP_HTML;
+  card.innerHTML = `${dueBtnHtml}<div class="card-id">${spinner}${pinIcon}${escapeHtml(item.id)}</div><div class="card-title">${titleChip}${escapeHtml(item.title)}</div>${metaHtml}`;
   const dueBtn = card.querySelector('.plan-card-due-btn');
   if (dueBtn) {
     dueBtn.addEventListener('click', (e) => {
@@ -6582,6 +6583,7 @@ function renderPlanGantt() {
     today: getTodayJST(),
     escapeHtml,
     singleChipHtml: SINGLE_TITLE_CHIP_HTML, // BM-143: 単発タスク見出しのチップ(メインボード等と同じ部品)
+    childChipHtml: CHILD_TITLE_CHIP_HTML,
     holidayName: (ymd) => (window.jpHolidays ? window.jpHolidays.getHolidayName(ymd) : null),
     groupByWorkspace: !currentFilter && projects.size > 1,
     footerCounts: { total: totalCounts, shown: shownCounts, filterLabel },
@@ -7594,7 +7596,7 @@ function openChildModal(item, parentEpic = null) {
       ${statusBadge}
       ${project}${githubBadge}${redmineBadge}${gitlabBadge}
     </div>
-    <h3 class="detail-title">${escapeHtml(item.title)}${buildTitleActionsHtml(item, titlePinBtnHtml)}</h3>
+    <h3 class="detail-title"><span class="detail-title-text">${CHILD_TITLE_CHIP_HTML}${escapeHtml(item.title)}</span>${buildTitleActionsHtml(item, titlePinBtnHtml)}</h3>
     ${actionGroups(
       actionGroup('タスク操作', editBtnHtml, copyBtnHtml, deleteBtnHtml, detachBtn),
       actionGroup('開く', workspaceOpenActionHtml),
@@ -9024,7 +9026,7 @@ function buildMiniBoard(epic) {
 
       const childSpinner = child.running ? '<span class="running-spinner"></span>' : '';
       const childId = child.id ? `<div class="card-id">${childSpinner}${escapeHtml(child.id)}</div>` : '';
-      const childTitle = `<div class="card-title">${escapeHtml(child.title)}</div>`;
+      const childTitle = `<div class="card-title">${isDoneCol ? '' : CHILD_TITLE_CHIP_HTML}${escapeHtml(child.title)}</div>`;
 
       const mParts = [];
       if (child.category && child.category !== '-') {

@@ -39,6 +39,7 @@
 .material-icon.icon-local-shipping{ -webkit-mask-image: url('icons/local_shipping.svg'); mask-image: url('icons/local_shipping.svg'); }
 .material-icon.icon-lock-open     { -webkit-mask-image: url('icons/lock_open.svg'); mask-image: url('icons/lock_open.svg'); }
 .material-icon.icon-stacks        { -webkit-mask-image: url('icons/stacks.svg'); mask-image: url('icons/stacks.svg'); }
+.material-icon.icon-note          { -webkit-mask-image: url('icons/note.svg'); mask-image: url('icons/note.svg'); }
 .material-icon.icon-sticky-note   { -webkit-mask-image: url('icons/sticky_note_2.svg'); mask-image: url('icons/sticky_note_2.svg'); }
 .material-icon.icon-content-copy  { -webkit-mask-image: url('icons/content_copy.svg'); mask-image: url('icons/content_copy.svg'); }
 .material-icon.icon-check         { -webkit-mask-image: url('icons/check.svg'); mask-image: url('icons/check.svg'); }
@@ -2292,7 +2293,8 @@ body {
 /* BT-450: EPICタイトル先頭のアイコンチップ（メインボード・Plan Board共通）
    BM-143: 単発タスクのチップ(.single-title-chip)も同じ寸法を共有し、色だけ反転させる */
 .epic-title-chip,
-.single-title-chip {
+.single-title-chip,
+.child-title-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2315,14 +2317,25 @@ body {
   color: var(--accent);
 }
 
-.single-title-chip svg {
+.child-title-chip {
+  background: #fff;
+  color: var(--accent);
+}
+
+.single-title-chip .material-icon {
+  width: 0.95em;
+  height: 0.95em;
+  vertical-align: baseline;
+}
+
+.child-title-chip svg {
   display: block;
   width: 0.95em;
   height: 0.95em;
   fill: currentColor;
 }
 
-.single-title-chip .single-chip-lines {
+.child-title-chip .child-chip-lines {
   opacity: 0.5;
 }
 

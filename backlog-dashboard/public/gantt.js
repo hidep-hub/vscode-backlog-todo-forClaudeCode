@@ -12,6 +12,7 @@
 //   ctx.today         'YYYY-MM-DD' (JST)
 //   ctx.escapeHtml    (s) => string
 //   ctx.singleChipHtml 単発タスク見出しの先頭に出すチップのHTML(BM-143。無ければ出さない)
+//   ctx.childChipHtml 子タスク見出しの先頭に出すチップのHTML(BT-474。無ければ出さない)
 //   ctx.holidayName   (ymd) => 祝日名 | null
 //   ctx.groupByWorkspace ワークスペースごとの折りたたみ見出しで束ねるか(ALL表示で複数ある時)
 //   ctx.onSaveDates   (taskId, patch{startDate?,dueDate?}) => Promise  patchの値は''でクリア
@@ -471,9 +472,10 @@
       const stateCell = `<button type="button" class="gantt-state" data-act="status-menu" data-task-id="${esc(item.id)}" title="${esc(item.status || item.statusCode)}（クリックで変更）">${running || '<span class="gantt-running-slot"></span>'}<span class="gantt-status-text st-${esc(item.statusCode)}">${esc(String(item.statusCode).toUpperCase())}</span></button>`;
       // BM-033: 子タスクはis-childでツリー線用の背景・インデントを付与。is-lastは縦線を自分の行で止める印
       const childCls = (r.parent || r.single) ? ` is-child${r.isLast ? ' is-last' : ''}${r.inCat ? ' in-cat' : ''}` : '';
+      const childChip = r.parent ? (ctx.childChipHtml || '') : '';
       const selectable = state.selecting && !done;
       const selectionMark = selectable ? `<span class="gantt-selection-mark${state.selectedIds.has(item.id) ? ' is-selected' : ''}" aria-hidden="true">${state.selectedIds.has(item.id) ? '✓' : ''}</span>` : '';
-      const label = `<div class="gantt-label gantt-label-task${childCls}${selectable ? ' is-selecting' : ''}" data-act="${selectable ? 'select-task' : 'open'}" data-task-id="${esc(item.id)}">${selectionMark}<span class="gantt-id">${esc(item.id)}</span><span class="gantt-title">${esc(item.title)}</span>${tagsCell(item)}${pin}<i class="gantt-resizer gantt-resizer-state" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${stateCell}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;
+      const label = `<div class="gantt-label gantt-label-task${childCls}${selectable ? ' is-selecting' : ''}" data-act="${selectable ? 'select-task' : 'open'}" data-task-id="${esc(item.id)}">${selectionMark}<span class="gantt-id">${esc(item.id)}</span>${childChip}<span class="gantt-title">${esc(item.title)}</span>${tagsCell(item)}${pin}<i class="gantt-resizer gantt-resizer-state" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${stateCell}<i class="gantt-resizer gantt-resizer-due" title="ドラッグでタスク列の幅を変更（タイトルを広げる）"></i>${dueCell}<i class="gantt-resizer" title="ドラッグでタスク列の幅を変更"></i></div>`;
 
       let trackInner = '';
       let trackClass = 'gantt-track';
