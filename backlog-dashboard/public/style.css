@@ -2425,7 +2425,10 @@ body {
 /* --- Task Quick Tip (BT-317) --- */
 .task-quick-tip {
   position: fixed;
-  z-index: 1000;
+  /* BM-159: 詳細モーダル(1000)・子詳細(1100)と同じ1000だと、後から作られたモーダルがTIPを隠し、EPIC詳細の
+     ミニボードの子カードで開いたTIPのボタンが押せなかった。子詳細の上、TIPのボタンから開く確認/入力ダイアログ
+     (.modal-front 1200, タグ/カテゴリ管理 1250, 共通ダイアログ 1260)・ピッカー(1300〜)の下に置く。 */
+  z-index: 1150;
   display: none;
   width: min(390px, calc(100vw - 24px));
   max-height: min(440px, calc(100vh - 24px));
@@ -2439,6 +2442,22 @@ body {
 }
 
 .task-quick-tip-visible { display: block; }
+
+/* BM-159: ヘッダー・タイトル・アクションボタン行の固定領域。TIPのpadding(14px)ごと負のmarginで外へ広げ、
+   top:-14pxで貼り付ける。こうするとスクロールした本文がTIPの上端のpadding部分に透けて見えない。
+   背景は不透明にして、下には細い線を引く。z-indexは本文側の位置指定要素(コメント欄など)より上に出すため。 */
+.task-quick-tip-sticky {
+  position: sticky;
+  top: -14px; /* 貼り付く位置はpaddingの内側(内容領域の上端)になるため、padding分(14px)だけ上へ食い込ませる */
+  z-index: 2;
+  margin: -14px -14px 0;
+  padding: 14px 14px 6px;
+  background: var(--surface);
+  box-shadow: 0 1px 0 var(--border);
+}
+
+/* 長いタイトルで固定領域がTIPの高さを占め、本文が見えなくならないよう4行(1.4em×4)までにして、超える分はタイトル内でスクロールする */
+.task-quick-tip-sticky .task-quick-tip-title { max-height: 5.6em; overflow-y: auto; }
 
 .task-quick-tip-header {
   display: flex;
@@ -2481,6 +2500,51 @@ body {
   outline: 0;
 }
 .task-quick-tip-edit-btn .material-icon { width: 14px; height: 14px; }
+
+/* --- Task Quick Tip: タイトル下のアクションボタン行 (BM-159) ---
+   カードのホバー用ツールバー(.card-actions)と同じ操作を、TIPの中では常時表示のアイコンで並べる。
+   色は .card-action-btn と違い明示する（.card-action-btnは色未指定でダークテーマのMaterialアイコンが黒く沈む）。 */
+.task-quick-tip-actions { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 6px; }
+.task-quick-tip-action-btn {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.task-quick-tip-action-btn:hover,
+.task-quick-tip-action-btn:focus-visible {
+  color: var(--accent);
+  background: var(--card-hover);
+  outline: 0;
+}
+.task-quick-tip-action-btn.danger:hover,
+.task-quick-tip-action-btn.danger:focus-visible { color: #e53e3e; }
+.task-quick-tip-action-btn .material-icon { width: 14px; height: 14px; }
+/* ブランドのマーク(SVG)はMaterialアイコンと同じ大きさに揃える。色は各マークのCSS/fillに任せる */
+.task-quick-tip-action-btn .github-mark-icon,
+.task-quick-tip-action-btn .redmine-mark-icon,
+.task-quick-tip-action-btn .gitlab-mark-icon { width: 13px; height: 13px; }
+
+/* --- Task Quick Tip: EPICの子タスクのテキストツリー (BM-159) ---
+   TIPは幅が狭いので、ID・枝は縮めず、タイトルだけを省略(…)する。全文はホバーのtitle。 */
+/* 文字サイズは説明(.description-md)と同じ「基準サイズ × 説明の表示倍率(--desc-zoom)」にして、本文とツリーの大きさをそろえる。
+   ラベルとIDは本文より少し小さい比率(em)のまま、ツリー全体の大きさに連動させる */
+.task-quick-tip-tree { margin-top: 10px; font-size: calc(var(--qt-fs-desc, .8rem) * var(--desc-zoom, 1)); }
+.task-quick-tip-tree-label { margin-bottom: 2px; color: var(--text-muted); font-size: .9em; }
+.task-quick-tip-tree-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; line-height: 1.55; }
+.task-quick-tip-tree-branch { flex: 0 0 auto; color: var(--text-muted); font-family: Consolas, 'Courier New', monospace; white-space: pre; }
+.task-quick-tip-tree-id { flex: 0 0 auto; color: var(--accent); font-size: .9em; font-weight: 700; }
+.task-quick-tip-tree-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-quick-tip-tree-row.is-done { color: var(--text-muted); }
+.task-quick-tip-tree-row.is-done .task-quick-tip-tree-id { color: inherit; font-weight: 400; }
+.task-quick-tip-tree-more { color: var(--text-muted); font-style: italic; }
 
 .task-quick-tip-edit-form { margin-top: 8px; }
 .task-quick-tip-edit-form .settings-group { margin-bottom: 10px; }
