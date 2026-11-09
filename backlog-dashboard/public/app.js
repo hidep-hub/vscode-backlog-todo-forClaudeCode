@@ -21,6 +21,10 @@ const SINGLE_TITLE_CHIP_HTML = '<span class="single-title-chip" title="単発タ
 // 上段だけを塗り、下2段を淡い線にして、EPIC・単発と形で区別する。
 const CHILD_TITLE_CHIP_HTML = '<span class="child-title-chip" title="子タスク（EPICに紐づくタスク）"><svg viewBox="0 -960 960 960" aria-hidden="true" focusable="false"><path d="M465.5-419.5Q459-421 452-425L90-619q-8-5-11.5-11.5T75-645q0-8 3.5-14.5T90-671l362-194q7-4 13.5-5.5T480-872q8 0 14.5 1.5T508-865l362 194q8 5 12 11.5t4 14.5q0 8-4 14.5T870-619L508-425q-7 4-13.5 5.5T480-418q-8 0-14.5-1.5Z"/><path class="child-chip-lines" d="M480-313l339-181q2-1 14-3 12 0 21 8.5t9 21.5q0 8-4 14.5T847-441L508-260q-7 4-13.5 5.5T480-253q-8 0-14.5-1.5T452-260L114-441q-8-5-12-11.5T98-467q0-13 9-21.5t21-8.5q4 0 7.5 1t6.5 3l338 180ZM480-148l339-181q2-1 14-3 12 0 21 8.5t9 21.5q0 8-4 14.5T847-276L508-95q-7 4-13.5 5.5T480-88q-8 0-14.5-1.5T452-95L114-276q-8-5-12-11.5T98-302q0-13 9-21.5t21-8.5q4 0 7.5 1t6.5 3l338 180Z"/></svg></span>';
 
+// BM-159: 右クリックTIPのタイトル用。メインボード・詳細モーダルにはEPICのチップがインライン文字列で3か所あるが、
+// それらには触らず、TIPだけがこの定数を使う（同じ見た目の部品）。
+const EPIC_TITLE_CHIP_HTML = '<span class="epic-title-chip" title="親タスク（子タスクを束ねるEpic）"><span class="material-icon icon-stacks"></span></span>';
+
 const boardEl = document.getElementById('board');
 const statusEl = document.getElementById('status');
 const wsFilterWrapEl = document.getElementById('ws-filter-wrap');
@@ -3702,6 +3706,7 @@ function connect() {
       renderBoard(currentBoardData);
       renderHeaderTicker(data.recentEvents);
       refreshModalIfOpen();
+      refreshQuickTipIfOpen(); // BM-159: TIPから期日・カテゴリ等を変えた後、開いたままのTIPの表示を最新にする
       refreshPlanBoardIfOpen();
       openTaskFromUrlIfPresent(); // BM-066: ?id=BM-xxx での起動時オープン(内部で1回だけ実行)
     } catch (e) {
@@ -8102,8 +8107,9 @@ function closeDeleteConfirm() {
  * 削除確認モーダルを開く
  * @param {object} item - 削除対象タスク
  * @param {boolean} isChild - h4子タスクか
+ * @param {{onDeleted?: () => void}} [options] - 削除成功後の後処理。省略時は従来どおり詳細モーダルを閉じる（BM-159）
  */
-function openDeleteConfirm(item, isChild) {
+function openDeleteConfirm(item, isChild, { onDeleted = null } = {}) {
   const el = getOrCreateDeleteConfirm();
   document.body.appendChild(el);
   const content = el.querySelector('.modal-content');
@@ -8137,7 +8143,8 @@ function openDeleteConfirm(item, isChild) {
         return;
       }
       closeDeleteConfirm();
-      if (isChild) closeChildModal();
+      if (onDeleted) onDeleted(); // BM-159: 右クリックTIPからの削除は、TIPと「削除したタスクの詳細」だけを閉じる
+      else if (isChild) closeChildModal();
       else closeModal();
     } catch (e) {
       console.error('[delete] Network error:', e);
@@ -9325,6 +9332,14 @@ let taskQuickTipOrigin = { x: 0, y: 0 }; // 直近に右クリックした座標
 let taskQuickTipHasUnsavedChanges = null; // 編集中のみ関数が入る。表示モードの間はnull
 let taskQuickTipScrollSuppressUntil = 0; // この時刻(performance.now)まではscrollでTIPを閉じない（BM-136）
 
+// BM-159: TIPのアクションボタンから開くポップアップ(期日カレンダー・タグ/カテゴリのピッカー・連携メニュー)と、
+// そこから開く確認/入力ダイアログ。これらはbody直下でTIPの外にあるため、中を操作してもTIPを閉じない。
+// （詳細モーダル本体(.modal-front無し)は対象外。背後の詳細を触った時は従来どおりTIPを閉じる）
+const QUICK_TIP_COMPANION_SELECTOR = '.due-picker, .tag-picker, .card-link-menu, .modal-overlay.modal-front.modal-visible, .tag-modal-overlay.modal-visible, .category-modal-overlay.modal-visible';
+function isQuickTipCompanion(target) {
+  return target instanceof Element && !!target.closest(QUICK_TIP_COMPANION_SELECTOR);
+}
+
 // BM-136: 再描画がスクロール位置を書き戻した直後のscrollでTIPが閉じないよう、短時間だけ無視する。
 // 書き戻しは描画の次フレーム以降に発火するため、余裕を見て数百ミリ秒とする。
 function suppressQuickTipScrollClose() {
@@ -9343,6 +9358,7 @@ function getOrCreateTaskQuickTip() {
   // （BT-168の未保存ガードと同じ考え方）。閉じようとする全ての経路をこの関数に通す。
   document.addEventListener('pointerdown', (e) => {
     if (taskQuickTipEl.contains(e.target)) return;
+    if (isQuickTipCompanion(e.target)) return; // BM-159: TIPのボタンから開いたポップアップ・ダイアログの中の操作では閉じない
     tryCloseTaskQuickTip();
   });
   // Escは×ボタンと同じ「意図的な操作」として、未保存でも従来通り閉じる（モーダルのEsc挙動と同じ方針）。
@@ -9355,6 +9371,7 @@ function getOrCreateTaskQuickTip() {
   // TIPが閉じてしまう。再描画の直後だけは無視する(suppressQuickTipScrollClose)。
   window.addEventListener('scroll', (e) => {
     if (performance.now() < taskQuickTipScrollSuppressUntil) return;
+    if (isQuickTipCompanion(e.target)) return; // BM-159: ピッカーの一覧のスクロール等では閉じない
     if (!taskQuickTipEl.contains(e.target)) tryCloseTaskQuickTip();
   }, true);
   return taskQuickTipEl;
@@ -9402,7 +9419,104 @@ function buildTaskQuickTipDescriptionInner(item) {
   return item.description ? `<div class="description-md">${renderDescriptionMarkdown(item.description)}</div>` : '<span>説明はありません</span>';
 }
 
+// BM-159: TIPが表すタスクの種別。EPIC=子を持つ、子=親EPICに紐づく、それ以外=単発。
+// 判定の根拠は frontend 共通の約束（EPICはchildrenTotal>0、boardのitemは子にparentIdを持たないが
+// DONE列のミラーだけparentId付き）に合わせてある。
+function getQuickTipTaskKind(item) {
+  if ((item.childrenTotal || 0) > 0 || (item.children && item.children.length > 0)) return 'epic';
+  if (item.parentId) return 'child';
+  if (item.id && !findItemById(item.id) && findParentEpicOfChildId(item.id)) return 'child';
+  return 'single';
+}
+
+const QUICK_TIP_TITLE_CHIP = { epic: EPIC_TITLE_CHIP_HTML, child: CHILD_TITLE_CHIP_HTML, single: SINGLE_TITLE_CHIP_HTML };
+
+// BM-159: EPICのTIPに出す子タスクのテキストツリー。TIPは幅が狭いので、1行に収まらない分は
+// CSSの省略(…)に任せる。多いEPICでTIPが伸びすぎないよう、上限を超えた分は「…ほか N件」にまとめる。
+const QUICK_TIP_TREE_MAX_CHILDREN = 10;
+
+function buildTaskQuickTipChildTreeHtml(item) {
+  const children = item.children || [];
+  const total = Math.max(item.childrenTotal || 0, children.length);
+  if (total === 0) return '';
+  const shown = children.slice(0, QUICK_TIP_TREE_MAX_CHILDREN);
+  const rest = total - shown.length;
+  const doneCount = typeof item.childrenDone === 'number' ? item.childrenDone : children.filter(c => c.statusCode === 'done').length;
+  const rows = shown.map((child, i) => {
+    const branch = (rest === 0 && i === shown.length - 1) ? '└─' : '├─';
+    const done = child.statusCode === 'done' ? ' is-done' : '';
+    const full = `${child.id || ''} ${child.title || ''}`.trim();
+    return `<div class="task-quick-tip-tree-row${done}" title="${escapeHtml(full)}"><span class="task-quick-tip-tree-branch">${branch}</span><span class="task-quick-tip-tree-id">${escapeHtml(child.id || '')}</span><span class="task-quick-tip-tree-title">${escapeHtml(child.title || '')}</span></div>`;
+  });
+  if (rest > 0) {
+    rows.push(`<div class="task-quick-tip-tree-row task-quick-tip-tree-more"><span class="task-quick-tip-tree-branch">└─</span><span class="task-quick-tip-tree-title">…ほか ${rest}件</span></div>`);
+  }
+  return `<div class="task-quick-tip-tree"><div class="task-quick-tip-tree-label">子タスク（完了 ${doneCount}/${total}）</div>${rows.join('')}</div>`;
+}
+
+// BM-159: タイトル直下のアクションボタン行。カードのホバー用ツールバー(.card-actions)と同じ操作を、
+// TIPの中では常時表示のアイコンで並べる。編集は入れない（ヘッダーに鉛筆がある）。
+// 完了済みは期日を触らない（Plan Boardと同じ）。EPICは子があるため削除できない（カードのツールバーと同じ）。
+function buildTaskQuickTipActionsHtml(item, kind) {
+  if (!item.id || item.id === '-') return '';
+  const id = escapeHtml(item.id);
+  const btn = (act, title, inner, { danger = false, menu = false } = {}) =>
+    `<button type="button" class="task-quick-tip-action-btn${danger ? ' danger' : ''}" data-act="${act}" data-task-id="${id}" title="${title}" aria-label="${title}"${menu ? ' aria-haspopup="menu"' : ''}>${inner}</button>`;
+  const buttons = [
+    item.statusCode === 'done' ? '' : btn('due', '期日を設定', '<span class="material-icon icon-calendar-month"></span>'),
+    btn('tag', 'タグを付け外し', '<span class="material-icon icon-tag"></span>'),
+    btn('category', 'カテゴリを設定', '<span class="material-icon icon-stacks"></span>'),
+    btn('github', 'GitHub Issue（紐づける／新規作成／解除）', GITHUB_MARK_SVG, { menu: true }),
+    btn('redmine', 'Redmineチケット（紐づける／解除）', REDMINE_MARK_SVG, { menu: true }),
+    btn('gitlab', 'GitLab issue（紐づける／解除）', GITLAB_MARK_SVG, { menu: true }),
+    kind === 'epic' ? '' : btn('delete', '削除', '<span class="material-icon icon-delete"></span>', { danger: true }),
+  ];
+  return `<div class="task-quick-tip-actions" role="toolbar" aria-label="タスクの操作">${buttons.join('')}</div>`;
+}
+
+// BM-159: ボタン行のクリック。操作の中身はカードのボタンと同じ関数を呼ぶ（対象はdata-task-idから引き直す）。
+function wireTaskQuickTipActions(tip) {
+  const row = tip.querySelector('.task-quick-tip-actions');
+  if (!row) return;
+  row.addEventListener('click', (e) => {
+    const btn = e.target.closest('.task-quick-tip-action-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    e.preventDefault();
+    runTaskQuickTipAction(btn);
+  });
+}
+
+function runTaskQuickTipAction(btn) {
+  switch (btn.dataset.act) {
+    case 'due': {
+      const item = resolveCardTipItem(btn);
+      if (item) openDueDatePicker(btn, item.dueDate, (date) => planUpdateDueDate(item.id, date));
+      break;
+    }
+    case 'tag': openCardTagPicker(btn); break;
+    case 'category': openCardCategoryPicker(btn); break;
+    case 'github': openGithubLinkMenu(btn); break;
+    case 'redmine': openCardRedmineLink(btn); break;
+    case 'gitlab': openCardGitlabLink(btn); break;
+    case 'delete': {
+      const target = resolveCardLinkTarget(btn);
+      if (!target) break;
+      // 詳細モーダルは、削除したタスクを表示している時だけ閉じる（TIPはどのタスクのモーダルが開いていても出せるため）
+      openDeleteConfirm(target.item, target.isChild, {
+        onDeleted: () => {
+          closeTaskQuickTip();
+          if (currentModalItemId === target.item.id) closeModal();
+          if (currentChildModalItemId === target.item.id) closeChildModal();
+        },
+      });
+      break;
+    }
+  }
+}
+
 function buildTaskQuickTipHtml(item) {
+  const kind = getQuickTipTaskKind(item);
   const meta = [];
   if (item.category && item.category !== '-') meta.push(`<span class="task-quick-tip-tag">${escapeHtml(item.category)}</span>`);
   if (item.assignee) meta.push(`<span class="task-quick-tip-tag">担当: ${escapeHtml(item.assignee)}</span>`);
@@ -9415,10 +9529,16 @@ function buildTaskQuickTipHtml(item) {
   // BM-076: 件名・説明をその場で編集できるよう、ヘッダー右側に編集ボタンを置く（削除済み等でid不明な時は出さない）。
   const editBtn = (item.id && item.id !== '-')
     ? `<button type="button" class="task-quick-tip-edit-btn" title="編集" aria-label="編集"><span class="material-icon icon-edit"></span></button>` : '';
+  // BM-159: ヘッダー・タイトル・アクションボタン行は、TIPをスクロールしても流れない固定領域にまとめる
+  // （説明やコメントを読み進めながら、いつでもタイトルを確認し、ボタンで操作できるようにする）
   return `
-    <div class="task-quick-tip-header"><span class="task-quick-tip-id">${escapeHtml(item.id || '-')}</span><div class="task-quick-tip-header-right">${editBtn}<span class="task-quick-tip-hint">Esc または外側クリックで閉じる</span></div></div>
-    <div class="task-quick-tip-title">${escapeHtml(item.title || '')}</div>
+    <div class="task-quick-tip-sticky">
+      <div class="task-quick-tip-header"><span class="task-quick-tip-id">${escapeHtml(item.id || '-')}</span><div class="task-quick-tip-header-right">${editBtn}<span class="task-quick-tip-hint">Esc または外側クリックで閉じる</span></div></div>
+      <div class="task-quick-tip-title">${QUICK_TIP_TITLE_CHIP[kind]}${escapeHtml(item.title || '')}</div>
+      ${buildTaskQuickTipActionsHtml(item, kind)}
+    </div>
     <div class="task-quick-tip-description">${buildTaskQuickTipDescriptionInner(item)}</div>
+    ${kind === 'epic' ? buildTaskQuickTipChildTreeHtml(item) : ''}
     ${meta.length ? `<div class="task-quick-tip-meta">${meta.join('')}</div>` : ''}
     ${artifacts ? `<div class="task-quick-tip-artifacts"><span>成果物</span><ul>${artifacts}${moreArtifacts}</ul></div>` : ''}
     ${buildTaskCommentSectionHtml(item, 'tip')}
@@ -9428,9 +9548,52 @@ function buildTaskQuickTipHtml(item) {
 // BM-136: TIPの表示モードを描画する（HTML・編集ボタン・コメント一覧の取得をまとめて行う）。
 // 右クリックで開く時、編集からの戻り、全文取得後の再描画の3か所で同じ手順を踏むため共通化した。
 function renderTaskQuickTipView(tip, item) {
+  // BM-159: ボタン行は、同じタスク・同じ内容なら作り直さず元の要素を戻す。ピッカー(期日・タグ・カテゴリ)は
+  // 押されたボタンを基準に開いたままになるため、再描画でボタンが消えると位置が宙に浮く。
+  const prevActions = tip.querySelector('.task-quick-tip-actions');
   tip.innerHTML = buildTaskQuickTipHtml(item);
+  tip.dataset.taskId = item.id || '';
+  tip.dataset.sig = quickTipSignature(item);
+  const nextActions = tip.querySelector('.task-quick-tip-actions');
+  if (prevActions && nextActions && prevActions.outerHTML === nextActions.outerHTML) {
+    nextActions.replaceWith(prevActions);
+  } else {
+    wireTaskQuickTipActions(tip);
+  }
   wireTaskQuickTipEditButton(tip, item);
   hydrateCommentSections(tip, item);
+}
+
+// BM-159: TIPの表示内容が変わったかを調べるための署名（表示している項目だけ）。
+// WebSocketのボード更新は何かあるたびに届くため、無関係な更新でTIPを作り直さないために使う。
+function quickTipSignature(item) {
+  return JSON.stringify([
+    item.title, item.description, item.category, item.assignee, item.startDate, item.dueDate,
+    item.statusCode, item.childrenTotal || 0, item.artifacts || [], // 完全版は空配列、boardの軽量版はundefinedになるため揃える
+    (item.children || []).map(c => [c.id, c.title, c.statusCode]),
+  ]);
+}
+
+// BM-159: TIPを開いたまま、ボードの更新（TIPのボタンで期日・カテゴリを変えた時など）に追従させる。
+// 編集フォームの表示中と、コメント欄に書きかけの文字がある間は、入力を壊さないため何もしない
+// （詳細モーダルのrefreshModalIfOpenと同じ方針）。
+function refreshQuickTipIfOpen() {
+  const tip = taskQuickTipEl;
+  if (!tip || !tip.classList.contains('task-quick-tip-visible')) return;
+  if (tip.querySelector('.task-quick-tip-edit-form')) return;
+  if (hasCommentDraft(tip)) return;
+  const taskId = tip.dataset.taskId;
+  if (!taskId) return;
+  const found = resolveTipItemById(taskId);
+  if (!found) return; // ボードに見当たらない（絞り込み等）時は、今の表示のままにする
+  const item = mergeKeepingDescription(found);
+  if (tip.dataset.sig === quickTipSignature(item)) return;
+  const draft = captureCommentDraft(tip);
+  const scrollTop = tip.scrollTop;
+  renderTaskQuickTipView(tip, item);
+  restoreCommentDraft(tip, draft);
+  positionTaskQuickTip(tip);
+  tip.scrollTop = scrollTop;
 }
 
 // BM-076: TIP内インライン編集フォーム。enterEditMode(モーダル編集)と同じ考え方(変更検知・未保存ガード・
@@ -9568,6 +9731,7 @@ function openTaskQuickTip(item, x, y, { focusComment = false, editMode = false }
   taskQuickTipHasUnsavedChanges = null; // 新しいTIPを開くたびに前回の編集状態をリセット
   taskQuickTipOrigin = { x, y };
   renderTaskQuickTipView(tip, item);
+  tip.scrollTop = 0; // BM-159: TIPの要素は使い回すため、前に開いたTIPのスクロール位置が残らないようにする
   tip.classList.add('task-quick-tip-visible');
   positionTaskQuickTip(tip);
   if (focusComment) focusCommentInput(tip);
@@ -9608,7 +9772,11 @@ function setupTaskQuickTip(card, item) {
 // BM-136/BM-162: カード上のボタンからTIPを開く時の対象解決。クリック時にタスクIDから引き直す
 // (再描画でクロージャが握るitemが古くなるため)。子カードはprojectを持たないので親EPICから補う。
 function resolveCardTipItem(btn) {
-  const taskId = btn.dataset.taskId;
+  return resolveTipItemById(btn.dataset.taskId);
+}
+
+// BM-159: タスクIDからTIP用のitemを引く（カードのボタン、開いたままのTIPの最新化の両方で使う）。
+function resolveTipItemById(taskId) {
   const parentEpic = findItemById(taskId) ? null : findParentEpicOfChildId(taskId);
   const found = findItemById(taskId) || findChildItemById(taskId);
   if (!found) return null;
@@ -9624,7 +9792,8 @@ function resolveCardTipItem(btn) {
 function resolveCardLinkTarget(btn) {
   const item = resolveCardTipItem(btn);
   if (!item) return null;
-  const isChild = !!findParentEpicOfChildId(btn.dataset.taskId) && !findItemById(btn.dataset.taskId);
+  // BM-159: DONE列に混在する完了済み子タスク(parentId付きの単独item)も子として扱う（TIPのボタンから来る場合がある）
+  const isChild = !!item.parentId || (!!findParentEpicOfChildId(btn.dataset.taskId) && !findItemById(btn.dataset.taskId));
   return { item, isChild };
 }
 
