@@ -542,6 +542,12 @@ function moveWorkspace(db, displayId, targetFile, projects) {
     sort_order = ?, updated_at = ?, updated_by = ? WHERE id = ?`)
     .run(targetProject.file, seqNo, newDisplayId, maxSort + 1, now, 'user', task.id);
 
+  // BM-167: pins(今日やる)とrunning_tasks(実行中)は(workspace, task_id)の組で持つ。移動先に揃えないと、
+  // 移動後のワークスペースで探す解除処理(setPin/setRunning)が行を見つけられず、DONEにしても
+  // 停止ボタンを押してもスピナー(実行中)が止まらなくなる。
+  db.prepare('UPDATE pins SET workspace = ? WHERE task_id = ?').run(targetProject.file, task.id);
+  db.prepare('UPDATE running_tasks SET workspace = ? WHERE task_id = ?').run(targetProject.file, task.id);
+
   return { oldId: displayId, newId: newDisplayId, targetFile: targetProject.file };
 }
 

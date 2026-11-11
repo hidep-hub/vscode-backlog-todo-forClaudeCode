@@ -330,6 +330,15 @@ function createSchema(db) {
         WHERE tes.task_id = rt.task_id AND tes.stopped_at IS NULL
       )`);
 
+    // BM-167: moveWorkspaceがpins/running_tasksのworkspaceを更新していなかった時期に移動したタスクは、
+    // フラグ行が旧ワークスペースのまま残り、実行中/今日やるを解除できない。tasks.workspaceに揃え直す。
+    // 食い違う行だけを更新するため、揃った後の起動では何も変わらない(冪等)。
+    for (const table of ['pins', 'running_tasks']) {
+      db.exec(`UPDATE ${table}
+        SET workspace = (SELECT t.workspace FROM tasks t WHERE t.id = ${table}.task_id)
+        WHERE EXISTS (SELECT 1 FROM tasks t WHERE t.id = ${table}.task_id AND t.workspace <> ${table}.workspace)`);
+    }
+
     const insertStatus = db.prepare(
       'INSERT OR IGNORE INTO statuses (code, label, icon, color, sort_order) VALUES (?, ?, NULL, NULL, ?)'
     );
